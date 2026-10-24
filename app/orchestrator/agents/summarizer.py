@@ -38,6 +38,60 @@ def raw_reason(text: str) -> bool:
     return bool(_RAW_REASON.search(text or ""))
 
 
+# Уточняющий вопрос планировщика: «Уточните, нужно ли отменить…», «Какую правку вернуть?».
+_CLARIFY = re.compile(
+    r"уточни|нужно\s+ли|\?|(?<![а-я])(?:какую|какой|какое|какие|какая|напишите|выберите|скажите)(?![а-я])",
+    re.IGNORECASE,
+)
+_SENTENCES = re.compile(r"(?<=[.!?…])\s+")
+# Служебное в причине: id и суммы, ключи нод, поля плана, «в каталоге / журнале / контексте».
+_JARGON = (
+    (re.compile(r"\s*\((?:[^()]*[a-z_][^()]*)\)"), ""),
+    (re.compile(r"(?:№|#)?\b[0-9a-f]{8,}\b(?:\.\.\.)?", re.IGNORECASE), ""),
+    (re.compile(r"\b(?:вида\s+)?[a-z][a-z0-9]*(?:[._][a-z0-9]+)+\b", re.IGNORECASE), ""),
+    (re.compile(r"\b(?:proposal|digest|snapshot|target|version|id)\b", re.IGNORECASE), ""),
+    (re.compile(r"\b(?:в|из)\s+(?:доступном\s+)?(?:контексте|журнале|каталоге|списке)\b", re.IGNORECASE), ""),
+)
+
+
+# Часть фразы, которая просит у человека служебное поле («передайте proposal_id», «предоставьте
+# snapshot_id»), выкидывается целиком: человек его не знает и знать не должен.
+_TECH_ASK = re.compile(r"(?:proposal|digest|snapshot|target|version)\w*|(?<![a-z])id(?![a-z])", re.IGNORECASE)
+_CLAUSE = re.compile(r"(?<=[,;:])\s+|\s+(?=или\s)")
+
+
+def _scrub(sentence: str) -> str:
+    end = sentence[-1] if sentence[-1:] in ".!?…" else ""
+    clauses = [part for part in _CLAUSE.split(sentence.rstrip(".!?…")) if not _TECH_ASK.search(part)]
+    out = " ".join(clauses).rstrip(",;: ") + end if clauses else ""
+    out = re.sub(r"\s*(?:№|#)\s?\d+\b", "", out)
+    for pattern, repl in _JARGON:
+        out = pattern.sub(repl, out)
+    out = re.sub(r"\s+([,.:;!?])", r"\1", " ".join(out.split()))
+    out = re.sub(r"([,:;])(?:\s*[,:;])+", r"\1", out)
+    return re.sub(r"^[,:;\s]+", "", out).strip()
+
+
+def clarify_text(reason: str) -> str:
+    """Уточнение планировщика человеческими словами; пусто — показать его нельзя.
+
+    Пустой план с понятной причиной («правка ещё ожидает применения. Уточните, нужно ли
+    отменить…») — не «Не понял»: человеку нужен сам вопрос, без id и служебных имён.
+    """
+    from app.services.plain_ru import plain_ru
+    from app.services.redact import redact_text
+
+    text = " ".join(plain_ru(redact_text(str(reason or ""))).split())
+    sentences = [_scrub(part) for part in _SENTENCES.split(text) if part.strip()]
+    sentences = [part for part in sentences if len(part) >= 8 and not raw_reason(part)]
+    asks = [part for part in sentences if _CLARIFY.search(part)]
+    if not asks:
+        return ""
+    picked = [part for part in sentences if part in asks or part == sentences[0]][:3]
+    out = " ".join(part if part.endswith((".", "?", "!", "…")) else part + "." for part in picked)
+    return out[:400]
+
+
 # Планировщик понял просьбу, но такого действия у чата нет: «в каталоге нет действия для удаления проекта».
 _MISSING_ACTION = re.compile(
     r"в\s+каталоге\s+нет|нет\s+в\s+каталоге|нет\s+(?:такого\s+|подходящего\s+|нужного\s+|отдельного\s+)?действи"
@@ -498,6 +552,9 @@ _KNOWN_TEXT = {
     "project.patch_settings": _own_text,
     "project.patch_settings_costly": _own_text,
     "prompt.edit_text": _own_text,
+    "change.apply": _own_text,
+    "change.rollback": _own_text,
+    "change.reject": _own_text,
     "node.set_prompt_variant": _own_text,
     "node.set_model_many": _own_text,
     "node.set_prompt_variant_many": _own_text,
@@ -782,8 +839,15 @@ def _project_tally(facts: TaskFacts) -> list[str]:
     return [line + "."]
 
 
+def _superseded(notes: list[StepNote]) -> list[StepNote]:
+    """Правку промта подготовили и тут же применили: итог — применение, без «промт пока не изменён»."""
+    if not any(note.action == "change.apply" and note.ok for note in notes):
+        return notes
+    return [note for note in notes if not (note.action == "prompt.edit_text" and note.ok)]
+
+
 def deterministic_text(facts: TaskFacts) -> str:
-    done = [note for note in facts.steps if note.ok and not note.skipped]
+    done = _superseded([note for note in facts.steps if note.ok and not note.skipped])
     failed = [note for note in facts.steps if not note.ok and not note.skipped]
     many = _many_projects(facts)
     lines: list[str] = []

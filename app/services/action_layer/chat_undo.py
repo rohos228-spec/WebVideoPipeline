@@ -68,10 +68,18 @@ _FILLER = re.compile(
 )
 _KINDS = (
     (re.compile(r"^модел\w*$"), ("node_model",)),
-    (re.compile(r"^(?:промт\w*|промпт\w*|prompt\w*)$"), ("prompt_slot", "master_prompt")),
+    # prompt_version — правка текста промта, применённая через change control (chat_proposals).
+    (re.compile(r"^(?:промт\w*|промпт\w*|prompt\w*)$"), ("prompt_slot", "master_prompt", "prompt_version")),
     (
         re.compile(r"^(?:настро\w*|параметр\w*)$"),
-        ("node_params", "project_settings", "node_config", "assemble_params"),
+        (
+            "node_params",
+            "project_settings",
+            "node_config",
+            "assemble_params",
+            "options_version",
+            "step_params_version",
+        ),
     ),
     # «Проверка» одна — это и «останови проверку»: агента узнаём только по слову «агент».
     (_AGENT, ("check_agent",)),
@@ -93,7 +101,18 @@ _KIND_RU = {
     "node_params": "настройки ноды",
     "project_settings": "настройки проекта",
     "check_agent": "агент проверки ноды",
+    "prompt_version": "текст промта ноды",
+    "options_version": "настройки ноды",
+    "step_params_version": "параметры шага",
 }
+# «Первой работы с гпт»: так называют ноду «Работа с GPT 1».
+_ALIASES = {"гпт": "gpt", "джипити": "gpt", "чатгпт": "gpt"}
+_ORDINALS = (
+    (re.compile(r"^перв\w*$"), "1"),
+    (re.compile(r"^втор\w*$"), "2"),
+    (re.compile(r"^трет\w*$"), "3"),
+    (re.compile(r"^четверт\w*$"), "4"),
+)
 
 
 def _norm(text: str) -> str:
@@ -459,8 +478,18 @@ class UndoPlan:
 
 
 SnapshotsOf = Callable[[int | None], Awaitable[list[Any]]]
+ChangesOf = Callable[[int | None], Awaitable[list[Any]]]
 MetaOf = Callable[[int | None], Awaitable[Any]]
 CurrentOf = Callable[[Any], Awaitable[bool]]
+
+
+def _alias(word: str) -> str:
+    if word in _ALIASES:
+        return _ALIASES[word]
+    for rx, digit in _ORDINALS:
+        if rx.match(word):
+            return digit
+    return word
 
 
 def _covered(free: list[str], words: set[str], kind: str) -> bool:
@@ -471,12 +500,17 @@ def _covered(free: list[str], words: set[str], kind: str) -> bool:
     for word in free:
         if any(rx.match(word) and kind in kinds for rx, kinds in _KINDS):
             continue
+        word = _alias(word)
         if word not in words and not any(_same(_stem(word), got) for got in have):
             return False
     return True
 
 
 def _rollback(row: Any, title: str) -> dict[str, Any]:
+    from app.services.action_layer.chat_proposals import CcChange, rollback_step
+
+    if isinstance(row, CcChange):
+        return rollback_step(row, title)
     return {
         "action": "history.rollback",
         "params": {"snapshot_id": int(row.id)},
@@ -519,28 +553,60 @@ async def resolve(
     snapshots_of: SnapshotsOf | None = None,
     meta_of: MetaOf | None = None,
     current_of: CurrentOf | None = None,
+    changes_of: ChangesOf | None = None,
 ) -> UndoPlan | None:
-    """План отката по словам человека. None — это не просьба об откате, решает планёр."""
+    """План отката по словам человека. None — это не просьба об откате, решает планёр.
+
+    Кандидаты — снимки слоя (history.rollback) и версии change control, которые чат
+    применил или откатил (change.rollback): правка текста промта живёт там.
+    """
+    from app.services.action_layer import chat_proposals as cp
+
     if not undo_phrase(text):
         return None
 
     async def own_snapshots(project_id: int | None) -> list[Any]:
         return await chat_snapshots(project_id, operators=operators)
 
+    async def own_changes(project_id: int | None) -> list[Any]:
+        try:
+            return await cp.chat_changes(project_id, operators=operators)
+        except Exception:
+            logger.exception("chat undo: change control versions not read")
+            return []
+
+    async def no_changes(project_id: int | None) -> list[Any]:
+        return []
+
+    # Свой журнал снимков (тест, особый вызов) — и версии берутся только явно переданные.
+    changes_of = changes_of or (own_changes if snapshots_of is None else no_changes)
     snapshots_of = snapshots_of or own_snapshots
     meta_of = meta_of or _meta_of
-    current_of = current_of or still_current
+    snapshot_current = current_of or still_current
+
+    async def current_of(row: Any) -> bool:
+        if isinstance(row, cp.CcChange):
+            return await cp.still_current(row)
+        return await snapshot_current(row)
+
     named = named_projects(text)
     kinds = kinds_of(text)
     if len(named) > 1:
         return await _many_models(text, named, meta_of) if kinds == {"node_model"} else None
     project_id = named[0] if named else scope_project
     free = _free_words(text)
-    rows = [row for row in await snapshots_of(project_id) if not kinds or row.kind in kinds]
+    rows = [*await snapshots_of(project_id), *await changes_of(project_id)]
+    rows = [row for row in rows if not kinds or row.kind in kinds]
+    # Самая свежая правка первой, из какого бы журнала она ни была.
+    rows.sort(key=lambda row: getattr(row, "created_at", None) or datetime.min, reverse=True)
     metas: dict[Any, Any] = {}
 
     async def told(row: Any) -> Described | None:
         """Подпись правки, если слова просьбы (нода, модель) к ней подходят."""
+        if isinstance(row, cp.CcChange):
+            title, effect, words = await cp.describe_change(row)
+            found = Described(title, effect, words, f"{cp.ROLLBACK_PHRASE} в проекте {row.project_id}")
+            return found if _covered(free, found.words, str(row.kind or "")) else None
         if row.project_id not in metas:
             metas[row.project_id] = await meta_of(row.project_id)
         found = describe(row, metas[row.project_id])
@@ -663,15 +729,36 @@ async def today_changes(
     return lines[-limit:]
 
 
+_NOTHING = "возвращать нечего"
+
+
 async def plan_for_task(text: str, task_id: Any = None) -> UndoPlan | None:
-    """Планёр чата: откат правки этой беседы, в проекте задачи, если он известен."""
+    """Планёр чата кодом: правка промта (применить, отменить предложение) и откат правки беседы.
+
+    Проект — задачи, если он известен. «Откати правку», а правка ещё не применена: ответ
+    об этом с готовыми фразами вместо «возвращать нечего».
+    """
     import asyncio
 
     from app.orchestrator.agents.action_catalog import _task_project
+    from app.services.action_layer import chat_proposals as cp
 
     try:
         operators = await asyncio.to_thread(task_operators, task_id)
-        return await resolve(text, _task_project(task_id), operators=operators)
+        scope = _task_project(task_id)
+        found = await cp.resolve(text, scope, operators=operators)
+        if found is not None:
+            return UndoPlan(found.steps, found.reason)
+        plan = await resolve(text, scope, operators=operators)
+        nothing = plan is not None and not plan.steps and _NOTHING in plan.reason
+        # Откатывать нечего (или нечего подходящего), а правка промта ждёт применения.
+        about_prompt = plan is None and undo_phrase(text) and "prompt_version" in kinds_of(text)
+        if nothing or about_prompt:
+            named = named_projects(text)
+            note = await cp.pending_note(operators, named[0] if len(named) == 1 else scope)
+            if note:
+                return UndoPlan([], note)
+        return plan
     except Exception:
         logger.exception("chat undo: plan not resolved")
         return None

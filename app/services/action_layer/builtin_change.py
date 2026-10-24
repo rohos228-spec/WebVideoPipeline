@@ -158,22 +158,34 @@ async def _propose(ctx, params):
     }
 
 
+def version_ref(target: str, version: object) -> str:
+    """Ссылка на версию цели в истории change control: прежнее значение лежит там."""
+    return f"config_version:{target}@{version}"
+
+
 async def _apply(ctx, params):
+    from app.services.action_layer import chat_proposals
     from app.services.change_control import service
 
-    return await service.apply(
+    out = await service.apply(
         _gateway(ctx),
         params["proposal_id"],
         params["expected_digest"],
         approved_by=await _approver(ctx),
         plan_id=ctx.plan_id or "",
     )
+    # Прежнее значение сохранено версией previous_version: это и есть снимок «до» для отката.
+    # Без ссылки на него ядро оркестратора считает шаг правкой без версии (unversioned_edit).
+    out = {**out, "snapshot_ref": version_ref(out["target"], out["previous_version"])}
+    out["text_ru"] = await chat_proposals.applied_text(out)
+    return out
 
 
 async def _rollback(ctx, params):
+    from app.services.action_layer import chat_proposals
     from app.services.change_control import service
 
-    return await service.rollback(
+    out = await service.rollback(
         _gateway(ctx),
         params["target"],
         params["expected_version"],
@@ -181,6 +193,39 @@ async def _rollback(ctx, params):
         reason=params.get("reason", ""),
         plan_id=ctx.plan_id or "",
     )
+    out = {**out, "snapshot_ref": version_ref(out["target"], out["previous_current"])}
+    out["text_ru"] = await chat_proposals.rolled_back_text(out)
+    return out
+
+
+async def _pre_reject(ctx, params):
+    from app.services.change_control import service
+    from app.services.change_control.errors import ChangeRefused
+
+    try:
+        view = await service.get_proposal(params["proposal_id"])
+    except ChangeRefused as exc:
+        return str(exc)
+    if view.get("status") not in ("proposed", "developer_review"):
+        return "это предложение уже не ждёт решения: его применили, отменили или оно не прошло проверку"
+    return None
+
+
+async def _reject(ctx, params):
+    from app.services.action_layer import chat_proposals
+    from app.services.change_control import service
+
+    view = await service.reject(
+        params["proposal_id"],
+        params.get("reason") or "отменено из чата",
+        actor=await _approver(ctx),
+        plan_id=ctx.plan_id or "",
+    )
+    return {
+        "proposal_id": view["id"],
+        "status": view["status"],
+        "text_ru": await chat_proposals.rejected_text(view),
+    }
 
 
 def _specs() -> list[ActionSpec]:
@@ -277,12 +322,12 @@ def _specs() -> list[ActionSpec]:
             idempotent=False,
             scope="global",
             estimator=_FREE,
+            # Карточка чата заменяет этот текст подробным (какая нода, какой проект, что добавится):
+            # chat_proposals.apply_card. Здесь — запасной текст без номеров и контрольных сумм.
             destructive_effects=lambda p: (
-                f"Будет записано изменение настройки или промпта проекта по предложению "
-                f"№{p['proposal_id'][:8]} (контрольная сумма {p['expected_digest'][:12]}...). "
-                "Прежнее значение сохранится отдельной версией, его можно вернуть планом отката. "
-                "Новые запросы к модели пойдут с новым значением, ожидающие билеты "
-                "восстановления этой ноды устареют."
+                "Подготовленная правка будет применена: промт или настройка ноды проекта поменяется. "
+                "Прежнее значение сохранится отдельной версией, правку можно откатить, например "
+                "«откати правку промта». Новые запросы к модели пойдут с новым значением."
             ),
             preconditions=(
                 Precondition(
@@ -316,9 +361,9 @@ def _specs() -> list[ActionSpec]:
             scope="global",
             estimator=_FREE,
             destructive_effects=lambda p: (
-                f"Значение: {_target_title(p['target'])} вернётся к версии, предшествующей "
-                f"версии {p['expected_version']}. Данные, файлы и уже потраченные запросы "
-                "не откатываются."
+                f"Вернётся прежнее значение: {_target_title(p['target'])}. Текущее значение "
+                "сохранится в истории версий, этот откат тоже можно отменить. Данные, файлы и уже "
+                "потраченные запросы не откатываются."
             ),
             preconditions=(
                 Precondition(
@@ -327,6 +372,36 @@ def _specs() -> list[ActionSpec]:
                     _pre_rollback,
                 ),
             ),
+            tags=("change",),
+        ),
+        S(
+            id="change.reject",
+            title_ru="Отменить неприменённое предложение изменения",
+            description_ru="Отменяет предложение изменения настройки или промта, которое ещё не "
+            "применили: промт и настройки не меняются, предложение остаётся в истории со "
+            "статусом «отклонено». Применённую правку так не вернуть — для неё откат.",
+            params_schema={
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["proposal_id"],
+                "properties": {
+                    "proposal_id": _PROPOSAL_ID,
+                    "reason": {"type": "string", "minLength": 3, "maxLength": 500},
+                },
+            },
+            executor=_reject,
+            # Отменить может только человек (service.reject): шаг идёт с его подтверждением.
+            risk=RISK_DESTRUCTIVE,
+            destructive=True,
+            reversible=False,
+            idempotent=False,
+            scope="global",
+            estimator=_FREE,
+            destructive_effects=lambda p: (
+                "Подготовленная правка не будет применена: промт и настройки ноды останутся как "
+                "сейчас. Чтобы поправить промт снова, попросите правку ещё раз."
+            ),
+            preconditions=(Precondition("reject_ready", "Предложение ещё ждёт решения", _pre_reject),),
             tags=("change",),
         ),
     ]

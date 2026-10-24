@@ -101,6 +101,7 @@ from app.orchestrator.contracts import (
     can_transition,
     ceiling_blocks,
     coerce_risk,
+    envelope_body,
     envelope_change_id,
     envelope_skipped,
     envelope_status,
@@ -3142,6 +3143,13 @@ class Supervisor:
             return
         if why and _ASKS_APPROVAL_RE.search(why):
             self._fail_detail[task_id] = _ASKED_APPROVAL
+            return
+        # Планировщик понял просьбу и спрашивает уточнение: его вопрос человеческими словами
+        # (без id, ключей нод и полей плана) вместо общего «Не понял, что сделать».
+        ask = task_summary.clarify_text(str(self._planner_last(task_id, "last_reason") or ""))
+        if ask:
+            self._fail_detail[task_id] = ask
+            self._code_answers.add(task_id)
         elif why and not task_summary.raw_reason(why):
             self._fail_detail[task_id] = why.rstrip(".") + "."
 
@@ -3897,6 +3905,7 @@ class Supervisor:
                         await self._fail_validation(task_id, session_id)
                         return
 
+            plan = await self._insert_follow_up(task_id, plan, index + len(batch), started, results, goal)
             index += len(batch)
             await self._checkpoint(task_id, session_id, plan, index)
 
@@ -3918,6 +3927,44 @@ class Supervisor:
             return
         await self._set_status(task_id, TaskStatus.done, session_id=session_id)
         await self.bus.publish(session_id, "task_done", {"task_id": task_id}, task_id=task_id)
+
+    async def _insert_follow_up(
+        self,
+        task_id: int,
+        plan: list[PlanStep],
+        at: int,
+        started: list[tuple[PlanStep, int]],
+        results: list[Any],
+        goal: str,
+    ) -> list[PlanStep]:
+        """Правку промта подготовили — следующим шагом той же задачи её применение.
+
+        Шаг ``change.apply`` берётся из результата ``prompt.edit_text`` (``apply_step``) и идёт
+        своим гейтом: риск high, отдельная карточка и отдельное одобрение человека, как если
+        бы он написал «примени правку промта». Сам по себе он не выполняется никогда.
+        """
+        follow = _follow_up_steps(plan, started, results, goal)
+        if not follow:
+            return plan
+        shift = len(follow)
+        moved = {
+            (key[0], key[1] + shift, key[2])
+            for key in self._risk_granted
+            if key[0] == task_id and key[1] >= at
+        }
+        self._risk_granted = {
+            key for key in self._risk_granted if not (key[0] == task_id and key[1] >= at)
+        } | moved
+        self._step_grant = {
+            ((key[0], key[1] + shift) if key[0] == task_id and key[1] >= at else key): value
+            for key, value in self._step_grant.items()
+        }
+        out = [*plan[:at], *follow, *plan[at:]]
+        await write_on_loop(self.tasks.save_plan, task_id, out)
+        # Одобренный план — тот же, с добавленным шагом: его гейт всё равно спросит человека.
+        self._approved[task_id] = _plan_fingerprint(out)
+        logger.info("orch task {} follow-up {} after prompt edit", task_id, [s.action for s in follow])
+        return out
 
     async def _gate_step(
         self,
@@ -5995,6 +6042,45 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
         "Исправь план: только id из каталога, значения параметров только из поля v каталога."
     )
     return planner, "Что не так в плане: " + " ".join(human or ["шаги не прошли проверку."])
+
+
+#: «Подготовь правку, но не применяй»: применение тогда не предлагаем.
+_NO_APPLY_RE = re.compile(r"не\s+примен|без\s+применени|только\s+(?:подготов|предлож)", re.IGNORECASE)
+
+
+def _follow_up_steps(
+    plan: list[PlanStep], started: list[tuple[PlanStep, int]], results: list[Any], goal: str
+) -> list[PlanStep]:
+    """``change.apply`` для каждой только что подготовленной правки промта, которой нет в плане."""
+    if _NO_APPLY_RE.search(goal or ""):
+        return []
+    planned = {
+        str(step.params.get("proposal_id") or "") for step in plan if step.action == "change.apply"
+    }
+    out: list[PlanStep] = []
+    for (step, _step_id), result in zip(started, results, strict=False):
+        if step.action != "prompt.edit_text" or envelope_status(result) != "ok":
+            continue
+        body = envelope_body(result)
+        apply = body.get("apply_step") if isinstance(body, dict) else None
+        params = apply.get("params") if isinstance(apply, dict) else None
+        if not isinstance(params, dict) or apply.get("action_id") != "change.apply":
+            continue
+        proposal = str(params.get("proposal_id") or "")
+        if not proposal or proposal in planned or not params.get("expected_digest"):
+            continue
+        planned.add(proposal)
+        out.append(
+            PlanStep(
+                action="change.apply",
+                params={"proposal_id": proposal, "expected_digest": str(params["expected_digest"])},
+                expected="Правка промта применена, прежний текст сохранён версией.",
+                paid=False,
+                mutating=True,
+                risk="high",
+            )
+        )
+    return out
 
 
 def _proposes_prompt_text(plan: list[PlanStep]) -> bool:

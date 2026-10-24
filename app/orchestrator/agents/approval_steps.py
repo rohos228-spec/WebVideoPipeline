@@ -296,11 +296,21 @@ def plan_risk(views: list[dict[str, Any]]) -> str:
 def _rollback_titles(views: list[dict[str, Any]], plan: list[PlanStep], payload: dict[str, Any]) -> None:
     """Шаг отката в карточке называет, что вернётся, а не номер снимка."""
     known = payload.get("rollback")
-    if not isinstance(known, dict) or not str(known.get("title") or "").strip():
+    if isinstance(known, dict) and str(known.get("title") or "").strip():
+        for step, view in zip(plan, views, strict=True):
+            if step.action == "history.rollback" and step.params.get("snapshot_id") == known.get(
+                "snapshot_id"
+            ):
+                view["title"] = str(known["title"]).strip()
+                view["params_text"] = ""
+                view["text"] = view["title"]
+    # Применить, откатить или отменить правку промта: нода и проект словами, без id и сумм.
+    named = payload.get("card_step")
+    if not isinstance(named, dict) or not str(named.get("title") or "").strip():
         return
     for step, view in zip(plan, views, strict=True):
-        if step.action == "history.rollback" and step.params.get("snapshot_id") == known.get("snapshot_id"):
-            view["title"] = str(known["title"]).strip()
+        if step.action == named.get("action") and dict(step.params) == dict(named.get("params") or {}):
+            view["title"] = str(named["title"]).strip()
             view["params_text"] = ""
             view["text"] = view["title"]
 
