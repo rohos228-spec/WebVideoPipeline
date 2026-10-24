@@ -571,10 +571,7 @@ async def describe_change(row: CcChange) -> tuple[str, str, set[str]]:
         what = "промт" if row.kind == "prompt_version" else "настройки"
         title = f"Откатить правку ({what} ноды в проекте #{row.project_id})"
         return title, "Вернётся прежнее значение.", {row.target.get("node_key") or ""}
-    if again:
-        title = f"Снова применить отменённую {found.subject}"
-    else:
-        title = f"Откатить {found.subject}"
+    title = f"Снова применить отменённую {found.subject}" if again else f"Откатить {found.subject}"
     card = await rollback_card({"target": row.cc_target, "expected_version": row.version})
     effect = (card.get("destructive_effects") or [""])[0]
     words = {*_tokens(found.node), *_tokens(found.node_key)}
