@@ -82,6 +82,14 @@ class RouterPlanner:
             self.last_reason = undo[1]
             self.last_parse_failed = False
             return undo[0]
+        report = self._data_report_plan(goal, task_id)
+        if report is not None:
+            # «Отчёт по данным работы с GPT / какие персонажи»: одно чтение, модель не нужна.
+            self.last_from_code = True
+            self.last_response = None
+            self.last_reason = ""
+            self.last_parse_failed = False
+            return report
         block = rules_block(self.rag)
         rules = await retrieve(self.rag, goal or context or "plan", ["rules"], 8)
         catalog = self._catalog_block(goal, context, task_id)
@@ -117,6 +125,18 @@ class RouterPlanner:
             return str(self.catalog(text, task_id) or "")
         except Exception:
             return ""
+
+    def _data_report_plan(self, goal: str, task_id: Any) -> list[PlanStep] | None:
+        from app.orchestrator.agents.data_report import report_step
+
+        try:
+            project_of = getattr(self.catalog, "_project_of", None)
+            if project_of is None:
+                from app.orchestrator.agents.action_catalog import _task_project as project_of
+            step = report_step(goal, project_of(task_id))
+        except Exception:
+            return None
+        return [PlanStep.model_validate(step)] if step is not None else None
 
     async def _undo_plan(self, goal: str, task_id: Any) -> tuple[list[PlanStep], str] | None:
         if self.undo is None:
@@ -369,6 +389,10 @@ _CATALOG_RULES = (
     "Правка текста промта ноды (дописать требование, заменить фразу, новый текст) — только prompt.edit_text: "
     "append — дописать в конец, edits — замены фрагментов, text — весь новый текст: только одно из трёх "
     "полей, остальные не пиши. change.propose для промтов не используй.",
+    "Данные, которые записали ноды «Работа с GPT» (сцены, персонажи, промты картинок и видео по кадрам), "
+    "отчёт или выгрузка по ним — report.gpt_data, а не node.output и не report.nodes: один шаг на проект; "
+    "node_key — только если названа одна нода, несколько нод одного проекта — один шаг без node_key. "
+    "node.output — статус, модель и промт ноды.",
     "«Покажи промт ноды» — node.describe этой ноды; «покажи конец / последние строки / хвост промта» — "
     "node.describe с prompt_part=end.",
     "«Подтверди / одобри сценарий (персонажей, картинки, видео, ролик)» — hitl.approve с kind "

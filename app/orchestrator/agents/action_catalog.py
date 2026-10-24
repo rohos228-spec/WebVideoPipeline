@@ -15,6 +15,7 @@ BASE_READ_IDS: tuple[str, ...] = (
     "spend.summary",
     "projects.overview",
     "report.nodes",
+    "report.gpt_data",
     "node.describe",
 )
 # «Запусти / прогони / дальше» — запуск шага в каталоге всегда: иначе отбор по словам

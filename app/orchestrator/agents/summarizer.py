@@ -514,6 +514,7 @@ _KNOWN_TEXT = {
     "project.stop": _own_text,
     "report.nodes": _own_text,
     "report.projects": _own_text,
+    "report.gpt_data": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
     "publish.send": _own_text,
@@ -533,6 +534,9 @@ def known_text(action: str, body: dict[str, Any]) -> str:
     except Exception:
         return ""
 
+
+# Ответ — текст шага как есть, без пересказа моделью (таблица, ссылки на файлы).
+VERBATIM_ACTIONS = frozenset({"report.gpt_data"})
 
 _REPORT_URL = re.compile(r"^/api/projects/(?:\d+/)?reports/[A-Za-z0-9][A-Za-z0-9_.\-]{0,150}$")
 
@@ -1127,6 +1131,10 @@ class TaskSummarizer:
 
     def _wants_model(self, facts: TaskFacts) -> bool:
         if self.router is None or facts.status != "done":
+            return False
+        done = [note for note in facts.steps if note.ok and not note.skipped]
+        if done and all(note.action in VERBATIM_ACTIONS and note.known for note in done):
+            # Таблицу отчёта код уже собрал: модель её пересказывала или повторяла просьбу.
             return False
         if any(not note.readonly for note in facts.steps if note.ok):
             return False
