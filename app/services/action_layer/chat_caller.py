@@ -24,8 +24,9 @@ async def plan_creator(plan_id: str | None) -> str:
         from app.services.action_layer import store
 
         async with store.sessions()() as s:
-            return str(await s.scalar(select(store.ActionPlan.operator).where(
-                store.ActionPlan.id == plan_id)) or "")
+            return str(
+                await s.scalar(select(store.ActionPlan.operator).where(store.ActionPlan.id == plan_id)) or ""
+            )
     except Exception:  # noqa: BLE001
         return ""
 
