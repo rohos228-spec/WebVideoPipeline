@@ -33,7 +33,8 @@ def _load(kind: str) -> RatingsOut:
         return RatingsOut()
     if not isinstance(data, dict):
         return RatingsOut()
-    ratings = data.get("ratings") if isinstance(data.get("ratings"), dict) else {}
+    raw_ratings = data.get("ratings")
+    ratings: dict = raw_ratings if isinstance(raw_ratings, dict) else {}
     cleaned = {str(k): int(v) for k, v in ratings.items() if isinstance(v, (int, float))}
     default = int(data.get("default", 5))
     return RatingsOut(default=default, ratings=cleaned)

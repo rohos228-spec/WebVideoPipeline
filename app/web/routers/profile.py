@@ -177,6 +177,9 @@ class KeyUpdateIn(BaseModel):
 
 def _build_profile(user: StudioUser | None, identity, meta: dict, tenant_key: str) -> ProfileOut:
     if identity is None and user is None:
+        notif = meta.get("notifications")
+        if not isinstance(notif, dict):
+            notif = {"email": True, "browser": True}
         return ProfileOut(
             name=str(meta.get("name") or "Владелец студии"),
             handle=str(meta.get("handle") or "owner"),
@@ -184,9 +187,10 @@ def _build_profile(user: StudioUser | None, identity, meta: dict, tenant_key: st
             plan="Pro",
             avatar_url=_avatar_url_for(tenant_key) or meta.get("avatar_url"),
             created_at=datetime.now(UTC).isoformat(),
-            notifications=meta.get("notifications")
-            if isinstance(meta.get("notifications"), dict)
-            else {"email": True, "browser": True},
+            notifications={
+                "email": bool(notif.get("email", True)),
+                "browser": bool(notif.get("browser", True)),
+            },
         )
 
     email = user.email if user else (getattr(identity, "email", None) or "user@studio.local")
