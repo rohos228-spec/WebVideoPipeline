@@ -41,7 +41,7 @@ def _slot_closed(project: Project) -> bool:
 
 
 def worker_max_parallel() -> int:
-    """Сколько проектов очереди могут выполняться одновременно (1..4).
+    """Сколько проектов очереди могут выполняться одновременно (1..WORKER_MAX).
 
     Источник: data/runtime_streams.json → env WORKER_MAX_PARALLEL → 1.
     """

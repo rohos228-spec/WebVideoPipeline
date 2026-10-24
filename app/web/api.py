@@ -504,17 +504,19 @@ def create_app() -> FastAPI:
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(project_graph_router.router, prefix=API_PREFIX)
     app.include_router(voices_router.router, prefix=API_PREFIX)
-    # Чат оркестратора (движок). /api/orchestrator/** не в TENANT_ALLOWED_PREFIXES,
-    # IdentityMiddleware закрывает его от участников; роутер дополнительно
-    # требует админа (engine_access.require_engine_operator).
+    # Чат оркестратора (движок). /api/orchestrator/chat/ в TENANT_ALLOWED_PREFIXES:
+    # участник ходит в свой чат (сессия несёт арендатора, строки под RLS 0020);
+    # роутер требует живую личность (engine_access.require_engine_member).
+    # Прочее под /api/orchestrator/ — вне списка, участнику 404.
     from app.orchestrator import app_ref
     from app.web.routers import orchestrator_chat as orchestrator_chat_router
 
     app.include_router(orchestrator_chat_router.router, prefix=API_PREFIX)
     # Слой действий (планы, одобрения, резервы, вложения) и контроль изменений
-    # движка. Префиксы /api/action-layer и /api/change-control не в
-    # TENANT_ALLOWED_PREFIXES — участнику IdentityMiddleware отвечает 404; каждая
-    # ручка берёт EngineAuthDep (только админ, проверка ещё раз на роутере).
+    # движка. Поддеревья /api/action-layer/ и /api/change-control/ в
+    # TENANT_ALLOWED_PREFIXES: данные арендатора под RLS (ревизия 0020); каждая
+    # ручка берёт EngineAuthDep (живая личность), инструменты студии (реестр
+    # резервов) — EngineAdminDep (только админ, 403 участнику).
     # Подключать до catch-all `api_write_not_found` ниже, иначе POST сюда
     # ловил бы он.
     from app.services.action_layer.router import router as action_layer_router

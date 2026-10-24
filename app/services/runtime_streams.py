@@ -16,7 +16,7 @@ from loguru import logger
 from app.settings import settings
 
 WORKER_MIN = 1
-WORKER_MAX = 4
+WORKER_MAX = 10
 OUTSEE_MIN = 0
 OUTSEE_MAX = 4
 CHECK_MIN = 0
