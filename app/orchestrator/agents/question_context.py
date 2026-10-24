@@ -187,6 +187,35 @@ def queue_capacity_text() -> str:
     )
 
 
+# Готовый ответ — только про предел параллели: «что в очереди?» без модели этим числом не ответить.
+_PARALLEL_LIMIT = ("одновремен", "параллел", "сразу несколько", "за раз", "потоков")
+
+
+def _projects_gen(count: int) -> str:
+    """«до 1 проекта», «до 4 проектов», «до 21 проекта»."""
+    return f"{count} проекта" if count % 10 == 1 and count % 100 != 11 else f"{count} проектов"
+
+
+def parallel_limit_answer(text: str) -> str | None:
+    """Ответ без модели на «сколько проектов можно крутить одновременно», если модель не ответила.
+
+    Число — настройка студии (``runtime_streams``), оно известно и без модели. Не про предел — None.
+    """
+    if not _has(_norm(text), _PARALLEL_LIMIT):
+        return None
+    from app.services.gen_queue import worker_max_parallel
+
+    try:
+        limit = int(worker_max_parallel())
+    except Exception as exc:
+        logger.warning("orch parallel limit not read: {}", type(exc).__name__)
+        return None
+    return (
+        f"Одновременно в очереди генерации может идти **до {_projects_gen(limit)}** "
+        "(настройка студии), остальные ждут своей очереди."
+    )
+
+
 @dataclass(frozen=True)
 class Fact:
     action: str
