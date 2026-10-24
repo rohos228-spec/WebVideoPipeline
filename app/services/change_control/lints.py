@@ -34,7 +34,7 @@ def required_markers(step: str, name: str, base_text: str) -> set[str]:
 
 
 def new_secret_hits(candidate: str, base: str) -> list[str]:
-    from app.services.observation import _CREDENTIAL_TEXT
+    from app.services.redact import _CREDENTIAL_TEXT
 
     cand = {m.group(0) for m in _CREDENTIAL_TEXT.finditer(candidate)}
     old = {m.group(0) for m in _CREDENTIAL_TEXT.finditer(base)}
