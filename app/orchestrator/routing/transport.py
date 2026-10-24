@@ -253,6 +253,22 @@ def _chat_finish(payload: dict[str, Any]) -> str:
     return finish
 
 
+def _chat_error(payload: dict[str, Any]) -> str:
+    """Конверт ошибки вместо чанка: ``{"error":{...}}`` или ``{"code":502,"msg":...}``."""
+    if payload.get("choices"):
+        return ""
+    error = payload.get("error")
+    if isinstance(error, dict):
+        kind = str(error.get("type") or error.get("code") or "").strip()
+        message = str(error.get("message") or "").strip()
+        return (message + (f" ({kind})" if kind and kind not in message else "")).strip() or "error"
+    if isinstance(error, str) and error.strip():
+        return error.strip()
+    if payload.get("code") is not None and payload.get("msg"):
+        return f"{payload['code']} {payload['msg']}"
+    return ""
+
+
 def _chat_reasoning(usage: dict[str, Any]) -> int:
     details = usage.get("completion_tokens_details") or {}
     return _int(usage.get("reasoning_tokens", details.get("reasoning_tokens")))
@@ -267,8 +283,14 @@ class _ChatStream:
     model: str = ""
     usage: dict[str, Any] = field(default_factory=dict)
     accepted: bool = False
+    error: str = ""
 
     def feed(self, payload: dict[str, Any]) -> list[str]:
+        failure = _chat_error(payload)
+        if failure:
+            # Vibecode: после минуты keep-alive приходит {"error":{"type":"upstream_error"}} без choices.
+            self.error = failure
+            return []
         self.model = str(payload.get("model") or self.model)
         if isinstance(payload.get("usage"), dict):
             self.usage = payload["usage"]
@@ -280,9 +302,7 @@ class _ChatStream:
         return deltas
 
     def snapshot(self) -> CompletionResult:
-        return self.result()
-
-    def result(self) -> CompletionResult:
+        """Текст и usage, которые уже пришли. Пустой стрим не бросает ошибку."""
         return CompletionResult(
             text="".join(self.parts),
             finish_reason=self.finish,
@@ -291,6 +311,16 @@ class _ChatStream:
             completion_tokens=_int(self.usage.get("completion_tokens")),
             reasoning_tokens=_chat_reasoning(self.usage),
         )
+
+    def result(self) -> CompletionResult:
+        """Пустой стрим — ошибка, а не ответ «»: иначе чат сохранял пустую реплику."""
+        result = self.snapshot()
+        if not result.text.strip():
+            if self.error:
+                # Событие-ошибка не тарифицируется, повтор того же хода снова ждал бы минуты.
+                raise ProviderError(f"chat stream error: {self.error}", retryable=False, billable=False)
+            raise ProviderError("empty chat stream", retryable=True, billable=self.accepted)
+        return result
 
 
 def parse_chat_sse(raw: str) -> CompletionResult:
@@ -575,13 +605,14 @@ class HttpxTransport:
                     payload = _json_data(line)
                     if payload is None:
                         continue
-                    state.accepted = True
+                    if not _chat_error(payload):
+                        state.accepted = True
                     for delta in state.feed(payload):
                         await _emit_delta(request.on_delta, delta)
-            return state.result()
         except BaseException as exc:
             _raise_with_partial(exc, state.snapshot(), accepted=state.accepted)
             raise
+        return state.result()
 
     async def _stream_responses(
         self,

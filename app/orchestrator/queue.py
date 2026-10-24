@@ -801,13 +801,25 @@ class MessageQueue:
             )
         except Exception as exc:
             logger.warning("orch answer failed for session {}: {}", session_id, type(exc).__name__)
-            await self.explain_failure(session_id, exc, task_id)
+            fallback = _answer_fallback(text)
+            if fallback is None:
+                await self.explain_failure(session_id, exc, task_id)
+            else:
+                # Число известно без модели (предел параллели): ответить им, а не ошибкой.
+                await self._reply(session_id, fallback, "fallback")
             return
         from app.orchestrator.agents.summarizer import normalize_links
 
         parts = deltas or _token_pieces(response.text)
         # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
         answer = normalize_links(str(response.text or ""))
+        if not answer.strip():
+            # Пустую реплику не пишем и не показываем: пустой пузырь «оркестратор:» без слов.
+            logger.warning("orch answer empty for session {}", session_id)
+            answer = _answer_fallback(text) or (
+                EMPTY_BUDGET_TEXT if budget_exhausted_response(response) else EMPTY_ANSWER_TEXT
+            )
+            parts = _token_pieces(answer)
         message_id = await asyncio.to_thread(
             _insert_message,
             session_id,
@@ -877,6 +889,24 @@ _STOP_HINT = (
     + _PROJECT_STOP
     + "."
 )
+EMPTY_ANSWER_TEXT = "Не получилось ответить: модель вернула пустой ответ. Повторите вопрос."
+EMPTY_BUDGET_TEXT = (
+    "Не получилось ответить: закончился лимит трат на ответы чата. "
+    "Подтвердите продолжение на карточке и повторите вопрос."
+)
+
+
+def _answer_fallback(text: str) -> str | None:
+    """Ответ без модели, если он есть: предел параллели знает ``runtime_streams``."""
+    from app.orchestrator.agents.question_context import parallel_limit_answer
+
+    try:
+        return parallel_limit_answer(text)
+    except Exception:
+        logger.exception("orch answer fallback failed")
+        return None
+
+
 STEER_IDLE_TEXT = (
     "Сейчас нет задачи, к которой это относится, поэтому я ничего не менял. "
     "Напишите просьбу целиком, например «запусти картинки в проекте 6»."
