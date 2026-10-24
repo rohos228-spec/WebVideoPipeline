@@ -162,9 +162,9 @@ async def _elevenlabs_sfx(prompt: str, duration: float, out_path: Path) -> Path:
 
     import httpx
 
-    from app.settings import settings
+    from app.services.provider_keys import resolve
 
-    key = settings.elevenlabs_api_key
+    key = resolve("elevenlabs")["api_key"]
     if not key:
         raise RuntimeError("no elevenlabs key")
 
@@ -230,7 +230,7 @@ async def generate_sfx_files(
     force: bool = False,
 ) -> list[dict[str, Any]]:
     """Сгенерировать файлы для событий плана. Возвращает sfx_files-записи."""
-    from app.settings import settings
+    from app.services.provider_keys import resolve
 
     if not events:
         raise RuntimeError("sfx_gen: пустой план — сначала планировщик (sfx_plan)")
@@ -247,7 +247,7 @@ async def generate_sfx_files(
 
     meta = project.meta or {}
     forced_provider = meta.get("sfx_provider")
-    use_api = bool(settings.elevenlabs_api_key) and forced_provider != "local_synth"
+    use_api = bool(resolve("elevenlabs")["api_key"]) and forced_provider != "local_synth"
     files: list[dict[str, Any]] = []
     problems: list[str] = []
 

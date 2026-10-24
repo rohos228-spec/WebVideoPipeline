@@ -14,20 +14,24 @@ import httpx
 from loguru import logger
 
 from app.bots.outsee import GenerationResult
-from app.settings import settings
 
 _GENERATE_PATH = "/v1/images/generations"
 
 
 def vibecode_images_configured() -> bool:
-    return bool((settings.vibecode_api_key or "").strip())
+    from app.services.provider_keys import configured
+
+    return configured("vibecode", "image")
 
 
 def _headers() -> dict[str, str]:
-    key = (settings.vibecode_api_key or "").strip()
-    if not key:
-        raise ValueError("VIBECODE_API_KEY пуст — задай ключ vibecode.moe в .env")
-    return {"Authorization": f"Bearer {key}"}
+    from app.services.provider_keys import ProviderKeyError, resolve
+
+    try:
+        creds = resolve("vibecode", "image", require_key=True)
+    except ProviderKeyError as e:
+        raise ValueError("VIBECODE_API_KEY пуст — задай ключ vibecode.moe в .env") from e
+    return {"Authorization": f"Bearer {creds['api_key']}"}
 
 
 async def generate_image(
@@ -41,7 +45,9 @@ async def generate_image(
     gen_id: str | None = None,
 ) -> GenerationResult:
     """Одна картинка: POST generations → download URL → файл."""
-    base = (settings.vibecode_base_url or "https://vibecode.moe/v1").strip().rstrip("/")
+    from app.services.provider_keys import resolve
+
+    base = (resolve("vibecode", "image")["base_url"] or "https://vibecode.moe/v1").rstrip("/")
     body: dict[str, Any] = {
         "model": (model_slug or "gpt-image-2.5").strip(),
         "prompt": prompt,

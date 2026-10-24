@@ -63,7 +63,9 @@ OutseeHttpAuthError = OutseeApiError
 
 
 def outsee_api_key() -> str:
-    return (settings.outsee_api_key or "").strip()
+    from app.services.provider_keys import resolve
+
+    return resolve("outsee")["api_key"]
 
 
 def outsee_api_configured() -> bool:
@@ -89,21 +91,22 @@ def outsee_http_enabled() -> bool:
 
 
 def _base_url() -> str:
-    return (settings.outsee_api_base_url or _DEFAULT_BASE).rstrip("/")
+    from app.services.provider_keys import resolve
+
+    return (resolve("outsee")["base_url"] or _DEFAULT_BASE).rstrip("/")
 
 
 def _headers() -> dict[str, str]:
-    key = outsee_api_key()
-    if not key:
+    from app.services.provider_keys import ProviderKeyError, resolve
+
+    try:
+        creds = resolve("outsee", require_key=True)
+    except ProviderKeyError as e:
         raise OutseeHttpAuthError(
             "OUTSEE_API_KEY пуст — добавь ключ из https://outsee.io/profile",
             context={"hint": "Authorization: Bearer <ключ>"},
-        )
-    return {
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+        ) from e
+    return dict(creds["headers"])
 
 
 def assert_not_nano_banana_pro_on_outsee(slug: str | None) -> None:

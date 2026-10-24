@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from app.bots.outsee_http import outsee_api_configured
 from app.services.create_jobs import get_job, max_parallel, queue_snapshot
-from app.settings import settings
 
 router = APIRouter(prefix="/create", tags=["create-queue"])
 
@@ -18,7 +18,7 @@ async def create_queue() -> dict[str, Any]:
     snap = queue_snapshot()
     return {
         **snap,
-        "outsee_configured": bool((settings.outsee_api_key or "").strip()),
+        "outsee_configured": outsee_api_configured(),
         "max_parallel": max_parallel(),
         "max_parallel_outsee": max_parallel("outsee"),
     }

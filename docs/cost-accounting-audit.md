@@ -1,5 +1,9 @@
 # Аудит: где студия тратит деньги и где это не попадает в учёт
 
+> **Обновление:** статусы дыр 2.1–2.10 актуализированы в PR
+> `feat/provider-keys-accounting`. Добавлен choke-point ключей
+> `app/services/provider_keys.py` (`resolve`). Ставку veo (2.11) не трогали.
+
 Снимок рабочего дерева `design-main-ui` на 22.10.2026, ~23:10 МСК: HEAD `3c6d11880`
 плюс незакоммиченные правки задачи task-6 (учёт расходов). Номера строк — на момент
 снимка; файлы `kie_http.py`, `outsee_http.py`, `outsee.py`, `outsee_retry.py`,
@@ -24,8 +28,8 @@
 | Вкладка «Генерация», WaveSpeed (голоса) | да, provider `wavespeed` | `wavespeed:elevenlabs/eleven-v4` | закрыто; было без факта |
 | Вкладка «Генерация», pay52 (seedance) | да, provider `pay52` | `kie:seedance-2-0-overseas` через перебор провайдеров (`media_ledger.py:173–176`) | закрыто; префикс `pay52:` добавлен (160,173) |
 | Вкладка «Генерация», Outsee видео/картинка (`outsee_http.py:203–262`) | да, в слое бота: `generate_image` (`outsee_http.py:1615–1710`, факт на 1638) и `generate_video` (1659–1710, факт на 1682) | `media_prices.json`: `outsee:<slug>` | закрыто в task-6; списание теперь по id фактов (`create_billing.py:44–94`) |
-| Вкладка «Генерация», оценка для холда Outsee (`outsee_http.py:98–112`) | — | захардкожено: видео $0.80/$1.20, картинка $0.03–0.12 | **открыто**: оценка не из прайса (см. 2.10) |
-| LLM шагов конвейера | да, хук в транспорте (`gpt_api.py:1742–1792`) → `llm_ledger.record` (`llm_ledger.py:234`) | `llm_prices.json`, 44 модели | **открыто**: нет флага `unpriced` (2.3) |
+| Вкладка «Генерация», оценка для холда Outsee (`outsee_http.py`) | — | `compute_cost`; unpriced → `$0.05` / `$0.45` | **закрыто** (2.10) |
+| LLM шагов конвейера | да, хук в транспорте → `llm_ledger.record` | `llm_prices.json` | **закрыто иначе** (2.3): `cost_usd=NULL` без цены |
 | Картинки шага: Outsee HTTP | да (`outsee_http.py:1638`) | `outsee:<slug>` | закрыто; было без факта |
 | Картинки шага: Outsee CDP-fallback | да, обёртка `_cdp_image_recorded` (`outsee_retry.py:916–948`) | та же | закрыто в task-6 |
 | Картинки шага: KIE | да (`kie_http.py:724`) | `kie:<id>` | закрыто |
@@ -41,12 +45,28 @@
 | Музыка | да (`generate_music.py:181,185`) | `kie:suno-v5.5` / `outsee:suno-v5.5` | ок |
 | Whisper / транскрипт | не пишется и не должен | локальный faster-whisper (`whisper.py:1`, `asr.py:1`) | расхода нет |
 | Чат и workspace LLM | да, `llm_calls`; привязка к ролику добавлена (`loop.py:487–500`) | `llm_prices.json` | закрыто в task-6; `chat` внесён в служебные ключи (2.8) |
-| Варианты сцены в монтаже (`project_ops.py:936`) | LLM-факт есть, но без проекта | `llm_prices.json` | **открыто**: списание шага 0 (2.6) |
-| Перегенерация монтажа (`montage_board_apply_job.py:135`) | медиа — да, LLM — без проекта | смешанная | **открыто**: недосписание (2.7) |
-| `test_prompt` (проверка промта) | HTTP-ветка — да, CDP — нет (`test_prompt.py:154`) | `outsee:<slug>` | **открыто частично** (2.5) |
+| Варианты сцены в монтаже | LLM-факт + project через step_billing | `llm_prices.json` | **закрыто** (2.6) |
+| Перегенерация монтажа | медиа + LLM через step_billing | смешанная | **закрыто** (2.7) |
+| `test_prompt` (проверка промта) | HTTP + CDP через media_call | `outsee:<slug>` | **закрыто** (2.5) |
 | Владелец/админ в «Генерации» | факт пишется | цена пишется | кассы нет (`kie_create.py:259`, `outsee_http.py:147`) — это ожидаемо, но в отчёте факт есть, кредитов 0 |
 
-## 2. Открытые дыры
+## 2. Дыры (статус на `feat/provider-keys-accounting`, сверка с `test` @ 27b9588+)
+
+| # | Было | Статус сейчас |
+|---|---|---|
+| 2.1 | чужие строки шага | **закрыто** — `step_billing.capture_rows` + settle по своим id; `_spent_since` fallback с `result=="ok"` |
+| 2.2 | error = полная цена | **закрыто** — `media_ledger`: `result=="error"` → `cost_usd=0` |
+| 2.3 | LLM silent 0 | **закрыто иначе** — `LlmCall.cost_usd=NULL` если цены нет (не фейковый 0) |
+| 2.4 | hero regen без slug | **закрыто** — `generate_hero` передаёт `model_slug=img_gen.outsee_slug` + `project_id` |
+| 2.5 | CDP Outsee без факта | **закрыто** — `OutseeBot.generate_*/regenerate_image` оборачивают CDP в `media_call` |
+| 2.6 | scene_variant без project | **закрыто** — `step_billing` ставит `LlmAccountingContext` |
+| 2.7 | montage_regen LLM | **закрыто** — тот же `step_billing` + `capture_rows` |
+| 2.8 | `node_key=chat` | **закрыто** в task-6 |
+| 2.9 | `ref_table=create_generations` | **закрыто** — `ref_table="media_calls"` |
+| 2.10 | холд Outsee hardcode | **закрыто** — primary `compute_cost`; unpriced → единый conservative fallback `$0.05` / `$0.45` (без 0.80/1.20) |
+| 2.11 | veo 0.15 vs 0.45 | **открыто, ждать владельца** — ставку в `media_prices.json` не меняли |
+
+Ниже — исходные описания дыр (исторический снимок). Не читать как актуальный TODO.
 
 ### 2.1 Списание шага считает чужие строки проекта
 `step_billing._spent_since` (`step_billing.py:302–315`) берёт сумму `llm_calls` +
