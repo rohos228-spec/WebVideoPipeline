@@ -90,6 +90,14 @@ class RouterPlanner:
             self.last_reason = ""
             self.last_parse_failed = False
             return report
+        read = _read_plan(goal)
+        if read is not None:
+            # «Покажи все проекты», «статус проекта 7»: одно чтение, модель думала над ним минуту.
+            self.last_from_code = True
+            self.last_response = None
+            self.last_reason = ""
+            self.last_parse_failed = False
+            return read
         block = rules_block(self.rag)
         rules = await retrieve(self.rag, goal or context or "plan", ["rules"], 8)
         catalog = self._catalog_block(goal, context, task_id)
@@ -162,6 +170,16 @@ class RouterPlanner:
         except Exception:
             return ""
         return str(found or "")
+
+
+def _read_plan(goal: str) -> list[PlanStep] | None:
+    from app.orchestrator.agents.read_plan import read_step
+
+    try:
+        step = read_step(goal)
+    except Exception:
+        return None
+    return [PlanStep.model_validate(step)] if step is not None else None
 
 
 _FALSE = frozenset({"false", "no", "0", "нет", ""})

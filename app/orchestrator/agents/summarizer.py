@@ -533,6 +533,29 @@ def _own_text(body: dict[str, Any]) -> str:
     return str(body.get("text_ru") or "").strip()
 
 
+def _overview_text(body: dict[str, Any]) -> str:
+    """Список проектов строками: в одну строку 15 проектов не прочитать."""
+    items = [item for item in body.get("projects") or [] if isinstance(item, dict)]
+    text = str(body.get("text_ru") or "").strip()
+    if not items:
+        return text
+    head = text.split(". ", 1)[0].rstrip(".") + "."
+    lines = [head]
+    if body.get("queue"):
+        queue = body["queue"]
+        lines.append(
+            f"В очереди генерации {queue.get('size', 0)}, одновременно идут не больше {queue.get('max_parallel', '?')}."
+        )
+    for item in items:
+        extra = item.get("pause_reason") or item.get("error") or ""
+        place = f"{item['queue_position']}. " if body.get("filter") == "queue" and item.get("queue_position") else ""
+        lines.append(
+            f"• {place}#{item.get('id')} «{item.get('title') or ''}»: {item.get('status_ru') or item.get('status') or ''}"
+            + (f" — {extra}" if extra else "")
+        )
+    return "\n".join(lines)
+
+
 def _resume_text(body: dict[str, Any]) -> str:
     from app.services.action_layer.builtin_insight import _status_ru
 
@@ -572,6 +595,8 @@ _KNOWN_TEXT = {
     "report.nodes": _own_text,
     "report.projects": _own_text,
     "report.gpt_data": _own_text,
+    "projects.overview": _overview_text,
+    "project.status": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
     "publish.send": _own_text,
@@ -594,6 +619,18 @@ def known_text(action: str, body: dict[str, Any]) -> str:
 
 # Ответ — текст шага как есть, без пересказа моделью (таблица, ссылки на файлы).
 VERBATIM_ACTIONS = frozenset({"report.gpt_data"})
+
+
+def _simple_read(goal: str, action: str) -> bool:
+    from app.orchestrator.agents.read_plan import READ_ACTIONS, read_step
+
+    if action not in READ_ACTIONS:
+        return False
+    try:
+        step = read_step(goal or "")
+    except Exception:
+        return False
+    return step is not None and step["action"] == action
 
 _REPORT_URL = re.compile(r"^/api/projects/(?:\d+/)?reports/[A-Za-z0-9][A-Za-z0-9_.\-]{0,150}$")
 
@@ -1199,6 +1236,9 @@ class TaskSummarizer:
         done = [note for note in facts.steps if note.ok and not note.skipped]
         if done and all(note.action in VERBATIM_ACTIONS and note.known for note in done):
             # Таблицу отчёта код уже собрал: модель её пересказывала или повторяла просьбу.
+            return False
+        if len(done) == 1 and done[0].known and _simple_read(facts.goal, done[0].action):
+            # «Покажи все проекты»: текст шага и есть ответ, пересказ моделью стоил ~20 с.
             return False
         if any(not note.readonly for note in facts.steps if note.ok):
             return False
