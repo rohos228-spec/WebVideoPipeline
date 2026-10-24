@@ -157,7 +157,21 @@ async def prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict
 
         with contextlib.suppress(Exception):
             card.update(await rollback_card(dict(params or {})))
+    if card and name in _CC_CARDS:
+        # Номер предложения и контрольная сумма человеку ничего не говорят: какая нода, какой
+        # проект, что добавится или уберётся и можно ли вернуть.
+        from app.services.action_layer import chat_proposals
+
+        with contextlib.suppress(Exception):
+            card.update(await getattr(chat_proposals, _CC_CARDS[name])(dict(params or {})))
     return card
+
+
+_CC_CARDS = {
+    "change.apply": "apply_card",
+    "change.rollback": "rollback_card",
+    "change.reject": "reject_card",
+}
 
 
 async def _prepare_card(name: str, params: dict | None, ctx: dict | None) -> dict:

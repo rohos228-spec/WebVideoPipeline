@@ -405,7 +405,7 @@ def _prompt_context(facts: dict, offered: list[str] | frozenset[str], registry: 
         out["defaults"] = pick
     if any(a.startswith("node.") or a == "change.propose" for a in ids):
         out["nodes"] = [{k: v for k, v in n.items() if k != "type"} for n in facts.get("nodes", [])]
-    if ids & {"change.apply", "change.get"}:
+    if ids & {"change.apply", "change.get", "change.reject"}:
         out["proposals"] = facts.get("proposals", [])
     if ids & {"change.rollback", "change.get"}:
         out["versions"] = facts.get("versions", [])
