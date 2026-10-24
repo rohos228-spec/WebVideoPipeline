@@ -14,7 +14,7 @@ router = APIRouter(prefix="/runtime-streams", tags=["runtime-streams"])
 
 
 class RuntimeStreamsPatch(BaseModel):
-    worker_max_parallel: int | None = Field(None, ge=1, le=4)
+    worker_max_parallel: int | None = Field(None, ge=rs.WORKER_MIN, le=rs.WORKER_MAX)
     default_outsee_streams: int | None = Field(None, ge=0, le=4)
     default_check_streams: int | None = Field(None, ge=0, le=10)
 

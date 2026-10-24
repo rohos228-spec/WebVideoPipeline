@@ -59,7 +59,7 @@ export function StreamsPanel({ project }: { project: ProjectDetail | null }) {
   });
 
   const cfg = (runtime.data || {}) as RuntimeStreams;
-  const workerCur = Math.max(1, Math.min(4, Number(cfg.worker_max_parallel ?? 1) || 1));
+  const workerCur = Math.max(1, Math.min(10, Number(cfg.worker_max_parallel ?? 1) || 1));
   const [workerLocal, setWorkerLocal] = useState(workerCur);
 
   useEffect(() => {
@@ -173,11 +173,11 @@ export function StreamsPanel({ project }: { project: ProjectDetail | null }) {
           </span>
         </div>
         <p className="mb-2.5 text-xs leading-relaxed text-zinc-400">
-          Сколько проектов из очереди крутить сразу (1–4). paused/⏹ не блокируют
+          Сколько проектов из очереди крутить сразу (1–10). paused/⏹ не блокируют
           хвост — свободные слоты уходят следующим.
         </p>
         <StreamButtons
-          values={[1, 2, 3, 4]}
+          values={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]}
           local={workerLocal}
           disabled={patchGlobal.isPending}
           onPick={(n) => {

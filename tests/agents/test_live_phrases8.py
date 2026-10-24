@@ -15,6 +15,7 @@ from app.orchestrator.agents.runtime import build_runtime, set_runtime
 from app.orchestrator.contracts import PlanStep, TaskStatus
 from app.services.action_layer import launch_split as ls
 from app.services.action_layer.spec import Precondition
+from app.services.runtime_streams import WORKER_MAX
 from tests.agents.mocks import FixedPlanner, MockActions, MockValidators, ScriptedCritic, ScriptedRouter
 
 _SCENE = "кадры без данных сцены, сначала запустите ноду «Работа с GPT 2»"
@@ -258,7 +259,8 @@ async def test_single_run_step_blocked_is_not_dropped(token: str) -> None:
 @pytest.mark.asyncio
 async def test_approval_enqueues_only_remaining_projects(token: str, monkeypatch: pytest.MonkeyPatch) -> None:
     del token
-    monkeypatch.setattr(sup, "_queue_limit", lambda: 4)
+    # Окно на потолке: шага queue.set_parallel нет, одна карточка — только очередь.
+    monkeypatch.setattr(sup, "_queue_limit", lambda: WORKER_MAX)
     actions = LaunchActions({10})
     rt = _rt(actions, _queue_plan(list(range(3, 13))))
     set_runtime(rt)
@@ -333,11 +335,11 @@ def test_refit_parallel_follows_route_rule() -> None:
     from app.orchestrator.agents.launch_scope import refit_parallel, route_multi_launch
 
     plan = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 2)
-    # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX = 4).
-    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [4]
+    # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX).
+    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [min(10, WORKER_MAX)]
     assert [
         s.params["workers"] for s in refit_parallel(plan, _GOAL, 2, 9) if s.action == "queue.set_parallel"
-    ] == [4]
+    ] == [min(9, WORKER_MAX)]
     fitted = refit_parallel(plan, _GOAL, 2, 3)
     assert [s.params["workers"] for s in fitted if s.action == "queue.set_parallel"] == [3]
     assert "до 3 проектов" in next(s.expected for s in fitted if s.action == "queue.set_parallel")
@@ -346,7 +348,7 @@ def test_refit_parallel_follows_route_rule() -> None:
     assert any(s.action == "queue.set_parallel" for s in plan3)
     assert not any(s.action == "queue.set_parallel" for s in refit_parallel(plan3, _GOAL, 3, 3))
     # Окно уже на потолке — шага нет ни в маршруте, ни после подрезки.
-    plan4 = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 4)
+    plan4 = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, WORKER_MAX)
     assert not any(s.action == "queue.set_parallel" for s in plan4)
     # «в 2 потока» — просьба человека, не пересчитывается.
     goal2 = "запусти проекты 3,4,5,6 в 2 потока"

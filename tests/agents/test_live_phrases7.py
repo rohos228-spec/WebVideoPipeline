@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from app.orchestrator.agents import supervisor as sup
-from app.orchestrator.agents.launch_scope import fix_queue_target, launch_ask, route_multi_launch
+from app.orchestrator.agents.launch_scope import MAX_PARALLEL, fix_queue_target, launch_ask, route_multi_launch
 from app.orchestrator.agents.runtime import build_runtime, set_runtime
 from app.orchestrator.contracts import PlanStep, TaskStatus
 from app.services.action_layer import settings_diff as sd
@@ -138,9 +138,13 @@ def test_run_steps_become_queue_with_parallel_when_limit_is_lower() -> None:
         _run_step_plan(list(range(3, 13))), "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно", 2
     )
     assert [step.action for step in plan] == ["queue.set_parallel", "queue.enqueue_many"]
-    # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX = 4).
-    assert plan[0].params == {"workers": 4}
+    assert plan[0].params == {"workers": min(10, MAX_PARALLEL)}
     assert plan[1].params == {"project_ids": list(range(3, 13)), "enable_auto_mode": True, "mode": "full"}
+    # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX): проектов больше потолка.
+    many = list(range(3, 4 + MAX_PARALLEL + 2))
+    wide_goal = "запусти проекты " + ",".join(map(str, many)) + " одновременно"
+    wide = route_multi_launch(_run_step_plan(many), wide_goal, 2)
+    assert wide[0].action == "queue.set_parallel" and wide[0].params == {"workers": MAX_PARALLEL}
 
 
 def test_member_launch_has_no_parallel_step_and_gets_plain_note() -> None:
@@ -164,7 +168,7 @@ def test_member_launch_has_no_parallel_step_and_gets_plain_note() -> None:
     at_max = route_multi_launch(
         _run_step_plan(list(range(3, 13))),
         "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно",
-        4,
+        MAX_PARALLEL,
         lambda name: name != "queue.set_parallel",
         capped,
     )
@@ -209,13 +213,14 @@ def test_mass_launch_plan_passes_real_action_schema(goal: str, limit: int | None
 
 
 def test_window_at_cap_needs_no_parallel_step() -> None:
-    from app.orchestrator.agents.launch_scope import MAX_PARALLEL, parallel_needed
+    from app.orchestrator.agents.launch_scope import parallel_needed
 
     goal = "запусти проекты 3,4,5,6,7,8,9,10,11,12 одновременно"
     plan = route_multi_launch(_run_step_plan(list(range(3, 13))), goal, MAX_PARALLEL)
     assert [step.action for step in plan] == ["queue.enqueue_many"]
     assert parallel_needed(goal, MAX_PARALLEL, 10) is False
-    words = "запусти 3 4 5 6 7 в 6 потоков"
+    # Просьба шире потолка режется до потолка: окно уже там — шага нет.
+    words = f"запусти 3 4 5 6 7 в {MAX_PARALLEL + 2} потоков"
     assert [s.action for s in route_multi_launch(_run_step_plan([3, 4, 5, 6, 7]), words, MAX_PARALLEL)] == [
         "queue.enqueue_many"
     ]
@@ -315,7 +320,7 @@ async def test_supervisor_turns_ten_run_steps_into_queue_card(
         await rt.supervisor.wait(task_id, timeout=5)
         saved = json.loads(rt.tasks.get(task_id)["plan_json"])
         assert [step["action"] for step in saved] == ["queue.set_parallel", "queue.enqueue_many"]
-        assert saved[0]["params"] == {"workers": 4}
+        assert saved[0]["params"] == {"workers": min(10, MAX_PARALLEL)}
         assert saved[1]["params"]["project_ids"] == list(range(3, 13))
         assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
         assert [c["name"] for c in actions.calls] == []
