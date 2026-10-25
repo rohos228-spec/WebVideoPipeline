@@ -150,6 +150,76 @@ from app.web.settings_default import seed_default_workflow
 API_PREFIX = "/api"
 
 
+async def _ensure_engine_schema() -> None:
+    """Таблицы слоя действий, вложений и контроля изменений движка.
+
+    В миграциях новой линии их нет: в video-pipeline их заводил свой раннер
+    схемы (`create_all` по списку таблиц, `checkfirst`), и функции перенесены
+    вместе с движком. Вызов идемпотентный. Делается при любом ENGINE_STARTUP:
+    ручки /api/action-layer и /api/change-control подключены всегда, и без
+    таблиц их чтение отвечало бы 500.
+    """
+    from app.db import engine
+    from app.services.action_layer.attachments import ensure_attachments_schema
+    from app.services.action_layer.store import ensure_action_layer_schema
+    from app.services.change_control.store import ensure_change_control_schema
+
+    async with engine.begin() as conn:
+        await ensure_action_layer_schema(conn)
+        await ensure_attachments_schema(conn)
+        await ensure_change_control_schema(conn)
+
+
+async def _start_engine() -> asyncio.Task | None:
+    """Фоновый старт движка оркестратора, только по ENGINE_STARTUP.
+
+    Подъём задач после рестарта — дополнительно по ORCH_RECOVER_ON_START, иначе
+    прерванные задачи и планы действий закрываются с честной пометкой.
+    Возвращает задачу истечения одобрений (её гасит lifespan) или ``None``.
+    """
+    from app.settings import settings
+
+    if not settings.engine_startup:
+        logger.info("orchestrator background startup off (ENGINE_STARTUP=0)")
+        return None
+
+    try:
+        from app.orchestrator.agents.runtime import get_runtime, recover_on_start
+        from app.services.orch_tenancy import for_each_tenant
+
+        # Подъём и закрытие идут как проход воркера: владелец, затем каждый
+        # арендатор под своим `tenant_scope`. Под RLS проход без арендатора
+        # видел бы только задачи владельца, а задачи, поднятые внутри
+        # прохода, уносят арендатора и личность в свой контекст.
+        if recover_on_start():
+            recovered = await for_each_tenant(get_runtime().start, what="restart recovery")
+            if recovered:
+                logger.info("orchestrator recovered tasks {}", recovered)
+        else:
+            closed = await for_each_tenant(
+                get_runtime().supervisor.settle_after_restart, what="restart settle"
+            )
+            if closed:
+                logger.warning("orchestrator tasks interrupted by restart closed {}", closed)
+            from app.services.orch_bridge import close_interrupted_plans
+
+            plans = await for_each_tenant(close_interrupted_plans, what="interrupted plans")
+            if plans:
+                logger.warning("orchestrator action plans interrupted by restart closed {}", plans)
+    except Exception:  # noqa: BLE001
+        logger.exception("orchestrator restart recovery failed (non-fatal)")
+
+    try:
+        from app.orchestrator.agents.approval_expiry import start_approval_expiry
+        from app.orchestrator.agents.runtime import get_runtime
+
+        return start_approval_expiry(get_runtime().supervisor)
+    except Exception:  # noqa: BLE001
+        logger.exception("orchestrator approval expiry failed to start (non-fatal)")
+        return None
+
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Идемпотентная инициализация:
@@ -221,6 +291,11 @@ async def _lifespan(app: FastAPI):
     # BYPASSRLS игнорирует политики. Ни один не даст ошибки в логе — он даст
     # утечку чужого ролика. Падение на старте чинится за минуту, утечка не
     # чинится вовсе.
+    try:
+        await _ensure_engine_schema()
+    except Exception:  # noqa: BLE001
+        logger.exception("схема движка (action_layer/change_control) не создана")
+
     if settings.is_postgres:
         from app.db import session_scope as _scope
         from app.services.rls_check import assert_rls_or_die
@@ -350,9 +425,15 @@ async def _lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("startup reconcile failed (non-fatal)")
 
+    approval_expiry_task = await _start_engine()
+
     try:
         yield
     finally:
+        if approval_expiry_task is not None:
+            approval_expiry_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await approval_expiry_task
         logger.remove(live_log_sink)
 
 
@@ -428,6 +509,22 @@ def create_app() -> FastAPI:
     app.include_router(profile_router.router, prefix=API_PREFIX)
     app.include_router(ratings_router.router, prefix=API_PREFIX)
     app.include_router(node_reviews_router.router, prefix=API_PREFIX)
+
+    # Chat-supervisor оркестратор (порт из video-pipeline-orchestrator@orchestrator).
+    # /api/orchestrator/chat — отдельно от studio /api/chat.
+    from app.orchestrator import app_ref
+    from app.web.routers import orchestrator_chat as orchestrator_chat_router
+
+    app.include_router(orchestrator_chat_router.router, prefix=API_PREFIX)
+    from app.services.action_layer.router import router as action_layer_router
+    from app.services.change_control.router import router as change_control_router
+
+    app.include_router(action_layer_router, prefix=API_PREFIX)
+    app.include_router(change_control_router, prefix=API_PREFIX)
+    from app.web.routers import chat_notices as chat_notices_router
+
+    app.include_router(chat_notices_router.router, prefix=API_PREFIX)
+    app_ref.bind(app)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:
