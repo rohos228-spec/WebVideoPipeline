@@ -122,13 +122,13 @@ class Settings(BaseSettings):
     # outsee | minimax — кто генерит video в Create / (опц.) пайплайн
     video_provider: str = Field("outsee", alias="VIDEO_PROVIDER")
 
-    # Текстовый LLM: GPT (kie) по умолчанию. vibecode — доп. провайдер.
+    # Текстовый LLM: pay52 (GPT 6.1 Sol) по умолчанию. vibecode / kie — доп.
     # Переключение: Studio UI / data/text_llm_choice.json / TEXT_LLM_PROVIDER.
-    # TEXT_LLM_PROVIDER=kie|vibecode — default kie.
+    # TEXT_LLM_PROVIDER=pay52|vibecode|kie — default pay52.
     # vibecode: Claude Opus 5 / Sonnet 5 (через /v1/messages,
-    # app/services/anthropic_messages.py) и GPT 5.5 / 5.6 Sol — каталог
+    # app/services/anthropic_messages.py) и GPT — каталог
     # app/services/text_llm_catalog.py.
-    text_llm_provider: str = Field("kie", alias="TEXT_LLM_PROVIDER")
+    text_llm_provider: str = Field("pay52", alias="TEXT_LLM_PROVIDER")
 
     # vibecode.moe — chat/completions для GPT, /v1/messages для Claude.
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
