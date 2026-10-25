@@ -155,7 +155,7 @@ def _step(item: Any) -> dict[str, Any]:
     if isinstance(item, dict):
         action = item.get("action") or item.get("name") or ""
         params = item.get("params") if isinstance(item.get("params"), dict) else {}
-        return {"action": str(action), "params": dict(params)}
+        return {"action": str(action), "params": dict(params or {})}
     action = getattr(item, "action", "") or ""
     params = getattr(item, "params", None)
     if not isinstance(params, dict):
@@ -454,7 +454,7 @@ _SCHEMAS: dict[str, dict[str, Any]] = {
     "edit_node_prompt": {
         "fields": {
             "node_key": _field(_STRING, required=True),
-            "patch_mode": _field(_STRING, required=True, enum=_PATCH_MODES),
+            "patch_mode": _field(_STRING, required=True, enum=set(_PATCH_MODES)),
             "content": _field(_STRING, required=True),
             "reason": _field(_STRING, required=True),
             "section_anchor": _field(_STRING),

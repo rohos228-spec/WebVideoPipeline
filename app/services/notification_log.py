@@ -53,7 +53,7 @@ BEGIN SELECT RAISE(ABORT, 'notification log is append-only'); END;
 COLUMNS = ("ts", "project_id", "run_id", "channel", "kind", "text_redacted", "ok", "error")
 
 _LOCK = threading.Lock()
-_STATS = {"written": 0, "skipped": 0, "last_error": ""}
+_STATS: dict[str, Any] = {"written": 0, "skipped": 0, "last_error": ""}
 _ensured: set[str] = set()
 
 
@@ -169,12 +169,12 @@ def log_notification(
             con.commit()
     except Exception as exc:
         with _LOCK:
-            _STATS["skipped"] += 1
+            _STATS["skipped"] = int(_STATS["skipped"]) + 1
             _STATS["last_error"] = f"{type(exc).__name__}: {exc}"[:300]
         logger.error("notification_log: запись пропущена ({}): {}: {}", kind, type(exc).__name__, exc)
         return False
     with _LOCK:
-        _STATS["written"] += 1
+        _STATS["written"] = int(_STATS["written"]) + 1
     return True
 
 

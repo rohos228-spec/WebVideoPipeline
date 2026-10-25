@@ -12,7 +12,8 @@ _NAME = "wide_before_dialogue"
 
 def check(project_id: int, context: dict[str, Any]) -> Any:
     del project_id
-    shots = active_shots(shots_of(context))
+    raw_shots = shots_of(context)
+    shots = active_shots(raw_shots if isinstance(raw_shots, list) else None)
     if not shots:
         return make_result(
             name=_NAME,

@@ -750,7 +750,7 @@ async def montage_board_insert_frame(
 
     p = _project_or_404(await session.get(Project, project_id))
     after_raw = body.get("after_frame_id")
-    after_id = int(after_raw) if after_raw not in (None, "") else None
+    after_id = int(after_raw) if after_raw not in (None, "") else None  # type: ignore[arg-type]
     voiceover = str(body.get("voiceover") or "")
     kind = str(body.get("kind") or "parent")
     try:

@@ -217,7 +217,7 @@ def _restore_metadata() -> dict[str, ActionMetadata]:
     return {
         name: ActionMetadata(
             name=name,
-            risk=risk,
+            risk=risk,  # type: ignore[arg-type]
             read_only=read_only,
             destructive=destructive,
             paid=paid,

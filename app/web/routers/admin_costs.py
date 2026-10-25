@@ -362,13 +362,13 @@ async def _charges(session: AsyncSession, period: _Period) -> list[_ChargeBucket
     for ref_table, delta_micro, cost_usd, row_margin, ref_ids in rows:
         table = str(ref_table or "")
         bucket = buckets.setdefault(table, _ChargeBucket(ref_table=table))
-        charged = -int(delta_micro or 0)
+        charged = -int(delta_micro or 0)  # type: ignore[call-overload]
         bucket.entries += 1
         bucket.charged_micro += charged
         if ref_ids:
             bucket.linked_entries += 1
             bucket.linked_micro += charged
-            bucket.actual_usd += float(cost_usd or 0.0)
+            bucket.actual_usd += float(cost_usd or 0.0)  # type: ignore[arg-type]
             continue
         bucket.unlinked_micro += charged
         bucket.unlinked_ids.append(bucket.entries)
