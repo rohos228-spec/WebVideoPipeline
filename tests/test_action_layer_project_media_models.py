@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ['tests.action_layer_support']
+
 import copy
 from types import SimpleNamespace
 
@@ -11,7 +13,6 @@ from app.services import vibecode_catalog as vc
 from app.services.action_layer import executor
 from app.services.action_layer import project_gen_settings as pgs
 from app.services.action_layer.spec import ensure_builtin_actions, registry
-from tests.action_layer_support import env
 
 AL = "/api/action-layer"
 NODES = [
@@ -24,13 +25,11 @@ NODES = [
 CURRENT = {"image_generator": "gpt_image_2_vip", "image_resolution": "2k",
            "video_generator": "veo_3_1_lite", "video_resolution": "720p"}
 
-
 def _meta(**data_by_node) -> dict:
     nodes = copy.deepcopy(NODES)
     for node in nodes:
         node["data"].update(data_by_node.get(node["id"], {}))
     return {"canvas_graph": {"workflow_id": 1, "nodes": nodes, "edges": []}}
-
 
 @pytest.fixture(autouse=True)
 def _builtin():
@@ -39,17 +38,14 @@ def _builtin():
     yield
     executor._CLAIMS.clear()
 
-
 @pytest.fixture
 def not_managed(monkeypatch):
     async def _no(pid):
         return False
     monkeypatch.setattr("app.services.actions_v1.managed_project_enabled", _no)
 
-
 def step(action, **params):
     return {"action_id": action, "params": params}
-
 
 async def _project(env, meta: dict, **fields) -> int:
     async with env.factory() as s:
@@ -59,11 +55,9 @@ async def _project(env, meta: dict, **fields) -> int:
         await s.commit()
         return p.id
 
-
 async def _row(env, pid) -> Project:
     async with env.factory() as s:
         return await s.get(Project, pid)
-
 
 async def _run(env, steps, *, approve: bool = False) -> dict:
     r = await env.client.post(f"{AL}/plans/preview", json={"steps": steps})
@@ -76,8 +70,6 @@ async def _run(env, steps, *, approve: bool = False) -> dict:
     assert run.status_code == 200, run.text
     await executor.wait(plan_id)
     return (await env.client.get(f"{AL}/plans/{plan_id}")).json()
-
-
 
 @pytest.mark.xfail(strict=True, reason='merge line: image/video generator catalog and resolutions of main differ from int/chat-v1 (gpt_image_2_vip, nano_banana_2_lite, kling-3-0 unknown)')
 def test_media_change_costs_use_the_node_model_catalog_prices() -> None:
@@ -100,7 +92,6 @@ def test_media_change_costs_use_the_node_model_catalog_prices() -> None:
     text = pgs.media_change_text(pgs.media_changes(CURRENT, {"image_generator": "flux_2_pro"})[0])
     assert "дороже" in text and "GPT Image 2" in text and "$0.15 за картинку" in text
 
-
 @pytest.mark.xfail(strict=True, reason='merge line: image/video generator catalog and resolutions of main differ from int/chat-v1 (gpt_image_2_vip, nano_banana_2_lite, kling-3-0 unknown)')
 def test_node_overrides_name_the_node_that_wins() -> None:
     project = {"image_generator": "z_image", "video_generator": "wan_2_7_t2v"}
@@ -116,7 +107,6 @@ def test_node_overrides_name_the_node_that_wins() -> None:
                                     n_items={"modelId": "z-image"}),
                               {"image_generator": "z_image"})
     assert same == []
-
 
 @pytest.mark.parametrize(("node_key", "node_type", "model_id", "generator"), [
     ("n_images", "images", "nano-banana-2-lite", "nano_banana_2_lite"),
@@ -135,7 +125,6 @@ def test_set_model_on_image_nodes_reaches_the_step_generator(node_key, node_type
     for other in others:
         assert vc.effective_image_generator_id(project, node_type=other) == "gpt_image_2_vip"
 
-
 @pytest.mark.xfail(strict=True, reason='merge line: image/video generator catalog and resolutions of main differ from int/chat-v1 (gpt_image_2_vip, nano_banana_2_lite, kling-3-0 unknown)')
 def test_set_model_on_videos_node_reaches_the_video_step_and_revert_returns_the_project_model() -> None:
     meta, _plan = ne.apply_model_change(_meta(), "n_videos", "kling-3-0")
@@ -144,7 +133,6 @@ def test_set_model_on_videos_node_reaches_the_video_step_and_revert_returns_the_
     back, _plan = ne.apply_model_change(meta, "n_videos", None, revert_of="x")
     project.meta = back
     assert vc.effective_video_generator_id(project, node_type="videos") == "veo_3_1_lite"
-
 
 def test_catalog_entries_for_the_costly_variant() -> None:
     from app.orchestrator.action_contracts.contracts import CHAT_V1_ACTION_IDS
@@ -161,8 +149,6 @@ def test_catalog_entries_for_the_costly_variant() -> None:
     assert metadata_of("project.patch_settings_costly").risk == "high"
     assert "project.patch_settings_costly" in SYNONYMS
     assert planner_rules.is_guarded(costly)
-
-
 
 @pytest.mark.xfail(strict=True, reason='merge line: image/video generator catalog and resolutions of main differ from int/chat-v1 (gpt_image_2_vip, nano_banana_2_lite, kling-3-0 unknown)')
 async def test_cheaper_model_is_saved_with_a_snapshot_and_rolls_back(env, not_managed) -> None:
@@ -181,7 +167,6 @@ async def test_cheaper_model_is_saved_with_a_snapshot_and_rolls_back(env, not_ma
     assert "модель картинок «GPT Image 2», разрешение картинок 2K" in back["steps"][0]["result"]["text_ru"]
     row = await _row(env, pid)
     assert row.image_generator == "gpt_image_2_vip" and row.image_resolution == "2k"
-
 
 @pytest.mark.xfail(strict=True, reason='merge line: image/video generator catalog and resolutions of main differ from int/chat-v1 (gpt_image_2_vip, nano_banana_2_lite, kling-3-0 unknown)')
 async def test_costlier_or_unknown_model_needs_a_human(env, not_managed) -> None:
@@ -205,14 +190,12 @@ async def test_costlier_or_unknown_model_needs_a_human(env, not_managed) -> None
     assert (await _row(env, pid)).image_generator == "flux_2_pro"
     assert done["steps"][0]["result"]["snapshot_id"]
 
-
 async def test_unknown_generator_is_refused_before_the_plan(env, not_managed) -> None:
     pid = await _project(env, _meta(), **CURRENT)
     for action in ("project.patch_settings", "project.patch_settings_costly"):
         r = await env.client.post(f"{AL}/plans/preview", json={"steps": [
             step(action, project_id=pid, image_generator="no_such_model")]})
         assert r.status_code == 422 and "генератор картинок" in r.text, action
-
 
 async def test_title_only_change_has_no_media_text(env, not_managed) -> None:
     pid = await _project(env, _meta(), **CURRENT)
