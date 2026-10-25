@@ -179,7 +179,7 @@ def own_projects(tenant_id: str | None, ids: list[int] | None = None) -> list[tu
     query = sql_text("SELECT id, COALESCE(title, topic, '') AS title, tenant_id FROM projects ORDER BY id")
     with tenant_scope(tenant_id), get_engine().connect() as conn:
         rows = conn.execute(query).fetchall()
-    found = {int(pid): str(title or "") for pid, title, owner in rows if _norm_tenant(owner) == want}
+    found = {int(pid): str(title or "") for pid, title, owner in rows if _norm_tenant(owner) == want}  # type: ignore[call-overload]
     if ids is None:
         return list(found.items())
     return [(int(pid), found[int(pid)]) for pid in ids if int(pid) in found]

@@ -275,7 +275,8 @@ def _signal_violation(signal: dict[str, Any], view: dict[str, Any] | None) -> di
     if view is not None and "internal_spent_usd" in view["known"]:
         spent = view["spent"]["internal_spent_usd"]
         cap = view["caps"]["internal_cap_usd"]
-    payload = signal.get("payload") if isinstance(signal.get("payload"), Mapping) else {}
+    raw_payload = signal.get("payload")
+    payload: Mapping[str, Any] = raw_payload if isinstance(raw_payload, Mapping) else {}
     if spent is None:
         spent = _payload_amount(payload, "spent_usd", default=0.0)
     if cap is None:

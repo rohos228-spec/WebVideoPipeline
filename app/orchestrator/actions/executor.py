@@ -329,7 +329,7 @@ def _unmark_deleted_shots(shots: list, number: int) -> list:
         copy = dict(shot)
         token = copy.get("номер", copy.get("number"))
         try:
-            hit = int(token) == int(number)
+            hit = int(token) == int(number)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             hit = False
         if hit:
@@ -345,7 +345,7 @@ def _marked_shot(shots: list, number: int) -> list:
             continue
         token = shot.get("номер", shot.get("number"))
         try:
-            hit = int(token) == int(number)
+            hit = int(token) == int(number)  # type: ignore[arg-type]
         except (TypeError, ValueError):
             hit = False
         if not hit:

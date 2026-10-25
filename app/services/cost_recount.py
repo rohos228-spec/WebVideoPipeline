@@ -158,8 +158,8 @@ async def recount_costs(
             MediaCall.id
         )
         llm_stmt = _window(select(LlmCall), LlmCall.created_at, since, until).order_by(LlmCall.id)
-        media_rows = (await session.execute(media_stmt)).scalars().all()
-        llm_rows = (await session.execute(llm_stmt)).scalars().all()
+        media_rows: list[Any] = list((await session.execute(media_stmt)).scalars().all())
+        llm_rows: list[Any] = list((await session.execute(llm_stmt)).scalars().all())
         if only_unpriced:
             # Кандидаты кнопки «пересчитать»: только строки без цены.
             media_rows = [r for r in media_rows if r.unpriced]

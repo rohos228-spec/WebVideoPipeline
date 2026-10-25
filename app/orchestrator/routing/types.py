@@ -119,7 +119,7 @@ def budget_approval(
         "payload": payload,
     }
     event_cls = _contract_attr("ApprovalEvent") or ApprovalEvent
-    return event_cls(**fields)
+    return event_cls(**fields)  # type: ignore[arg-type]
 
 
 @dataclass

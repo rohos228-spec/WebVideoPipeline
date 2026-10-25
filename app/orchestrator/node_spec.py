@@ -185,8 +185,9 @@ def registered_capability_specs() -> dict[str, CapabilitySpec]:
 
 def coverage_evidence(spec: CapabilitySpec) -> list[str]:
     evidence = []
-    if verifier_spec_for(spec.node_type) is not None:
-        evidence.append("verifier:" + verifier_spec_for(spec.node_type).name)
+    verifier = verifier_spec_for(spec.node_type)
+    if verifier is not None:
+        evidence.append("verifier:" + verifier.name)
     if spec.observation_hook:
         evidence.append("hook:" + spec.observation_hook)
     if descriptive_contract_for(spec.node_type) is not None:

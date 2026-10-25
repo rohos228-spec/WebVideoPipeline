@@ -227,7 +227,7 @@ class ReportResult(BaseModel):
     html: str = Field(min_length=1)
     version: int = Field(ge=1)
     edit_action: Literal["update_report"] = Field(
-        default=REPORT_EDIT_ACTION,
+        default="update_report",
         json_schema_extra={"pattern": _ACTION_NAME},
     )
 

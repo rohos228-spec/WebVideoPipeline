@@ -261,7 +261,7 @@ async def human_decision(
             session_id, decision, retry_grant=retry_grant, change_id=change_id
         )
         return result, None
-    operator = orch_bridge.human_operator(request.scope)
+    operator = orch_bridge.human_operator(dict(request.scope))
     if operator is None:
         raise orch_bridge.DecisionError(403, "operator_token_required")
     return await orch_bridge.approve(
@@ -344,7 +344,7 @@ async def post_reject(session: str, body: RejectIn, request: Request):
     decided = result.get("change_id") if isinstance(result, dict) else None
     plan_id = await orch_bridge.bound_plan_any(decided) if decided else None
     if plan_id:
-        await orch_bridge.revoke(plan_id, decided, orch_bridge.actor_of(request.scope))
+        await orch_bridge.revoke(plan_id, decided, orch_bridge.actor_of(dict(request.scope)))
     return {
         **_public(result),
         "ok": True,

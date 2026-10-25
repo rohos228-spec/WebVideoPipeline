@@ -668,10 +668,11 @@ async def stop_session_project(app: Any, project_id: int, task_id: Any) -> dict:
     result = result if isinstance(result, dict) else {}
     inner = result.get("result") if isinstance(result.get("result"), dict) else result
     ok = isinstance(done, dict) and done.get("status") == "ok"
+    inner_dict: dict[str, Any] = inner if isinstance(inner, dict) else {}
     return {
         "ok": ok,
-        "stopped": bool(inner.get("stopped")) if ok else False,
-        "message": str(inner.get("message") or done.get("error") or "") if isinstance(done, dict) else "",
+        "stopped": bool(inner_dict.get("stopped")) if ok else False,
+        "message": str(inner_dict.get("message") or done.get("error") or "") if isinstance(done, dict) else "",
     }
 
 
@@ -741,8 +742,10 @@ async def _approve_group(
 ) -> list[tuple[str, str]]:
     """Одно нажатие — подтверждение ядра каждому шагу группы, у каждого свой план и хэш.
     Отказ любого шага отзывает уже выпущенные этим вызовом: группа одобряется целиком или никак."""
-    group = card.get("group") if isinstance(card.get("group"), dict) else {}
-    plan_ids = group.get("plan_ids") if isinstance(group.get("plan_ids"), dict) else {}
+    raw_group = card.get("group")
+    group: dict[str, Any] = raw_group if isinstance(raw_group, dict) else {}
+    raw_plan_ids = group.get("plan_ids")
+    plan_ids: dict[str, Any] = raw_plan_ids if isinstance(raw_plan_ids, dict) else {}
     issued: list[tuple[str, str]] = []
     from app.orchestrator.agents.supervisor import group_step_change_id
 
@@ -834,10 +837,10 @@ async def _approve_locked(
         with human_verified():
             issued = await _approve_group(
                 app,
-                change_id=change_id,
+                change_id=change_id or "",
                 task_id=task_id,
                 steps=group,
-                card=card,
+                card=card or {},
                 operator=operator,
                 goal=goal,
             )
@@ -975,7 +978,7 @@ async def _relay(bus: Any, session_id: str, project_id: int) -> None:
                 continue
             notice = event.get("notice")
             if _for_project(notice, project_id):
-                await forward_notice(bus, session_id, notice)
+                await forward_notice(bus, session_id, notice)  # type: ignore[arg-type]
 
 
 async def _guarded_relay(bus: Any, session_id: str, project_id: int) -> None:
