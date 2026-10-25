@@ -2820,7 +2820,7 @@ async def _chat_unscoped(
     # модель по-прежнему в ключ не входит.
     from app.services import provider_breaker
 
-    _provider = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "kie")
+    _provider = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "pay52")
     _transport = "messages" if anthropic_route else ("responses" if responses_mode else "chat")
     breaker_key = f"{_provider}:{_transport}"
 

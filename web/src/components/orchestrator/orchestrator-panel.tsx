@@ -27,6 +27,7 @@ import { api, ApiError } from "@/lib/api";
 import { readOrchToken, writeOrchToken } from "@/lib/orchestratorApi";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { cn } from "@/lib/utils";
+import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 
 interface Props {
   projectId: number | null;
@@ -639,6 +640,14 @@ export function OrchestratorPanel({ projectId }: Props) {
                   ? "режим фикса — опиши баг и Enter"
                   : "ИИ-ассистент проекта"}
           </span>
+        </div>
+
+        <div
+          className="hidden min-w-0 shrink sm:block"
+          onClick={(e) => e.stopPropagation()}
+          data-testid="orch-text-llm-picker"
+        >
+          <TextLlmPicker className="max-w-[220px]" />
         </div>
 
         {busy ? (

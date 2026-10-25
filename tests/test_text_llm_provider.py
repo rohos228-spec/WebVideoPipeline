@@ -1,10 +1,27 @@
-"""TEXT_LLM: GPT (kie) по умолчанию + vibecode по явному выбору."""
+"""TEXT_LLM: pay52 (GPT 6.1 Sol) по умолчанию + vibecode/kie по выбору."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from app.settings import Settings
+
+
+def test_default_is_pay52_gpt_61_sol(monkeypatch, tmp_path: Path) -> None:
+    """Без choice.json и без явного TEXT_LLM_PROVIDER — pay52 + GPT 6.1 Sol."""
+    monkeypatch.delenv("TEXT_LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("PAY52_GPT_KEY", "pay52-gpt-key")
+    monkeypatch.setenv("PAY52_BASE_URL", "https://api.52pay.com/v1")
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    from app.services import text_llm_catalog as cat
+
+    s = Settings()
+    assert s.text_llm_provider == "pay52"
+    assert s.resolved_text_llm_provider() == "pay52"
+    assert cat.resolve_active_model_id(s) == "gpt-6.1-sol-pay52"
+    assert cat.PAY52_DEFAULT_ID == "gpt-6.1-sol-pay52"
+    assert s.gpt_model_effective == "gpt-6.1-sol"
+    assert "GPT 6.1 Sol" in s.text_llm_label
 
 
 def test_default_is_kie_gpt_not_tokenrouter(monkeypatch, tmp_path: Path) -> None:
@@ -21,15 +38,15 @@ def test_default_is_kie_gpt_not_tokenrouter(monkeypatch, tmp_path: Path) -> None
     assert "Kimi" not in s.text_llm_label
 
 
-def test_retired_tokenrouter_falls_back_to_kie(monkeypatch, tmp_path: Path) -> None:
-    """TokenRouter выведен: старое значение в .env не роняет старт, а уводит на kie."""
+def test_retired_tokenrouter_falls_back_to_pay52(monkeypatch, tmp_path: Path) -> None:
+    """TokenRouter выведен: старое значение в .env не роняет старт, а уводит на pay52."""
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "tokenrouter")
-    monkeypatch.setenv("GPT_API_KEY", "kie-key")
-    monkeypatch.setenv("GPT_BASE_URL", "https://api.kie.ai")
+    monkeypatch.setenv("PAY52_GPT_KEY", "pay52-gpt-key")
+    monkeypatch.setenv("PAY52_BASE_URL", "https://api.52pay.com/v1")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     s = Settings()
-    assert s.resolved_text_llm_provider() == "kie"
-    assert s.gpt_api_effective_key == "kie-key"
+    assert s.resolved_text_llm_provider() == "pay52"
+    assert s.gpt_api_effective_key == "pay52-gpt-key"
 
 
 def test_choice_file_switches_without_touching_gpt_env(monkeypatch, tmp_path: Path) -> None:
@@ -339,6 +356,11 @@ def test_pay52_text_catalog_and_routing(monkeypatch, tmp_path: Path) -> None:
     gpt_item = cat.catalog_item("gpt-6-sol-pay52")
     assert gpt_item is not None
     assert gpt_item["group"] == "OpenAI"
+
+    gpt61 = cat.catalog_item("gpt-6.1-sol-pay52")
+    assert gpt61 is not None
+    assert gpt61["api_model"] == "gpt-6.1-sol"
+    assert cat.PAY52_DEFAULT_ID == "gpt-6.1-sol-pay52"
 
     # 1. Выбор GLM
     cat.write_choice(provider="pay52", model_id="glm-5.3-pay52", cfg=s)

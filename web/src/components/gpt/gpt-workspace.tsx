@@ -807,10 +807,10 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                 <div className="absolute right-0 top-full mt-2 z-[100] w-80 rounded-2xl border border-white/15 bg-[#16161b]/98 p-2.5 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 ring-1 ring-white/10">
                   <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#22d3ee] border-b border-white/[0.08] mb-1 flex items-center justify-between">
                     <span>Выберите ИИ модель</span>
-                    <span className="text-[10px] text-white/40 font-mono">vibecode / kie</span>
+                    <span className="text-[10px] text-white/40 font-mono">52 / vibecode / kie</span>
                   </div>
                   <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
-                    {["Anthropic", "xAI", "Google", "OpenAI", "DeepSeek", "KIE"].map((groupName) => {
+                    {["OpenAI", "Anthropic", "Google", "xAI", "GLM", "KIE"].map((groupName) => {
                       const groupModels = (textLlmQ.data?.models || []).filter(
                         (m: any) => (m.group || (m.provider === "kie" ? "KIE" : "OpenAI")) === groupName
                       );
@@ -824,8 +824,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                                 ? "⚡ xAI (Grok)"
                                 : groupName === "Google"
                                   ? "✨ Google Gemini"
-                                  : groupName === "DeepSeek"
-                                    ? "🧠 DeepSeek"
+                                  : groupName === "GLM"
+                                    ? "🧠 GLM"
                                     : groupName === "OpenAI"
                                       ? "⚡ OpenAI (GPT)"
                                       : "🌐 KIE API"}

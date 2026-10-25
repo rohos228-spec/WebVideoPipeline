@@ -328,8 +328,8 @@ CATALOG: list[dict[str, str]] = [
     },
 ]
 
-PAY52_DEFAULT_ID = "gpt-5.6-sol-pay52"
-PAY52_DEFAULT_API_MODEL = "gpt-5.6-sol"
+PAY52_DEFAULT_ID = "gpt-6.1-sol-pay52"
+PAY52_DEFAULT_API_MODEL = "gpt-6.1-sol"
 
 _PROVIDERS = frozenset({"kie", "vibecode", "pay52"})
 #: Провайдеры, выведенные из текстового контура: значение в .env / choice.json
@@ -526,7 +526,7 @@ def write_choice(
     s = cfg or settings
     existing = read_choice(s)
     default_prov = existing.get("provider") or resolve_active_provider(s)
-    provider = (provider or default_prov or "kie").strip().lower()
+    provider = (provider or default_prov or "pay52").strip().lower()
     if provider in {"vibe", "vibecode.moe", "anthropic", "claude"}:
         provider = "vibecode"
     elif provider in {"pay52", "52pay", "pay52.com"}:
@@ -569,11 +569,11 @@ def write_choice(
 
 
 def resolve_active_provider(cfg: Settings | None = None) -> str:
-    """kie по умолчанию; vibecode / pay52 — по явному выбору.
+    """pay52 по умолчанию; vibecode / kie — по явному выбору.
 
     `minimax` (2026-08-26) и `tokenrouter`/`kimi` (2026-09) больше не
     провайдеры: старое значение в choice.json / TEXT_LLM_PROVIDER молча
-    уводит на kie-дефолт с предупреждением, а не роняет старт.
+    уводит на pay52-дефолт с предупреждением, а не роняет старт.
     """
     s = cfg or settings
     raw_choice = str(read_choice(s).get("provider") or "").strip().lower()
@@ -583,17 +583,19 @@ def resolve_active_provider(cfg: Settings | None = None) -> str:
         return "pay52"
     if raw_choice in {"kie", "gpt", "openai"}:
         return "kie"
-    raw = (s.text_llm_provider or "kie").strip().lower()
+    raw = (s.text_llm_provider or "pay52").strip().lower()
     if raw in {"vibecode", "vibe", "anthropic", "claude"}:
         return "vibecode"
     if raw in {"pay52", "52pay", "pay52.com"}:
         return "pay52"
+    if raw in {"kie", "gpt", "openai"}:
+        return "kie"
     if raw in _RETIRED_PROVIDERS or raw_choice in _RETIRED_PROVIDERS:
         logger.warning(
-            "text_llm: провайдер {!r} выведен — активен kie; переключи на vibecode или pay52",
+            "text_llm: провайдер {!r} выведен — активен pay52; переключи на vibecode или kie",
             raw or raw_choice,
         )
-    return "kie"
+    return "pay52"
 
 
 def resolve_active_model_id(cfg: Settings | None = None) -> str:

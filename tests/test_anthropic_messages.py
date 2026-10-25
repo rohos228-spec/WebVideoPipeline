@@ -401,14 +401,15 @@ def test_catalog_has_claude_and_aliases(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 def test_minimax_text_provider_is_gone(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Старое TEXT_LLM_PROVIDER=minimax не роняет старт — активен kie-дефолт."""
+    """Старое TEXT_LLM_PROVIDER=minimax не роняет старт — активен pay52-дефолт."""
     from app.settings import Settings
 
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "minimax")
     monkeypatch.setenv("MINIMAX_API_KEY", "k")
+    monkeypatch.setenv("PAY52_GPT_KEY", "pay52-gpt-key")
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     s = Settings()
-    assert s.resolved_text_llm_provider() == "kie"
+    assert s.resolved_text_llm_provider() == "pay52"
     assert not hasattr(s, "text_llm_is_minimax")
 
 
