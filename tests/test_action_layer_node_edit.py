@@ -604,10 +604,10 @@ async def test_prompt_append_real_lint_path_apply_and_secret_refusal(ccenv_nodes
     from app.services.change_control import lints
 
     assert lints.new_secret_hits("Пиши коротко.", "") == []
-    assert lints.new_secret_hits("api_key=abcdefgh12345678", "") != []
+    assert lints.new_secret_hits("api_key=abcdefgh12345678", "") != []  # gitleaks:allow — фикстура линта, не секрет
     env = ccenv_nodes
     base = {"project_id": env.pid, "node_key": "n_plan", "rationale": "короче"}
-    secret = dict(base, append="token: abcdefgh12345678abcdefgh")
+    secret = dict(base, append="token: abcdefgh12345678abcdefgh")  # gitleaks:allow — фикстура линта, не секрет
     r = await _plan(env, [{"action_id": "prompt.edit_text", "params": secret}])
     assert r.status_code == 422, r.text
     assert "credential-like" in r.text and "ImportError" not in r.text
