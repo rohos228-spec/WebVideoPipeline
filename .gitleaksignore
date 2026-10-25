@@ -80,3 +80,12 @@ fcd5f50a80cd5289eab57d90e30673eacf2c821e:tests/test_excel_gpt_slot_chain.py:gene
 0623aa80038b1b15e97ff773e563a6fe637d9ead:tests/test_pay52_routes.py:generic-api-key:58
 41979f0f9d1ee6d6230e2637ad7ec79e5b486aa1:api-tracker/app/config.py:generic-api-key:14
 2cc9b7085242c242fc05e2f1aeb3224800eb24a2:api-tracker/app/config.py:generic-api-key:14
+
+# 2026-10-25 порт chat-supervisor (#98): фикстуры линта credential-like в
+# test_prompt_append_real_lint_path_apply_and_secret_refusal. Строки вида
+# api_key=abcdefgh… / token: abcdefgh… — учебные для new_secret_hits, не ключи.
+# Тот же файл есть и на ветке feat/port-chat-supervisor-orchestrator (8fbbda0).
+2633efbfb991efb4bfbd15504eb735524031325b:tests/test_action_layer_node_edit.py:generic-api-key:606
+2633efbfb991efb4bfbd15504eb735524031325b:tests/test_action_layer_node_edit.py:generic-api-key:609
+8fbbda0ee00c990c4f6808f9bd8b0f4a1312f453:tests/test_action_layer_node_edit.py:generic-api-key:606
+8fbbda0ee00c990c4f6808f9bd8b0f4a1312f453:tests/test_action_layer_node_edit.py:generic-api-key:609
