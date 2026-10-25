@@ -2164,6 +2164,7 @@ async def orchestrator_chat(
     применяется через ``db_apply.apply_ops`` (fail-closed) + авто-экспорт
     в project.xlsx. Текстовый ответ (вопрос/обсуждение) — без записи.
     """
+    from app.services.gpt_api import GptApiError
     from app.services.gpt_client import GptApiUnavailable, get_gpt_client
 
     project = await _project(session, project_id)
@@ -2219,6 +2220,10 @@ async def orchestrator_chat(
         reply = await get_gpt_client().ask_fresh(prompt, timeout=600, project_id=project.id)
     except GptApiUnavailable as e:
         raise HTTPException(503, str(e)) from None
+    except GptApiError as e:
+        raise HTTPException(502, str(e)[:800]) from None
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, str(e)[:800]) from None
 
     applied = None
     actions_run: list[dict] = []
