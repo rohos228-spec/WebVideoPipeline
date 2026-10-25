@@ -17,6 +17,8 @@ async def env(tmp_path, monkeypatch):
     ah.configure(monkeypatch)
     _engine, factory = await ah.make_engine(tmp_path / "profile-test.db")
     ah.bind_identity_session(monkeypatch, factory)
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    (tmp_path / "data").mkdir(parents=True, exist_ok=True)
 
     async def _gen():
         async with factory() as s:
@@ -31,7 +33,6 @@ async def env(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "kie_api_key", "mock-kie-key-test-1234")  # gitleaks:allow
     monkeypatch.setattr(settings, "elevenlabs_api_key", "mock-eleven-key-test-5678")  # gitleaks:allow
 
-    # Создаём проект участника
     async with factory() as session:
         proj = Project(
             slug="member-project",
@@ -50,6 +51,7 @@ async def env(tmp_path, monkeypatch):
             "member": member,
             "admin": admin,
             "project_id": proj_id,
+            "tmp_path": tmp_path,
         }
 
 
@@ -104,6 +106,61 @@ async def test_profile_update_display_name(env) -> None:
     assert data["name"] == "Alex Director"
 
 
+async def test_profile_update_persists_bio_handle_notifications(env) -> None:
+    client = env["client"]
+    member = env["member"]
+
+    r = await client.put(
+        "/api/profile",
+        json={
+            "name": "Alex",
+            "handle": "alexd",
+            "bio": "Снимаю AI-ролики",
+            "notifications": {"email": False, "browser": True},
+        },
+        headers=member.auth,
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["handle"] == "alexd"
+    assert data["bio"] == "Снимаю AI-ролики"
+    assert data["notifications"]["email"] is False
+
+    r2 = await client.get("/api/profile", headers=member.auth)
+    assert r2.status_code == 200
+    again = r2.json()
+    assert again["handle"] == "alexd"
+    assert again["bio"] == "Снимаю AI-ролики"
+    assert again["notifications"]["email"] is False
+
+
+async def test_profile_avatar_upload_and_delete(env) -> None:
+    client = env["client"]
+    member = env["member"]
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+        b"\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    r = await client.post(
+        "/api/profile/avatar",
+        headers=member.auth,
+        files={"file": ("avatar.png", png, "image/png")},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["avatar_url"] == "/api/profile/avatar-file"
+
+    r_file = await client.get("/api/profile/avatar-file", headers=member.auth)
+    assert r_file.status_code == 200
+    assert r_file.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+    r_del = await client.delete("/api/profile/avatar", headers=member.auth)
+    assert r_del.status_code == 200
+    assert r_del.json()["avatar_url"] is None
+
+
 async def test_profile_keys_update_forbidden_for_member(env) -> None:
     client = env["client"]
     member = env["member"]
@@ -112,12 +169,20 @@ async def test_profile_keys_update_forbidden_for_member(env) -> None:
     assert r.status_code == 403
 
 
-async def test_profile_keys_update_allowed_for_admin(env) -> None:
+async def test_profile_keys_update_persists_for_admin(env) -> None:
     client = env["client"]
     admin = env["admin"]
 
-    r = await client.put("/api/profile/keys/kie", json={"value": "admin-mock-key-12345"}, headers=admin.auth)  # gitleaks:allow
+    r = await client.put(
+        "/api/profile/keys/kie",
+        json={"value": "admin-mock-key-12345"},  # gitleaks:allow
+        headers=admin.auth,
+    )
     assert r.status_code == 200
     data = r.json()
     assert data["configured"] is True
     assert data["masked"] == "adm...2345"
+
+    keys_file = env["tmp_path"] / "data" / "studio_api_keys.json"
+    assert keys_file.is_file()
+    assert "admin-mock-key-12345" in keys_file.read_text(encoding="utf-8")

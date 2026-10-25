@@ -44,8 +44,6 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     # незамеченная кнопка. Арендатору они не показываются: вход в них только у
     # владельца (role=admin, см. app/web/identity.py).
     "/api/auth/operator-token",
-    "/api/node-reviews",
-    "/api/ratings",
     "/api/storage",
     "/api/admin",  # админка пользователей и доступов
     "/api/orchestrator",  # оркестратор: в UI не подключён намеренно, панель владельца

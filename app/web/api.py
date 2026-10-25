@@ -97,6 +97,8 @@ from app.web.routers import (
 )
 from app.web.routers import (
     profile as profile_router,
+    ratings as ratings_router,
+    node_reviews as node_reviews_router,
 )
 from app.web.routers import (
     project_graph as project_graph_router,
@@ -424,6 +426,8 @@ def create_app() -> FastAPI:
     app.include_router(storage_router.router, prefix=API_PREFIX)
     app.include_router(voices_router.router, prefix=API_PREFIX)
     app.include_router(profile_router.router, prefix=API_PREFIX)
+    app.include_router(ratings_router.router, prefix=API_PREFIX)
+    app.include_router(node_reviews_router.router, prefix=API_PREFIX)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
     async def api_write_not_found(rest: str) -> None:
