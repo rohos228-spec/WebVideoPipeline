@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ['tests.action_layer_support', 'tests.change_control_support']
+
 import copy
 import json
 
@@ -13,8 +15,7 @@ from app.services.change_control import service as cc_service
 from app.services.change_control import store as cs
 from app.services.change_control.errors import ChangeRefused
 from app.services.project_meta import merge_project_meta
-from tests.action_layer_support import env
-from tests.change_control_support import HUMAN, cc, prompts_root
+from tests.change_control_support import HUMAN
 
 AL = "/api/action-layer"
 FORCED = "n_excel_gpt_fw_shots"

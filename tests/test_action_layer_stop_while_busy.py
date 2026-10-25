@@ -9,16 +9,18 @@
 
 from __future__ import annotations
 
+pytest_plugins = ['tests.action_layer_support']
+
 import asyncio
 
 from app.services.action_layer import approval, executor, service
-from tests.action_layer_support import env, fresh_registry, make_spec  # noqa: F401
+from tests.action_layer_support import fresh_registry, make_spec
 
 OP = approval.OperatorIdentity("web_operator:abc123")
 _SCHEMA = {"type": "object", "properties": {"project_id": {"type": "integer"}}, "additionalProperties": False}
 
 
-async def _plan(env, reg, *steps):  # noqa: F811
+async def _plan(env, reg, *steps):
     plan_id, preview = await service.create_plan(env.app, list(steps), operator=OP,
                                                  request_text="запрос", registry=reg)
     assert plan_id, preview

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ['tests.action_layer_support']
+
 import itertools
 import json
 from datetime import datetime
@@ -19,10 +21,8 @@ from app.services.action_layer.planner_catalog import select_catalog
 from app.services.action_layer.planner_rules import notes_for
 from app.services.action_layer.spec import ActionRegistry, ensure_builtin_actions, registry
 from app.settings import settings
-from tests.action_layer_support import env  # noqa: F401
 
 _SLUGS = itertools.count(1)
-
 
 class FakeCtx:
     def __init__(self, routes):
@@ -34,20 +34,17 @@ class FakeCtx:
             raise ActionCallError(404, "нет")
         return val
 
-
 @pytest.fixture
 def specs():
     reg = ActionRegistry()
     bi.register_insight(reg)
     return reg
 
-
 @pytest.fixture
 def prompts(monkeypatch):
     monkeypatch.setattr(pl, "excel_gpt_prompt_exists", lambda name: name in ("razmetka", "geroi"))
     monkeypatch.setattr(pl, "load_file_meta", lambda step: {"razmetka": {"title": "Разметка кадров"},
                                                            "geroi": {"title": "Персонажи"}})
-
 
 def _meta():
     return {
@@ -61,7 +58,6 @@ def _meta():
         "scene_registry": [{"id_scene": "s1"}, {"id_scene": "s2"}, {"id_scene": "old", "активен": False}],
     }
 
-
 REPLY = """Готово.
 ```json
 {"ops": [
@@ -73,7 +69,6 @@ REPLY = """Готово.
  "characters": [{"id": "c01", "имя": "Кот Барсик"}],
  "scenes": [{"id_scene": "s1", "место": "кухня"}, {"id_scene": "s2", "место": "двор"}]}
 ```"""
-
 
 async def _seed(env, *, title="Ролик про кота", meta=None, frames=3, images=0, videos=0, usd=None,
                 status="images_ready"):
@@ -98,12 +93,10 @@ async def _seed(env, *, title="Ролик про кота", meta=None, frames=3,
         await s.commit()
         return p.id, p.slug
 
-
 def _write_reply(slug, key, text):
     up = settings.data_dir / "videos" / slug / "excel_gpt_uploads" / key
     up.mkdir(parents=True, exist_ok=True)
     (up / "gpt_reply.txt").write_text(text, encoding="utf-8")
-
 
 def _routes(pid, slug, meta, runs=None):
     detail = {"id": pid, "slug": slug, "title": "Ролик про кота", "topic": "тема", "status": "images_ready",
@@ -111,10 +104,8 @@ def _routes(pid, slug, meta, runs=None):
     return {("GET", f"/projects/{pid}"): detail,
             ("GET", f"/projects/{pid}/run"): {"id": 1, "node_runs": runs or []}}
 
-
 RUNS = [{"node_key": "excel_gpt_1", "node_type": "excel_gpt", "status": "done", "attempts": 1},
         {"node_key": "n_plan", "node_type": "plan", "status": "done", "attempts": 1}]
-
 
 def test_writes_from_reply_maps_frames_fields_characters_scenes() -> None:
     w = rg.writes_from_reply(REPLY, {"uuid-1": 1, "uuid-2": 2})
@@ -124,7 +115,6 @@ def test_writes_from_reply_maps_frames_fields_characters_scenes() -> None:
     assert rg.writes_from_reply("нет json", {})["parsed"] is False
     assert rg.writes_from_reply(None, {})["frames"] == {}
 
-
 def test_read_reply_stays_inside_project_folder(tmp_path) -> None:
     (tmp_path / "excel_gpt_uploads" / "k").mkdir(parents=True)
     (tmp_path / "excel_gpt_uploads" / "k" / "gpt_reply.txt").write_text("ok", encoding="utf-8")
@@ -132,7 +122,6 @@ def test_read_reply_stays_inside_project_folder(tmp_path) -> None:
     assert rg.read_reply(tmp_path, "k") == "ok"
     assert rg.read_reply(tmp_path, "..") is None and rg.read_reply(tmp_path, "../..") is None
     assert rg.read_reply(tmp_path, "missing") is None
-
 
 async def test_report_nodes_has_gpt_section_with_prompt_model_and_writes(env, specs, prompts) -> None:
     meta = _meta()
@@ -191,7 +180,6 @@ async def test_report_nodes_has_gpt_section_with_prompt_model_and_writes(env, sp
     xl = await report(ctx, {"project_id": pid, "kind": "xlsx"})
     assert xl["file_format"] == "xlsx" and xl["path"] == xl["xlsx_path"]
 
-
 async def test_report_projects_table_file_and_download(env, specs, prompts) -> None:
     meta = _meta()
     a, slug_a = await _seed(env, title="Первый", meta=meta, frames=3, images=2, videos=1, usd=0.5)
@@ -248,13 +236,11 @@ async def test_report_projects_table_file_and_download(env, specs, prompts) -> N
     every = await run(ctx, {"kind": "json"})
     assert {r["project_id"] for r in every["rows"]} == {a, b}
 
-
 async def test_report_projects_defaults_to_last_twenty(env, specs) -> None:
     for i in range(22):
         await _seed(env, title=f"p{i}", meta={}, frames=0)
     out = await specs.get("report.projects").executor(FakeCtx({}), {"kind": "json"})
     assert len(out["rows"]) == tpl.MAX_PROJECTS and "последние 20 из 22" in out["text_ru"]
-
 
 def test_report_projects_is_registered_read_only_and_planned() -> None:
     from app.orchestrator.action_contracts.contracts import CHAT_V1_ACTION_IDS
@@ -272,14 +258,12 @@ def test_report_projects_is_registered_read_only_and_planned() -> None:
         assert sel.scores["report.projects"] >= sel.scores.get("report.nodes", 0), text
     assert "report.projects" in notes_for({"report.projects"})
 
-
 def test_download_links_keep_strict_report_paths() -> None:
     assert download_links({"download_url": "/api/projects/5/reports/a.xlsx", "format": "xlsx"})
     assert download_links({"download_url": "/api/projects/reports/projects_report_1.xlsx"})
     assert download_links({"download_url": "/api/projects/reports/../x.xlsx"}) == []
     assert download_links({"download_url": "/api/projects/5/reports/a b.xlsx"}) == []
     assert download_links({"download_url": "https://evil/x"}) == []
-
 
 def test_template_is_the_single_place_for_columns() -> None:
     keys = {k for k, _l in tpl.GPT_NODE_COLUMNS}
@@ -288,7 +272,6 @@ def test_template_is_the_single_place_for_columns() -> None:
     assert keys <= row_keys
     assert tpl.field_label("image_prompt") == "промт картинки" and tpl.field_label("x_custom") == "x_custom"
     assert json.dumps(tpl.PROJECTS_COLUMNS, ensure_ascii=False)
-
 
 async def test_report_projects_names_the_project_and_rounds_money(env, specs, prompts) -> None:
     meta = _meta()
