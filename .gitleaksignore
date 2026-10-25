@@ -89,3 +89,8 @@ fcd5f50a80cd5289eab57d90e30673eacf2c821e:tests/test_excel_gpt_slot_chain.py:gene
 2633efbfb991efb4bfbd15504eb735524031325b:tests/test_action_layer_node_edit.py:generic-api-key:609
 8fbbda0ee00c990c4f6808f9bd8b0f4a1312f453:tests/test_action_layer_node_edit.py:generic-api-key:606
 8fbbda0ee00c990c4f6808f9bd8b0f4a1312f453:tests/test_action_layer_node_edit.py:generic-api-key:609
+
+# 2026-10-25 #107: пустое имя placeholder PAY52_GPT_KEY= в .env.example.
+# generic-api-key цепляется за KEY= без значения — не секрет. Feature + squash.
+36b5a1d02b7286db89fb84aaaac8eb105f2ad262:.env.example:generic-api-key:60
+eae6bcb02f1583ac949f5537b7343d2f0865f527:.env.example:generic-api-key:60
