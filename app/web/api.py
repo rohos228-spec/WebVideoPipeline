@@ -162,16 +162,25 @@ async def _ensure_engine_schema() -> None:
     вместе с движком. Вызов идемпотентный. Делается при любом ENGINE_STARTUP:
     ручки /api/action-layer и /api/change-control подключены всегда, и без
     таблиц их чтение отвечало бы 500.
+
+    После create_all на Postgres навешиваем RLS: иначе `assert_rls_or_die`
+    валит lifespan (таблицы есть, политик нет / вне списков) — /api/health
+    не отвечает, deploy healthcheck откатывает v2.
     """
     from app.db import engine
     from app.services.action_layer.attachments import ensure_attachments_schema
     from app.services.action_layer.store import ensure_action_layer_schema
     from app.services.change_control.store import ensure_change_control_schema
+    from app.services.rls_apply import apply_tenant_isolation_sync
+    from app.services.tenant_tables import ENGINE_TENANT_TABLES
 
     async with engine.begin() as conn:
         await ensure_action_layer_schema(conn)
         await ensure_attachments_schema(conn)
         await ensure_change_control_schema(conn)
+        await conn.run_sync(
+            lambda sync_conn: apply_tenant_isolation_sync(sync_conn, ENGINE_TENANT_TABLES)
+        )
 
 
 async def _start_engine() -> asyncio.Task | None:

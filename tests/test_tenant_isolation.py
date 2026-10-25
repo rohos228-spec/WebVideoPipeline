@@ -28,7 +28,16 @@ def test_every_model_table_is_classified() -> None:
 
     Таблица без арендатора не падает — она просто видна всем сразу. Отказ
     бесшумный, значит замечать его должен тест, а не клиент.
+
+    Модели движка живут вне `app.models` и регистрируются только при
+    импорте роутеров/store — без явного импорта coverage был бы ложно
+    зелёным (как и вышло перед выкладкой #103).
     """
+    import app.services.action_layer.attachments  # noqa: F401
+    import app.services.action_layer.store  # noqa: F401
+    import app.services.change_control.store  # noqa: F401
+    import app.services.kill_switch  # noqa: F401
+
     assert check_coverage() == []
 
 
