@@ -195,6 +195,33 @@ class Settings(BaseSettings):
     # Переключение на лету: Studio UI / data/text_llm_choice.json / GPT_REASONING_EFFORT.
     gpt_reasoning_effort: str = Field("off", alias="GPT_REASONING_EFFORT")
 
+    # --- Движок (video-pipeline int/chat-v1): action_layer, watchdog, decision_v1 ---
+    watchdog_enabled: bool = Field(True, alias="WATCHDOG_ENABLED")
+    watchdog_interval_s: float = Field(30.0, alias="WATCHDOG_INTERVAL_S")
+    watchdog_model_request_timeout_s: float = Field(900.0, alias="WATCHDOG_MODEL_REQUEST_TIMEOUT_S")
+    watchdog_execution_idle_s: float = Field(1800.0, alias="WATCHDOG_EXECUTION_IDLE_S")
+    watchdog_kill_switch_on_stall: bool = Field(False, alias="WATCHDOG_KILL_SWITCH_ON_STALL")
+    decision_task_timeout_margin_s: float = Field(30.0, alias="DECISION_TASK_TIMEOUT_MARGIN_S")
+    action_layer_session_cap_credits: float = Field(0.0, ge=0, alias="ACTION_LAYER_SESSION_CAP_CREDITS")
+    action_layer_approval_ttl_s: int = Field(1800, ge=1, alias="ACTION_LAYER_APPROVAL_TTL_S")
+    action_layer_max_steps: int = Field(20, ge=1, le=100, alias="ACTION_LAYER_MAX_STEPS")
+    action_layer_step_timeout_s: float = Field(900.0, gt=0, alias="ACTION_LAYER_STEP_TIMEOUT_S")
+    action_layer_no_progress_timeout_s: float = Field(
+        1800.0, gt=0, alias="ACTION_LAYER_NO_PROGRESS_TIMEOUT_S"
+    )
+    action_layer_progress_probe_s: float = Field(30.0, gt=0, alias="ACTION_LAYER_PROGRESS_PROBE_S")
+    action_layer_outsee_submit_credits: float = Field(0.0, ge=0, alias="ACTION_LAYER_OUTSEE_SUBMIT_CREDITS")
+    action_layer_reserve_stale_s: float = Field(3600.0, gt=0, alias="ACTION_LAYER_RESERVE_STALE_S")
+    action_layer_resume_window_s: int = Field(3600, ge=1, alias="ACTION_LAYER_RESUME_WINDOW_S")
+    action_layer_planner_calls_per_hour: int = Field(
+        0, ge=0, le=10000, alias="ACTION_LAYER_PLANNER_CALLS_PER_HOUR"
+    )
+    action_layer_planner_max_catalog: int = Field(24, ge=1, le=500, alias="ACTION_LAYER_PLANNER_MAX_CATALOG")
+    action_layer_attachment_max_mb: int = Field(200, ge=1, le=2048, alias="ACTION_LAYER_ATTACHMENT_MAX_MB")
+    action_layer_attachment_retention_days: int = Field(
+        7, ge=0, le=3650, alias="ACTION_LAYER_ATTACHMENT_RETENTION_DAYS"
+    )
+
     def resolved_text_llm_provider(self) -> str:
         """Активный текстовый провайдер: kie | vibecode.
 
@@ -380,6 +407,16 @@ class Settings(BaseSettings):
     # Ветка для commit/push оркестратора с этого ПК (housepc|tompc|strangepc|workpc).
     # Пусто = main. На каждом ПК своё значение в локальном .env.
     orchestrator_git_branch: str = Field("main", alias="ORCHESTRATOR_GIT_BRANCH")
+
+    # Фоновая часть движка оркестратора на старте студии: закрыть задачи и
+    # планы действий, прерванные рестартом (или поднять их по
+    # ORCH_RECOVER_ON_START), и запустить истечение просроченных одобрений.
+    # Включено по умолчанию: это защита, а не возможность. Без неё задача,
+    # оборванная рестартом, навсегда висит «в работе», а ожидающее одобрение
+    # не истекает никогда — других мест, где это делается, нет. Выключать
+    # (ENGINE_STARTUP=0) только для отладки старта. Ручки движка подключены в
+    # любом случае (только админ), их таблицы создаются всегда.
+    engine_startup: bool = Field(True, alias="ENGINE_STARTUP")
 
     # Fleet — сеть рабочих станций (hub = этот ПК, agent = удалённый)
     fleet_enabled: bool = Field(True, alias="FLEET_ENABLED")
