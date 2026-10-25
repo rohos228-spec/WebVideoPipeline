@@ -90,6 +90,9 @@ from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
+    node_reviews as node_reviews_router,
+)
+from app.web.routers import (
     outsee_create as outsee_create_router,
 )
 from app.web.routers import (
@@ -97,8 +100,6 @@ from app.web.routers import (
 )
 from app.web.routers import (
     profile as profile_router,
-    ratings as ratings_router,
-    node_reviews as node_reviews_router,
 )
 from app.web.routers import (
     project_graph as project_graph_router,
@@ -117,6 +118,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     prompts as prompts_router,
+)
+from app.web.routers import (
+    ratings as ratings_router,
 )
 from app.web.routers import (
     runs as runs_router,
