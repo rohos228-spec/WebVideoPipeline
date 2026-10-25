@@ -43,6 +43,21 @@ TENANT_TABLES: tuple[str, ...] = (
     # в режиме владельца, клиентские — только своему арендатору. Разрешение
     # «системный → арендатор» держит `prompt_store`, изоляцию — политика.
     "prompt_library",
+    # Слой действий и контроль изменений движка (#98). Таблицы создаёт
+    # create_all в lifespan, не alembic — RLS навешивает rls_apply / 0019.
+    "action_layer_plans",
+    "action_layer_steps",
+    "action_layer_approvals",
+    "action_layer_spend",
+    "action_layer_history",
+    "action_layer_plan_context",
+    "action_layer_macros",
+    "action_layer_calls",
+    "action_layer_snapshots",
+    "action_layer_attachments",
+    "change_proposals",
+    "config_versions",
+    "config_pointers",
 )
 
 #: Касса. Отдельно, потому что колонка арендатора у неё не добавляется —
@@ -68,7 +83,28 @@ INFRA_TABLES: frozenset[str] = frozenset(
         "email_verifications",
         "coupons",
         "coupon_redemptions",
+        # Глобальный рубильник супервизора: без tenant_id, общий на узел.
+        "supervisor_kill_switch",
+        "supervisor_kill_switch_history",
     }
+)
+
+#: Таблицы движка с tenant_id, которые create_all поднимает вне alembic.
+#: Нужны отдельно, чтобы lifespan и миграция 0019 навешивали RLS точечно.
+ENGINE_TENANT_TABLES: tuple[str, ...] = (
+    "action_layer_plans",
+    "action_layer_steps",
+    "action_layer_approvals",
+    "action_layer_spend",
+    "action_layer_history",
+    "action_layer_plan_context",
+    "action_layer_macros",
+    "action_layer_calls",
+    "action_layer_snapshots",
+    "action_layer_attachments",
+    "change_proposals",
+    "config_versions",
+    "config_pointers",
 )
 
 #: Маршрутные таблицы: закрыты политикой, но политика **обратная**. Сессия
