@@ -70,6 +70,40 @@ async def test_node_bg_upload(cover_client):
 
 
 @pytest.mark.asyncio
+async def test_node_bg_upload_s3(cover_client, monkeypatch):
+    c, pid, proj_dir, _ = cover_client
+    img_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfakeimagecontent"
+    files = {"file": ("my_bg.png", io.BytesIO(img_data), "image/png")}
+
+    uploaded = {}
+
+    class FakeStorage:
+        enabled = True
+
+        async def put_file(self, key, path, content_type=""):
+            uploaded[key] = (path, content_type)
+            return key
+
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "s3_access_key", "test_key")
+    monkeypatch.setattr(settings, "s3_secret_key", "test_secret")
+    monkeypatch.setattr(settings, "s3_bucket", "test_bucket")
+    monkeypatch.setattr(settings, "s3_endpoint", "https://storage.yandexcloud.net")
+
+    from app.services import storage
+
+    monkeypatch.setattr(storage, "get_storage", lambda: FakeStorage())
+
+    r = await c.post(f"/api/projects/{pid}/node-bg?node_key=split_1", files=files)
+    assert r.status_code == 200, r.text
+    assert any("projects" in k and "split_1.png" in k for k in uploaded)
+    sidecar = proj_dir / "node_backgrounds" / "split_1.json"
+    assert sidecar.is_file()
+
+
+
+@pytest.mark.asyncio
 async def test_project_cover_not_found(cover_client):
     c, pid, _, _ = cover_client
     r = await c.get(f"/api/artifacts/project-cover/{pid}")
