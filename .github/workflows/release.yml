@@ -211,7 +211,8 @@ jobs:
           printf '%s' "$GH_TOKEN" | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
             -- 'docker login ghcr.io -u '"$GH_ACTOR"' --password-stdin'
 
-          # Синхронизация библиотеки мастер-промтов из репозитория на VPS
+          # Синхронизация библиотеки мастер-промтов из репозитория на VPS с очисткой удалённых файлов
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "rm -rf $VPS_PATH/prompts"
           tar -czf - prompts/ | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
             -- "tar -xzf - -C $VPS_PATH && chmod -R a+rX $VPS_PATH/prompts"
 
