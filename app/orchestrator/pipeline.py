@@ -79,6 +79,18 @@ async def _sync_storage_after_advance(
             exc_info=True,
         )
 
+    try:
+        from app.services.artifact_storage import publish_project_artifacts
+
+        await publish_project_artifacts(session, project.id)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "advance #{}: artifact cloud publish after {} failed",
+            project.id,
+            node_type,
+            exc_info=True,
+        )
+
 
 async def advance_project(session: AsyncSession, project: Project, bot: Any = None) -> None:
     """Один такт стейт-машины. Запускает шаг, если статус — «running»; иначе
