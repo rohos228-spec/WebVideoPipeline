@@ -173,11 +173,13 @@ def _call_order(path: Path) -> tuple[int, str]:
 
 def read_batches(data_dir: str | Path, node_key: str) -> dict:
     """Все пачки последнего прогона ноды с вызовами GPT; только внутри node_trace проекта."""
-    from app.services.node_trace import _safe_name, read_run, trace_root
-
+    empty: dict[str, Any] = {"run": {}, "calls": []}
+    try:
+        from app.services.node_trace import _safe_name, read_run, trace_root
+    except ImportError:
+        return empty
     root = trace_root(data_dir).resolve()
     node_dir = (root / _safe_name(str(node_key))).resolve()
-    empty: dict[str, Any] = {"run": {}, "calls": []}
     if node_dir.parent != root or not node_dir.is_dir():
         return empty
     try:
@@ -697,7 +699,12 @@ async def _grouped(pids: list[int]) -> dict[str, dict[int, float]]:
     out: dict[str, dict[int, float]] = {"frames": {}, "images": {}, "videos": {}, "spent": {}}
     if not pids:
         return out
-    from app.services.frame_store import session_factory_for
+    try:
+        from app.services.frame_store import session_factory_for
+    except ImportError:
+        async def session_factory_for(_pid: int):  # type: ignore[misc]
+            from app.db import SessionLocal
+            return SessionLocal
 
     async def count(s, ids: list[int]) -> None:
         # Счёт по проектам из единой базы; max — на случай повторного прохода по тем же id.

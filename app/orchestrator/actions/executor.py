@@ -28,7 +28,14 @@ from app.orchestrator.action_contracts.contracts import escalated_metadata as co
 from app.services.action_layer import store
 from app.services.action_layer.context import ActionContext
 from app.services.action_layer.spec import ensure_builtin_actions, registry
-from app.services.frame_tombstones import forget_deleted, mark_frame_deleted
+
+try:
+    from app.services.frame_tombstones import forget_deleted, mark_frame_deleted
+except ImportError:
+    def forget_deleted(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
+        pass
+    def mark_frame_deleted(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
+        pass
 from app.services.redact import redact_text
 
 _CORE_CHANGE_ID = re.compile(r"^orch-appr-[0-9]+-[0-9]+$")

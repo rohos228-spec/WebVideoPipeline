@@ -147,3 +147,13 @@ async def sync_run_snapshot_from_canvas_graph(
         len(edges),
     )
     return True
+
+
+GRAPH_SOURCE_PROJECT = "project"
+
+
+def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | None) -> dict[str, Any]:
+    res = dict(meta or {})
+    if graph:
+        res["canvas_graph"] = graph
+    return res

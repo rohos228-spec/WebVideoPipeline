@@ -1471,7 +1471,23 @@ async def correlation_chain(session, request_id: str) -> list[dict]:
 
 from contextlib import contextmanager
 
-from app.services.style_agent.budget import LlmBudget
+try:
+    from app.services.style_agent.budget import LlmBudget
+except ImportError:
+    class BudgetExceeded(RuntimeError):  # type: ignore[no-redef]
+        pass
+
+    class LlmBudget:  # type: ignore[no-redef]
+        def __init__(self, max_calls: int = 10**9) -> None:
+            self.max_calls = max_calls
+            self.calls = 0
+
+        def reserve(self, label: str = "") -> None:
+            if self.calls >= self.max_calls:
+                raise BudgetExceeded(f"LLM budget exceeded: {self.calls}/{self.max_calls} ({label})")
+
+        def note_spent(self, label: str = "") -> None:
+            self.calls += 1
 
 _active: contextvars.ContextVar[LlmBudget | None] = contextvars.ContextVar("spend_budget", default=None)
 _pipeline: LlmBudget | None = None

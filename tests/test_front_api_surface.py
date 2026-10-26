@@ -46,7 +46,11 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/auth/operator-token",
     "/api/storage",
     "/api/admin",  # админка пользователей и доступов
-    "/api/orchestrator",  # оркестратор: в UI не подключён намеренно, панель владельца
+    # Оркестратор: чат разрешён участнику, инструменты владельца — только хозяину
+    "/api/orchestrator/kill",
+    "/api/orchestrator/reports",
+    "/api/orchestrator/actions",
+    "/api/orchestrator/projects",
 )
 
 #: Не адреса, а куски документации, префиксы и шаблоны в строках.

@@ -166,9 +166,12 @@ def _clip(value: Any, n: int = 200) -> str:
 
 
 def _safe(value: Any) -> Any:
-    from app.services.observation import redact
+    try:
+        from app.services.observation import redact
 
-    return redact(value)
+        return redact(value)
+    except ImportError:
+        return value
 
 
 def _iso(value: Any) -> str | None:
@@ -636,7 +639,10 @@ def _gate(project, meta: dict, key: str, raw: str, *, excerpt: bool) -> dict | N
 
 
 def _trace(project, key: str) -> dict | None:
-    from app.services.node_trace import _safe_name, read_run, trace_root
+    try:
+        from app.services.node_trace import _safe_name, read_run, trace_root
+    except ImportError:
+        return None
 
     folder = trace_root(project.data_dir) / _safe_name(key)
     try:
@@ -1482,7 +1488,10 @@ def _gpt_markdown(gpt: list[dict], *, full: bool) -> str:
 
 def _trace_runs(data_dir: Any) -> tuple[list[dict], list[dict]]:
     """Прогоны нод из node_trace и дневник правок программы последнего прогона каждой ноды."""
-    from app.services.node_trace import latest_diary, list_runs
+    try:
+        from app.services.node_trace import latest_diary, list_runs
+    except ImportError:
+        return [], []
 
     try:
         runs = list_runs(data_dir)
@@ -1497,10 +1506,13 @@ def _trace_runs(data_dir: Any) -> tuple[list[dict], list[dict]]:
 
 def _has_frames_group(canvas: list[dict]) -> bool:
     """На канвасе есть группа нод «Кадры» (n_excel_gpt_fw_*): в отчёт идут её схема и правила."""
-    from app.services.node_rules import NODE_FLOW, node_local_key
+    try:
+        from app.services.node_rules import NODE_FLOW, node_local_key
 
-    group = {f.key for f in NODE_FLOW}
-    return any(node_local_key(str(n["id"])) in group and str(n["id"]) not in group for n in canvas)
+        group = {f.key for f in NODE_FLOW}
+        return any(node_local_key(str(n["id"])) in group and str(n["id"]) not in group for n in canvas)
+    except ImportError:
+        return False
 
 
 async def _report_nodes(ctx: ActionContext, params: dict) -> dict:

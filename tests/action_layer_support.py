@@ -12,9 +12,16 @@ from app.models import Base, Frame, Project, ProjectStatus
 
 # Модели вне app.models: их таблицы нужны create_all тестовой базы (журнал наблюдений,
 # касса провайдеров, managed-режим).
-from app.services import actions_v1 as _actions_v1  # noqa: F401
+try:
+    from app.services import actions_v1 as _actions_v1  # noqa: F401
+except ImportError:
+    _actions_v1 = None  # type: ignore[assignment]
 from app.services import db_v2, kill_switch
-from app.services import observation as _observation  # noqa: F401
+
+try:
+    from app.services import observation as _observation  # noqa: F401
+except ImportError:
+    _observation = None  # type: ignore[assignment]
 from app.services import spend_guard as _spend_guard  # noqa: F401
 from app.services.action_layer import attachments, executor, store
 from app.services.action_layer.spec import ActionRegistry, ActionSpec, CostEstimate

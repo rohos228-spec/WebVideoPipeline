@@ -593,3 +593,18 @@ async def project_graph(session: AsyncSession, project: Project) -> dict[str, An
             for en in entities
         ],
     }
+
+
+ARCHIVE_NUMBER_FROM = 1_000_000
+
+
+def frame_is_archived(frame: Any) -> bool:
+    if frame is None:
+        return False
+    number = getattr(frame, "number", None)
+    if isinstance(number, (int, float)) and number >= ARCHIVE_NUMBER_FROM:
+        return True
+    attrs = getattr(frame, "attrs", None)
+    if isinstance(attrs, dict) and attrs.get("archived"):
+        return True
+    return False

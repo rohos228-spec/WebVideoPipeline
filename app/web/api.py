@@ -20,6 +20,7 @@ from loguru import logger
 
 from app.services.event_bus import get_bus
 from app.web.identity import IdentityMiddleware
+from app.web.member_money import MemberMoneyMiddleware
 from app.web.routers import (
     admin_access as admin_access_router,
 )
@@ -467,6 +468,7 @@ def create_app() -> FastAPI:
     # CORS-заголовка, и кросс-доменный фронт ложился бы целиком, ещё не
     # успев отправить токен. Проверено `test_cors_preflight_is_not_refused`.
     # В режиме владельца слой не делает ничего (`settings.accounts_enabled`).
+    app.add_middleware(MemberMoneyMiddleware)
     app.add_middleware(IdentityMiddleware)
 
     # Локальный фронт ходит с localhost:3000 в dev — открываем CORS.
@@ -522,6 +524,10 @@ def create_app() -> FastAPI:
     app.include_router(profile_router.router, prefix=API_PREFIX)
     app.include_router(ratings_router.router, prefix=API_PREFIX)
     app.include_router(node_reviews_router.router, prefix=API_PREFIX)
+
+    from app.web.routers import project_reports as project_reports_router
+
+    app.include_router(project_reports_router.router, prefix=API_PREFIX)
 
     # Chat-supervisor оркестратор (порт из video-pipeline-orchestrator@orchestrator).
     # /api/orchestrator/chat — отдельно от studio /api/chat.
