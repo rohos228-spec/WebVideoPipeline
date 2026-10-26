@@ -283,6 +283,110 @@ async def import_from_disk(session: Any, *, overwrite: bool = False) -> dict[str
     return stats
 
 
+
+
+async def sync_system_prompts_from_disk(session: Any) -> dict[str, int]:
+    """Синхронизировать системный уровень базы данных с актуальным каталогом prompts/.
+
+    1. Обновляет/добавляет системные промпты из файлов на диске (чтобы правки в Git
+       гарантированно попадали в базу).
+    2. Удаляет системные промпты (tenant_id IS NULL), которых больше нет на диске
+       и которых нет среди builtin_prompts() (очистка устаревших/удалённых пресетов).
+    3. Обновляет кэш процесса _CACHE.
+    Арендаторские и проектные промпты не затрагиваются.
+    """
+    from sqlalchemy import select
+
+    from app.models import PromptLibraryEntry
+    from app.services.builtin_prompts import builtin_prompts
+    from app.services.prompt_library import (
+        STEP_FOLDERS,
+        is_excel_gpt_prompt_step,
+        list_prompts,
+        prompt_path,
+        resolve_excel_gpt_prompt_path,
+    )
+
+    valid_prompts: set[tuple[str, str]] = set()
+    for (step, name) in builtin_prompts():
+        valid_prompts.add((step, name))
+
+    def _from_disk(step_code: str, name: str) -> str:
+        p = (
+            resolve_excel_gpt_prompt_path(name)
+            if is_excel_gpt_prompt_step(step_code)
+            else prompt_path(step_code, name)
+        )
+        return p.read_text(encoding='utf-8')
+
+    stats = {'seen': 0, 'written': 0, 'deleted': 0}
+
+    for step_code in STEP_FOLDERS:
+        try:
+            names = list(list_prompts(step_code))
+        except Exception:  # noqa: BLE001
+            continue
+        for name in names:
+            valid_prompts.add((step_code, name))
+            stats['seen'] += 1
+            try:
+                text = _from_disk(step_code, name)
+            except (FileNotFoundError, OSError, ValueError):
+                continue
+
+            existing = (
+                await session.execute(
+                    select(PromptLibraryEntry).where(
+                        PromptLibraryEntry.tenant_id.is_(None),
+                        (PromptLibraryEntry.brand == '') | PromptLibraryEntry.brand.is_(None),
+                        PromptLibraryEntry.project_id.is_(None),
+                        PromptLibraryEntry.step_code == step_code,
+                        PromptLibraryEntry.name == name,
+                    )
+                )
+            ).scalar_one_or_none()
+
+            if existing is None:
+                row = PromptLibraryEntry(
+                    tenant_id=None,
+                    brand='',
+                    project_id=None,
+                    step_code=step_code,
+                    name=name,
+                    text=text,
+                )
+                session.add(row)
+                stats['written'] += 1
+            elif existing.text != text:
+                existing.text = text
+                stats['written'] += 1
+
+    db_system_rows = (
+        await session.execute(
+            select(PromptLibraryEntry).where(
+                PromptLibraryEntry.tenant_id.is_(None),
+                (PromptLibraryEntry.brand == '') | PromptLibraryEntry.brand.is_(None),
+                PromptLibraryEntry.project_id.is_(None),
+            )
+        )
+    ).scalars().all()
+
+    for row in db_system_rows:
+        if (row.step_code, row.name) not in valid_prompts:
+            logger.info('промт-библиотека: удаление устаревшего системного промта {}/{}', row.step_code, row.name)
+            await session.delete(row)
+            stats['deleted'] += 1
+
+    await session.flush()
+    await refresh(session)
+    logger.info(
+        'промт-библиотека синхронизирована с диском: обновлено/добавлено {}, удалено устаревших {}',
+        stats['written'],
+        stats['deleted'],
+    )
+    return stats
+
+
 async def drop(session: Any, step_code: str, name: str, *, scope: PromptScope | None = None) -> bool:
     """Убрать переопределение своего уровня. Возвращает True, если было что убирать.
 

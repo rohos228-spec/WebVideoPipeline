@@ -333,16 +333,8 @@ async def _lifespan(app: FastAPI):
         from app.services import prompt_store
 
         async with session_scope() as s:
-            loaded = await prompt_store.refresh(s)
-            if not loaded:
-                # Пустая база — наполняем системный уровень с диска. Уже
-                # загруженное не трогаем: файл мог остаться от прошлой
-                # версии, а в базе промт могли править.
-                stats = await prompt_store.import_from_disk(s)
-                await prompt_store.refresh(s)
-                logger.info("web lifespan: промт-библиотека с диска {}", stats)
-            else:
-                logger.info("web lifespan: промт-библиотека из базы, {} строк", loaded)
+            stats = await prompt_store.sync_system_prompts_from_disk(s)
+            logger.info("web lifespan: синхронизация системных промтов с диска {}", stats)
 
             # Встроенные промты — в базу, если их там нет. Именно в базу, а не
             # на диск: на сервере диск только для чтения, и шаг без файла

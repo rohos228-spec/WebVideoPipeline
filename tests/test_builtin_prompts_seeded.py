@@ -127,7 +127,7 @@ async def test_hero_style_is_read_from_the_store(db) -> None:
     async with db() as s:
         await prompt_store.save(s, "hero_style", "default", "мой стиль из базы", scope=PromptScope())
 
-    project = SimpleNamespace(id=1, prompt_overrides={}, meta={})
+    project = SimpleNamespace(id=1, prompt_overrides={"hero_style": "default"}, meta={})
     assert _read_hero_style(project) == "мой стиль из базы"
 
 
@@ -147,5 +147,5 @@ async def test_items_style_default_is_seeded_and_read_by_the_step(db) -> None:
 
     async with db() as s:
         await seed_builtin_prompts(s)
-    project = SimpleNamespace(id=1, prompt_overrides={}, meta={})
+    project = SimpleNamespace(id=1, prompt_overrides={"hero_style": "default"}, meta={})
     assert "предмет" in _items_style_prompt(project).lower()
