@@ -122,6 +122,7 @@ export function StudioWorkspace({
     setInlineStudioKey(null);
     setStudioTab("settings");
     setVMenuNodeKey(null);
+    window.dispatchEvent(new CustomEvent("node-studio-closed"));
   }, [onStudioOpenChange, onSelectNode]);
 
   const [inlineStudioKey, setInlineStudioKey] = useState<string | null>(null);

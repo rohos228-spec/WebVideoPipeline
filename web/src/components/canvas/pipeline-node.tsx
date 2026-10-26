@@ -264,12 +264,12 @@ export function PipelineNode({ data, selected }: NodeProps) {
     setCollapsedBox((p) => (p && p.w === w && p.h === h ? p : { w, h }));
   }, [isOpenBox]);
   useEffect(() => {
-    if (!inlineStudio) return;
     const onClosed = () => {
       beginClose();
     };
     const onClosing = (ev: Event) => {
-      if ((ev as CustomEvent<{ nodeKey?: string }>).detail?.nodeKey === d.nodeKey) beginClose();
+      const key = (ev as CustomEvent<{ nodeKey?: string }>).detail?.nodeKey;
+      if (!key || key === d.nodeKey) beginClose();
     };
     window.addEventListener("vp-node-closing", onClosing);
     window.addEventListener("node-studio-closed", onClosed);
@@ -277,7 +277,14 @@ export function PipelineNode({ data, selected }: NodeProps) {
       window.removeEventListener("vp-node-closing", onClosing);
       window.removeEventListener("node-studio-closed", onClosed);
     };
-  }, [inlineStudio, beginClose, d.nodeKey]);
+  }, [beginClose, d.nodeKey]);
+
+  useEffect(() => {
+    if (!selected && (inlineStudio || vis || tileExpanded)) {
+      beginClose();
+    }
+  }, [selected, beginClose, inlineStudio, vis, tileExpanded]);
+
   const openInline = useCallback(() => {
     window.dispatchEvent(new CustomEvent("vp-node-inline-exclusive", { detail: { nodeKey: d.nodeKey } }));
     if (closeTimer.current) {
@@ -285,7 +292,6 @@ export function PipelineNode({ data, selected }: NodeProps) {
       closeTimer.current = null;
     }
     setInlineStudio(true);
-    setTileExpanded(true);
     setVis(true);
     window.dispatchEvent(
       new CustomEvent("studio-open-node-prompts", {
