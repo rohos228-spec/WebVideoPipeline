@@ -243,70 +243,13 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const isGptWork = isExcelGpt || isSdAgent;
   const isAssemble = d.type === "assemble";
   const anchorRef = useRef<HTMLDivElement>(null);
-  const [tileExpanded, setTileExpanded] = useState(false);
-  const [inlineStudio, setInlineStudio] = useState(false);
-  const isOpenBox = inlineStudio || tileExpanded;
-  /** vis = box is in its open geometry (drives the 350ms size/colour/crossfade animation). */
-  const [vis, setVis] = useState(false);
-  const closeTimer = useRef<number | null>(null);
-  const beginClose = useCallback(() => {
-    setVis(false);
-    setTileExpanded(false);
-    if (closeTimer.current) window.clearTimeout(closeTimer.current);
-    closeTimer.current = window.setTimeout(() => setInlineStudio(false), 360);
-  }, []);
-  const [collapsedBox, setCollapsedBox] = useState<{ w: number; h: number } | null>(null);
-  useLayoutEffect(() => {
-    const el = anchorRef.current;
-    if (!el || isOpenBox) return;
-    const w = el.clientWidth;
-    const h = el.clientHeight;
-    setCollapsedBox((p) => (p && p.w === w && p.h === h ? p : { w, h }));
-  }, [isOpenBox]);
-  useEffect(() => {
-    const onClosed = () => {
-      beginClose();
-    };
-    const onClosing = (ev: Event) => {
-      const key = (ev as CustomEvent<{ nodeKey?: string }>).detail?.nodeKey;
-      if (!key || key === d.nodeKey) beginClose();
-    };
-    window.addEventListener("vp-node-closing", onClosing);
-    window.addEventListener("node-studio-closed", onClosed);
-    return () => {
-      window.removeEventListener("vp-node-closing", onClosing);
-      window.removeEventListener("node-studio-closed", onClosed);
-    };
-  }, [beginClose, d.nodeKey]);
-
-  useEffect(() => {
-    if (!selected && (inlineStudio || vis || tileExpanded)) {
-      beginClose();
-    }
-  }, [selected, beginClose, inlineStudio, vis, tileExpanded]);
-
-  const openInline = useCallback(() => {
-    window.dispatchEvent(new CustomEvent("vp-node-inline-exclusive", { detail: { nodeKey: d.nodeKey } }));
-    if (closeTimer.current) {
-      window.clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-    setInlineStudio(true);
-    setVis(true);
+  const openSettings = useCallback(() => {
     window.dispatchEvent(
       new CustomEvent("studio-open-node-prompts", {
-        detail: { nodeKey: d.nodeKey, initialTab: "settings", inline: true },
+        detail: { nodeKey: d.nodeKey, initialTab: "settings" },
       }),
     );
   }, [d.nodeKey]);
-  useEffect(() => {
-    const onOpen = (ev: Event) => {
-      const key = (ev as CustomEvent<{ nodeKey?: string }>).detail?.nodeKey;
-      if (key === d.nodeKey) openInline();
-    };
-    window.addEventListener("vp-node-inline-open", onOpen);
-    return () => window.removeEventListener("vp-node-inline-open", onOpen);
-  }, [d.nodeKey, openInline]);
   // Wheel over a node zooms the canvas (like the background). Only an inner area that
   // can actually scroll in the wheel direction keeps the wheel (React Flow skips .nowheel).
   useEffect(() => {
@@ -356,27 +299,7 @@ export function PipelineNode({ data, selected }: NodeProps) {
     root.addEventListener("wheel", onWheel, { capture: true, passive: true });
     return () => root.removeEventListener("wheel", onWheel, { capture: true });
   }, []);
-  useEffect(() => {
-    const onExclusive = (ev: Event) => {
-      const key = (ev as CustomEvent<{ nodeKey?: string }>).detail?.nodeKey;
-      if (key && key !== d.nodeKey) {
-        beginClose();
-      }
-    };
-    window.addEventListener("vp-node-inline-exclusive", onExclusive);
-    return () => window.removeEventListener("vp-node-inline-exclusive", onExclusive);
-  }, [d.nodeKey, beginClose]);
-  // Expanded node (and its prompt detail overlay) must sit above neighbours.
-  useEffect(() => {
-    const el = anchorRef.current?.closest(".react-flow__node") as HTMLElement | null;
-    if (!el) return;
-    if (inlineStudio) {
-      el.style.zIndex = "2000";
-      return () => {
-        el.style.zIndex = "";
-      };
-    }
-  }, [inlineStudio]);
+
   const showNii67 = d.type === "script" && projectUsesNii67Script(actions?.project ?? null);
 
   const title = showNii67
@@ -417,21 +340,16 @@ export function PipelineNode({ data, selected }: NodeProps) {
             ref={anchorRef}
             onContextMenu={(e) => e.preventDefault()}
             className={cn(
-              "group relative overflow-visible rounded-lg border backdrop-blur-md",
-              vis ? "bg-[#0a0a0a]" : "bg-[#0d0d10]/90",
-              vis ? "w-[780px]" : !inlineStudio && tileExpanded ? "w-[720px]" : isStorage || isShotMenu || isStyleExtract || isHitlStyle || showNii67 ? "w-[384px]" : "w-[336px]",
-              "transition-[width,border-color,background-color] duration-[350ms] ease-[cubic-bezier(0.65,0,0.35,1)]",
+              "group relative overflow-visible rounded-lg border backdrop-blur-md bg-[#0d0d10]/90",
+              isStorage || isShotMenu || isStyleExtract || isHitlStyle || showNii67 ? "w-[384px]" : "w-[336px]",
+              "transition-[border-color,background-color] duration-200",
               d.status === "failed" ? "border-red-500/80" : "border-white/[0.12] hover:border-white/30",
               selected && "border-white/80 outline outline-1 outline-white/40",
               disabled && "opacity-40 grayscale",
             )}
           >
             {/* Вход/выход без точек: связь с левого и правого края по всей высоте */}
-            {/* handles anchored to the collapsed tile box so edges never move on expand */}
-            <div
-              className="pointer-events-none absolute left-0 top-0"
-              style={isOpenBox && collapsedBox ? { width: collapsedBox.w, height: collapsedBox.h } : { right: 0, bottom: 0 }}
-            >
+            <div className="pointer-events-none absolute inset-0">
               {!isExcelFeed && <SideTargetStrip nodeKey={d.nodeKey} />}
               <SideSourceStrip nodeKey={d.nodeKey} />
             </div>
@@ -556,24 +474,9 @@ export function PipelineNode({ data, selected }: NodeProps) {
                   : undefined
               }
               description={(d.description && d.description.trim()) || spec.description || fallbackDescription(d.type, title)}
-              expanded={tileExpanded && !inlineStudio}
-              vis={vis}
-              onMenuReady={() => setVis(true)}
-              tileW={collapsedBox?.w}
-              onToggleExpand={() => setTileExpanded((v) => !v)}
               settingsLines={buildSettingsLines(d, slots, isExcelGpt, isSdAgent, agentName)}
               nodeKey={d.nodeKey}
-              inlineStudio={inlineStudio}
-              inlineAttrs={{
-                "data-status": STATUS_CONFIG[d.status]?.label ?? "",
-                "data-description": (d.description && d.description.trim()) || "",
-                "data-model-id": d.modelId ?? "",
-                "data-image-resolution": d.imageResolution ?? "",
-                "data-image-quality": d.imageQuality ?? "",
-              "data-reasoning-effort": d.reasoningEffort ?? "",
-                "data-aspect-ratio": d.aspectRatio ?? "",
-              }}
-              onOpenSettings={openInline}
+              onOpenSettings={openSettings}
             />
             {isExcelFeed && actions?.projectId && (
               <ExcelFeedPanel projectId={actions.projectId} nodeKey={d.nodeKey} />
@@ -988,9 +891,6 @@ function useNodeBg(nodeKey: string, projectId: number | null): string | null {
 
 function PosterTile({
   title,
-  vis,
-  onMenuReady,
-  tileW,
   customBg,
   onFlyDelete,
   onFlyRename,
@@ -1009,19 +909,12 @@ function PosterTile({
   onStop,
   onRetry,
   description,
-  expanded,
-  onToggleExpand,
   settingsLines,
   onOpenSettings,
   nodeKey,
-  inlineStudio,
-  inlineAttrs,
   projectId,
 }: {
   title: string;
-  vis?: boolean;
-  onMenuReady?: () => void;
-  tileW?: number;
   customBg?: string;
   onFlyDelete?: () => void;
   onFlyRename?: (label: string) => void;
@@ -1040,49 +933,11 @@ function PosterTile({
   onRun?: () => void;
   onStop?: () => void;
   description: string;
-  expanded: boolean;
-  onToggleExpand: () => void;
   settingsLines: string[];
   onOpenSettings: () => void;
   nodeKey: string;
-  inlineStudio: boolean;
-  inlineAttrs: Record<string, string>;
   projectId?: number | null;
 }) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const [menuH, setMenuH] = useState(0);
-  const readyRef = useRef(false);
-  useEffect(() => {
-    if (!inlineStudio || !vis) {
-      readyRef.current = false;
-    }
-    if (!inlineStudio) {
-      return;
-    }
-    const el = menuRef.current;
-    const ready = () => {
-      if (readyRef.current) return;
-      readyRef.current = true;
-      // let the browser paint the closed geometry first, then animate
-      requestAnimationFrame(() => requestAnimationFrame(() => onMenuReady?.()));
-    };
-    const fallback = window.setTimeout(ready, 0); // start at once; the menu lays out while still at opacity 0
-    let ro: ResizeObserver | null = null;
-    if (el) {
-      ro = new ResizeObserver(() => {
-        const h = el.offsetHeight;
-        if (h > 20) {
-          setMenuH(h);
-          ready();
-        }
-      });
-      ro.observe(el);
-    }
-    return () => {
-      window.clearTimeout(fallback);
-      ro?.disconnect();
-    };
-  }, [inlineStudio, vis, onMenuReady]);
   const genBg = useNodeBg(nodeKey, projectId ?? null);
   const fixedBg = customBg && customBg.startsWith("/api/files?path=") && /[\\:]/.test(customBg.slice(16)) ? "/api/files?path=" + encodeURIComponent(customBg.slice(16)) : customBg;
   const nodeBg = fixedBg || genBg;
@@ -1123,15 +978,15 @@ function PosterTile({
       <span className={cn("h-2 w-2 border", status === "queued" || status === "waiting_hitl" ? "border-white/70" : "border-white/35")} />
     );
   const isTextNode = !media.length && !audio.length;
-  const shown = expanded ? media.slice(0, 12) : media.slice(0, 4);
+  const shown = media.slice(0, 4);
   const blur = running ? "blur-md opacity-70" : "";
   let body: React.ReactNode;
   if (media.length) {
     body = (
-      <div className={cn("absolute inset-0 grid gap-px bg-black", shown.length === 1 ? "grid-cols-1" : expanded ? "grid-cols-4" : "grid-cols-2")}>
+      <div className={cn("absolute inset-0 grid gap-px bg-black", shown.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
         {shown.map((m) =>
           isVideoItem(m) ? (
-            <video key={m.id} src={m.previewUrl ?? undefined} muted preload="metadata" controls={expanded} className={cn("h-full w-full object-cover", blur)} />
+            <video key={m.id} src={m.previewUrl ?? undefined} muted preload="metadata" controls={false} className={cn("h-full w-full object-cover", blur)} />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img key={m.id} src={m.previewUrl ?? undefined} alt={m.label} draggable={false} className={cn("h-full w-full object-cover", blur)} />
@@ -1142,7 +997,7 @@ function PosterTile({
   } else if (audio.length) {
     body = (
       <div className="nodrag nopan absolute inset-x-3 bottom-4 top-10 flex flex-col justify-center gap-2">
-        {audio.slice(0, expanded ? 6 : 1).map((a) => (
+        {audio.slice(0, 1).map((a) => (
           <div key={a.id} className="flex flex-col gap-1">
             <span className="truncate text-[12px] text-white/60"><span className="vp-hl">{a.label}</span></span>
             <audio controls preload="none" src={(a.previewUrl || a.downloadUrl) ?? undefined} className="h-8 w-full" />
@@ -1170,11 +1025,11 @@ function PosterTile({
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 top-9 whitespace-pre-wrap px-3 pb-2 text-[12.5px] leading-[1.5] text-white/75",
-          expanded ? "nowheel nodrag overflow-y-auto select-text" : "overflow-hidden",
+          "overflow-hidden",
           running && "blur-[2px]",
         )}
       >
-        <span className="vp-hl">{expanded ? text : text.slice(0, 600)}</span>
+        <span className="vp-hl">{text.slice(0, 600)}</span>
       </div>
     );
   } else {
@@ -1184,59 +1039,24 @@ function PosterTile({
   }
   return (
     <div className="relative">
-      <div
-        className={cn(
-          "relative overflow-hidden transition-[height,border-radius] duration-[350ms] ease-[cubic-bezier(0.65,0,0.35,1)]",
-          vis ? "rounded-[14px]" : "rounded-lg",
-          inlineStudio ? "" : expanded ? "h-[460px]" : "h-[190px]",
-        )}
-        style={inlineStudio ? { height: vis ? Math.min(menuH || 680, 680) : 190 } : undefined}
-      >
-        {inlineStudio ? (
-          <div
-            ref={menuRef}
-            id={`vp-inline-studio-${nodeKey}`}
-            data-inline-studio
-            {...inlineAttrs}
-            className="nowheel nopan absolute left-0 top-0 z-40 cursor-auto"
-            style={{
-              width: 778,
-              opacity: vis ? 1 : 0,
-              transition: vis ? "opacity 175ms ease-out 175ms" : "opacity 150ms ease-in",
-              pointerEvents: vis ? "auto" : "none",
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-          />
-        ) : null}
-        <div
-          data-vp-tile-content
-          className="absolute left-0 top-0"
-          style={{
-            width: inlineStudio && tileW ? tileW : "100%",
-            height: inlineStudio ? 190 : "100%",
-            opacity: inlineStudio && vis ? 0 : 1,
-            transition: inlineStudio && vis ? "opacity 175ms ease-in" : "opacity 175ms ease-out 175ms",
-            pointerEvents: inlineStudio ? "none" : undefined,
-          }}
-        >
+      <div className="relative h-[190px] overflow-hidden rounded-lg">
+        <div data-vp-tile-content className="absolute inset-0">
         {!media.length && nodeBg ? (
           <div aria-hidden data-vp-tile-bg className="pointer-events-none absolute inset-0 overflow-hidden">
             <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${nodeBg})` }} />
           </div>
         ) : null}
-        {!expanded ? (
-          <>
+        <>
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[35%] bg-gradient-to-b from-black/70 to-transparent" />
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[35%] bg-gradient-to-t from-black/70 to-transparent" />
           </>
-        ) : null}
-        {media.length || audio.length || expanded ? (
+        {media.length || audio.length ? (
           body
         ) : (
           <div data-vp-tile-mid className="absolute inset-0 opacity-0 transition-opacity duration-[120ms] ease-out group-hover:opacity-100">{body}</div>
         )}
         {media.length ? <div className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-black/75 to-transparent" /> : null}
-        {!expanded && text && !nodeBg ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#0d0d10] to-transparent" /> : null}
+        {text && !nodeBg ? <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-[#0d0d10] to-transparent" /> : null}
         <div className={"absolute inset-x-0 top-0 flex items-start justify-between gap-2 px-2.5 pb-2 pt-2"}>
           <span className="min-w-0 flex-1 break-words pt-0.5 text-[18px] font-normal uppercase leading-tight tracking-[0.04em] text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.7)]">{renaming ? (
               <input
@@ -1265,11 +1085,10 @@ function PosterTile({
             )}</span>
           <span
             className="relative flex shrink-0 items-center gap-1.5 text-[12px] text-white/85"
-            onMouseEnter={!expanded ? showFly : undefined}
-            onMouseLeave={!expanded ? hideFly : undefined}
+            onMouseEnter={showFly}
+            onMouseLeave={hideFly}
           >
-            {!expanded && !inlineStudio ? (
-              <span className="pointer-events-none absolute right-0 top-0 z-30 h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
+            <span className="pointer-events-none absolute right-0 top-0 z-30 h-7 w-7" data-vp-flyout={fly ? "open" : "closed"}>
                 {[
                   { k: "delete", t: "Удалить ноду", icon: FlyTrash, cls: "bg-red-600 text-white hover:bg-red-500", x: -40, y: 2, fn: () => onFlyDelete?.(), show: !!onFlyDelete },
                   { k: "rename", t: "Переименовать", icon: FlyPencil, cls: "bg-black/75 text-white hover:bg-black/90", x: -30, y: 30, fn: () => { setDraftTitle(title); setRenaming(true); }, show: !!onFlyRename },
@@ -1317,7 +1136,6 @@ function PosterTile({
                   }}
                 />
               </span>
-            ) : null}
             <span
               data-status-icon={disabled ? "disabled" : status}
               title={disabled ? "Отключена" : cfg.label}
@@ -1364,20 +1182,7 @@ function PosterTile({
                 </button>
               ) : null}
             </span>
-            {expanded ? (
-              <button
-                type="button"
-                title="Свернуть"
-                className="nodrag nopan ml-1 flex h-6 w-6 items-center justify-center rounded border border-white/20 bg-black/50 text-white hover:border-white/60"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggleExpand();
-                }}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            ) : null}
+
           </span>
         </div>
         {failed ? (
@@ -1419,21 +1224,8 @@ function PosterTile({
           />
         ) : null}
         <div className="nodrag min-w-0 flex-1 font-mono text-[14px] text-white/85 [&_*]:!rounded-none [&_*]:!font-mono [&_*]:!text-[14px] [&_button]:!mt-0 [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!px-0 [&_button]:!shadow-none [&_button:hover]:!text-white"><span className="vp-hl inline-block max-w-full">{model}</span></div>
-        {inlineStudio ? (
-          <button
-            type="button"
-            title="Свернуть"
-            className="nodrag nopan flex h-7 w-7 shrink-0 items-center justify-center rounded border border-white/15 text-white/80 hover:border-white/60 hover:text-white"
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              window.dispatchEvent(new CustomEvent("node-studio-close"));
-            }}
-          >
-            <Minimize2 className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-        {expanded && onView ? (
+
+        {onView ? (
           <button
             type="button"
             title="Открыть полный просмотр результата"

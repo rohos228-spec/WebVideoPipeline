@@ -1153,9 +1153,13 @@ export function FlowCanvas({
             inlineClickTimerRef.current = null;
           }
           const t = ev.target as HTMLElement;
-          if (t.closest(".node-v-trigger") || t.closest(".node-v-menu") || t.closest("button") || t.closest("[data-inline-studio]")) return;
+          if (t.closest(".node-v-trigger") || t.closest(".node-v-menu") || t.closest("button")) return;
           const d = node.data as PipelineNodeData;
-          void d; // double-click: old studio detached; single click opens the inline menu
+          window.dispatchEvent(
+            new CustomEvent("studio-open-node-prompts", {
+              detail: { nodeKey: d.nodeKey, initialTab: "settings" },
+            }),
+          );
         }}
         onNodeClick={(ev, node) => {
           const t = ev.target as HTMLElement;
@@ -1169,18 +1173,20 @@ export function FlowCanvas({
           const d = node.data as PipelineNodeData;
           onSelectNode(d.nodeKey);
           onNodeActivate?.(d.nodeKey, d.type);
-          // Single click (no drag, RF threshold 4px) expands the node into the inline menu.
-          // Delayed so a double-click can still open the full studio.
           if (
             ev.detail > 1 ||
-            t.closest("button, input, textarea, select, a, label, [role=switch], .react-flow__handle, [data-inline-studio], .node-ai-review-trigger")
+            t.closest("button, input, textarea, select, a, label, [role=switch], .react-flow__handle, .node-ai-review-trigger")
           ) {
             return;
           }
           if (inlineClickTimerRef.current) window.clearTimeout(inlineClickTimerRef.current);
           inlineClickTimerRef.current = window.setTimeout(() => {
             inlineClickTimerRef.current = null;
-            window.dispatchEvent(new CustomEvent("vp-node-inline-open", { detail: { nodeKey: d.nodeKey } }));
+            window.dispatchEvent(
+              new CustomEvent("studio-open-node-prompts", {
+                detail: { nodeKey: d.nodeKey, initialTab: "settings" },
+              }),
+            );
           }, 0);
         }}
         onSelectionChange={(sel) => {

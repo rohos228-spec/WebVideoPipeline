@@ -104,7 +104,7 @@ export function NodeStudio({
   nodeDisabled = false,
   onEnableNode,
   promptSlots: promptSlotsProp,
-  inlineTargetId = null,
+  inlineTargetId: _inlineTargetId = null,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -125,7 +125,7 @@ export function NodeStudio({
   const [tab, setTab] = useState<StudioTab>(initialTab);
   const [catalogMode, setCatalogMode] = useState(true);
   useEffect(() => {
-    if (open) setCatalogMode(!inlineTargetId && initialTab !== "settings");
+    if (open) setCatalogMode(initialTab !== "settings");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, nodeKey]);
   const [activeSlotId, setActiveSlotId] = useState<string | null>(null);
@@ -645,24 +645,9 @@ export function NodeStudio({
   const canCatalog = Boolean(showFilesPanel && promptStepCode && !isCheckNode && !showGptTextPanel && !showFramePromptsPanel);
   const catalogActive = open && catalogMode && canCatalog && tab === "prompts";
   useEffect(() => {
-    if (open && catalogMode && canCatalog && tab !== "prompts" && initialTab !== "settings" && !inlineTargetId) setTab("prompts");
+    if (open && catalogMode && canCatalog && tab !== "prompts" && initialTab !== "settings") setTab("prompts");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, catalogMode, canCatalog]);
-  const [, setInlineTick] = useState(0);
-  useEffect(() => {
-    if (!open || !inlineTargetId) return;
-    if (document.getElementById(inlineTargetId)) return;
-    let raf = 0;
-    const tick = () => {
-      if (document.getElementById(inlineTargetId)) {
-        setInlineTick((n) => n + 1);
-        return;
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [open, inlineTargetId]);
   const [catalogDetail, setCatalogDetail] = useState<{ nodeKey: string; item: { id: string; label: string } | null } | null>(null);
   useEffect(() => {
     const on = (ev: Event) => setCatalogDetail((ev as CustomEvent<{ nodeKey: string; item: { id: string; label: string } | null }>).detail);
@@ -674,60 +659,66 @@ export function NodeStudio({
     if (wasOpenRef.current && !open) window.dispatchEvent(new CustomEvent("node-studio-closed"));
     wasOpenRef.current = open;
   }, [open]);
-  // Close with a fade: tell the inline node to start its reverse animation, keep the
-  // menu mounted while it fades out, then actually close.
-  const closingRef = useRef(false);
+
   const requestClose = useCallback(() => {
-    if (closingRef.current) return;
-    if (!inlineTargetId) {
-      onOpenChange(false);
-      return;
-    }
-    closingRef.current = true;
-    window.dispatchEvent(new CustomEvent("vp-node-closing", { detail: { nodeKey } }));
-    window.setTimeout(() => {
-      closingRef.current = false;
-      onOpenChange(false);
-    }, 170);
-  }, [onOpenChange, nodeKey, inlineTargetId]);
+    if (Date.now() < backdropGuardUntil.current) return;
+    onOpenChange(false);
+  }, [onOpenChange]);
+
   useEffect(() => {
     const onClose = () => requestClose();
     window.addEventListener("node-studio-close", onClose);
     return () => window.removeEventListener("node-studio-close", onClose);
   }, [requestClose]);
 
-  const nodeBgUrl = nodeBgFor(nodeKey, promptBgFor(String(activeVariant || "default"), String(activeVariant || "default"), nodeKey));
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") requestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, requestClose]);
+
+  const nodeData = useMemo(() => {
+    const meta = (project.data?.meta || {}) as {
+      workflow?: { nodes?: Array<{ id: string; data?: Record<string, any> }> };
+    };
+    return meta.workflow?.nodes?.find((n) => n.id === nodeKey)?.data;
+  }, [project.data?.meta, nodeKey]);
 
   if (!nodeKey || !mounted || !open) return null;
-  // Old side-sheet studio is detached: only the inline expanded node menu renders.
-  if (!inlineTargetId) return null;
-  const inlineEl = inlineTargetId ? document.getElementById(inlineTargetId) : null;
-  if (inlineTargetId && !inlineEl) return null;
-  if (inlineEl) {
-    const ds = inlineEl.dataset;
-    const hasSettings =
-      (isExcelGptNode(nodeType) && !!projectId) ||
-      !!showStepParams ||
-      ((nodeType === "items" || nodeType === "hero" || nodeType === "script") && !!projectId);
-    const statusLabel = isThisNodeRunning ? "в работе" : nodeDisabled ? "отключена" : ds.status || "";
-    const statusDot =
-      statusLabel === "готово" ? "bg-white" : statusLabel === "ошибка" ? "bg-red-500" : isThisNodeRunning ? "bg-sky-400 animate-pulse" : "border border-white/40";
-    const inTab0 = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
-    const activeName = String(activeVariant || "default");
-    const detailOpen = inTab0 === "prompts" && !!catalogDetail && catalogDetail.nodeKey === nodeKey && !!catalogDetail.item;
+
+  const hasSettings =
+    (isExcelGptNode(nodeType) && !!projectId) ||
+    !!showStepParams ||
+    ((nodeType === "items" || nodeType === "hero" || nodeType === "script") && !!projectId);
+  const inTab0 = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
+  const activeName = String(activeVariant || "default");
+  const detailOpen = inTab0 === "prompts" && !!catalogDetail && catalogDetail.nodeKey === nodeKey && !!catalogDetail.item;
   const headPrompt =
-      inTab0 === "prompts" && catalogDetail && catalogDetail.nodeKey === nodeKey && catalogDetail.item
-        ? catalogDetail.item
-        : { id: activeName, label: activeName };
-    const inTab: "settings" | "prompts" | "results" = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
-    return createPortal(
-      <aside className="vp-menu nowheel nopan relative isolate flex max-h-[680px] w-full cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.08] bg-[#0a0a0a] text-left text-white backdrop-blur-xl">
-          <div
-            data-vp-menu-header
-            className="vp-head-img relative h-[60px] shrink-0 cursor-grab overflow-hidden bg-cover active:cursor-grabbing"
-            style={{ backgroundImage: `url(${getNodeCustomBg(nodeKey) || nodeBgFor(nodeKey, promptBgFor(headPrompt.id, headPrompt.label, nodeKey))})`, backgroundPosition: "center top" }}
-          >
-            <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
+    inTab0 === "prompts" && catalogDetail && catalogDetail.nodeKey === nodeKey && catalogDetail.item
+      ? catalogDetail.item
+      : { id: activeName, label: activeName };
+  const inTab: "settings" | "prompts" | "results" = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm"
+      onClick={requestClose}
+    >
+      <aside
+        className="vp-menu nowheel nopan relative isolate flex max-h-[88vh] h-[720px] w-[min(880px,96vw)] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+      >
+        <div
+          data-vp-menu-header
+          className="vp-head-img relative h-[60px] shrink-0 overflow-hidden bg-cover"
+          style={{ backgroundImage: `url(${getNodeCustomBg(nodeKey) || nodeBgFor(nodeKey, promptBgFor(headPrompt.id, headPrompt.label, nodeKey))})`, backgroundPosition: "center top" }}
+        >
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
             <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : "pr-14")}>
               <span className="truncate">
                 {(excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")}
@@ -801,11 +792,11 @@ export function NodeStudio({
                   <NodeModelPicker
                     nodeKey={nodeKey}
                     nodeType={nodeType}
-                    modelId={ds.modelId || undefined}
-                    imageResolution={ds.imageResolution || undefined}
-                    imageQuality={ds.imageQuality || undefined}
-                    aspectRatio={ds.aspectRatio || undefined}
-                    reasoningEffort={ds.reasoningEffort || undefined}
+                    modelId={nodeData?.modelId}
+                    imageResolution={nodeData?.imageResolution || project.data?.image_resolution || undefined}
+                    imageQuality={nodeData?.imageQuality || project.data?.image_quality || undefined}
+                    aspectRatio={nodeData?.aspectRatio || project.data?.aspect_ratio || undefined}
+                    reasoningEffort={nodeData?.reasoningEffort}
                   />
                 </div>
               <span className="flex-1" />
@@ -835,7 +826,7 @@ export function NodeStudio({
                 onActivate={(v) => activateVariant.mutate(v)}
                 nodeKey={nodeKey ?? ""}
                 projectId={projectId ?? undefined}
-                description={ds.description || spec.description || ""}
+                description={nodeData?.description || spec.description || ""}
               />
             ) : null}
             {showFilesPanel && promptStepCode && !canCatalog ? (
@@ -965,557 +956,9 @@ export function NodeStudio({
             )}
           </div>
         )}
-      </aside>,
-      inlineEl,
-    );
-  }
-
-  const closeNow = (e: SyntheticEvent) => {
-    if (Date.now() < backdropGuardUntil.current) return;
-    e.preventDefault();
-    e.stopPropagation();
-    onOpenChange(false);
-  };
-
-  return createPortal(
-    <>
-      {!inlineEl ? (<button
-        type="button"
-        aria-label="Закрыть студию"
-        className={cn("fixed inset-0 z-[90]", catalogActive ? "bg-black/15" : "bg-black/45 backdrop-blur-[2px]")}
-        onPointerDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        }}
-        onClick={closeNow}
-      />) : null}
-      <aside
-        className={cn(inlineEl ? "nowheel nodrag nopan relative flex h-full w-full cursor-auto flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0d0d10]/95 text-left" : "premium-sheet fixed right-0 top-0 z-[100] flex h-full w-[min(920px,92vw)] flex-col border-l border-white/10 shadow-2xl", catalogActive && "pointer-events-none invisible")}
-        role="dialog"
-        aria-modal="true"
-      >
-        <div className="flex h-full flex-col">
-          <header className="relative shrink-0 border-b border-white/10 bg-gradient-to-r from-amber-500/5 via-transparent to-violet-500/5 px-5 py-4">
-            <button
-              type="button"
-              aria-label="Закрыть студию"
-              title="Закрыть (Esc)"
-              className="absolute right-3 top-3 z-[210] inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md bg-background/90 text-foreground/90 ring-1 ring-white/10 transition hover:bg-destructive hover:text-destructive-foreground"
-              onPointerDown={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClickCapture={closeNow}
-              onClick={closeNow}
-            >
-              <X className="h-5 w-5" />
-            </button>
-            <div className="flex items-start justify-between gap-4 pr-12">
-              <div>
-                <h2 className="flex items-center gap-2 text-xl font-semibold">
-                  <span
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl shadow-inner"
-                    style={{
-                      background: `linear-gradient(135deg, hsl(${spec.accent} / 0.25), hsl(${spec.accent} / 0.08))`,
-                      color: `hsl(${spec.accent})`,
-                    }}
-                  >
-                    <NodeIcon className="h-4 w-4" />
-                  </span>
-                  {excelConfig.label?.trim() || spec.label}
-                </h2>
-                <p className="text-[13px] text-muted-foreground">{spec.description}</p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  <Badge variant="muted" className="text-[13px]">
-                    {formatNodeKeyLabel(nodeKey)}
-                  </Badge>
-                  {isExcelGptNode(nodeType) ? (
-                    <>
-                      <Badge variant="muted" className="text-[13px] text-violet-200/90">
-                        {workModeLabel(excelConfig.workMode)}
-                      </Badge>
-                      <Badge variant="muted" className="text-[13px] text-emerald-200/90">
-                        {excelGptAttachmentChipTitle(
-                          excelConfig.inputSource ?? "project_xlsx",
-                        )}
-                      </Badge>
-                    </>
-                  ) : null}
-                  {promptPaths.legacyDir && (
-                    <Badge variant="muted" className="text-[12px] font-mono">
-                      prompts/{promptPaths.legacyDir}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-              <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap items-center">
-                {stepCode && (
-                  <>
-                    <Button
-                      size="sm"
-                      onClick={() => runStep.mutate({ mode: "resume" })}
-                      disabled={!projectId || isThisNodeRunning || nodeDisabled}
-                      className={cn(
-                        "transition-all duration-200 gap-2 h-9 px-4 font-semibold text-[13px] text-white bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] shadow-lg shadow-emerald-500/35 border border-emerald-300/40 rounded-xl backdrop-blur-md",
-                        isThisNodeRunning &&
-                          "border-emerald-400/80 bg-emerald-500/25 text-emerald-200 animate-pulse font-medium shadow-[0_0_20px_rgba(16,185,129,0.35)]",
-                      )}
-                      title={
-                        nodeDisabled
-                          ? "Нода отключена в графе"
-                          : isThisNodeRunning
-                            ? "Шаг сейчас выполняется..."
-                            : "Запустить шаг: готовое не трогаем, дальше по цепочке"
-                      }
-                    >
-                      {isThisNodeRunning ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-200" />
-                          <span>В работе...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3.5 w-3.5 fill-current" />
-                          <span>Запустить шаг</span>
-                        </>
-                      )}
-                    </Button>
-                    {!isThisNodeRunning && !["plan", "script", "split", "assemble", "publish"].includes(nodeType) && (
-                      <Button
-                        size="sm"
-                        onClick={() => runStep.mutate({ mode: "resume" })}
-                        disabled={!projectId || isThisNodeRunning || nodeDisabled}
-                        className="transition-all duration-200 gap-2 h-9 px-4 font-semibold text-[13px] text-amber-950 bg-gradient-to-r from-amber-400 via-amber-300 to-yellow-400 hover:from-amber-300 hover:to-yellow-300 active:scale-[0.98] shadow-lg shadow-amber-500/25 border border-amber-200/60 rounded-xl backdrop-blur-md"
-                        title="Доделать только недостающие элементы (мягкое продолжение без удаления готовых)"
-                      >
-                        <Play className="h-3.5 w-3.5 text-amber-950 fill-current" />
-                        <span>Продолжить / Доделать</span>
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-1">
-              {(
-                [
-                  ["settings", inlineTargetId ? "Настройки ноды" : "Настройки", Settings2],
-                  ...(pipelineSlots.some((s) => s.kind !== "excel") ||
-                  (nodeSupportsGptText(nodeType) && gptTextSlotForNode(nodeType))
-                    ? ([["prompts", inlineTargetId ? "Каталог промтов" : "Промпты", FileText]] as const)
-                    : []),
-                  ...(showExcel ? [["excel", "Excel", FileSpreadsheet] as const] : []),
-                  ["results", "Результаты", FileText],
-                ] as const
-              ).map(([id, label, Icon]) => (
-                <Button
-                  key={id}
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className={cn(
-                    "gap-1.5 text-[13px] font-semibold rounded-lg transition-all",
-                    tab === id
-                      ? "bg-zinc-800 text-zinc-100 border border-zinc-700 shadow-sm"
-                      : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50",
-                  )}
-                  onClick={() => {
-                    setTab(id);
-                    setActiveSlotId(pipelineSlots[0]?.id ?? null);
-                  }}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </Button>
-              ))}
-            </div>
-            {tab === "prompts" && (
-              <div className="mt-3 flex flex-wrap gap-1 border-t border-white/5 pt-3">
-                {pipelineSlots
-                  .filter((slot) => slot.kind !== "excel")
-                  .map((slot) => (
-                    <Button
-                      key={slot.id}
-                      size="sm"
-                      variant="ghost"
-                      className={cn(
-                        "h-7 text-[13px] font-medium rounded-lg transition-all",
-                        activeSlotId === slot.id && !showGptTextPanel
-                          ? "bg-zinc-800 text-white border border-zinc-700 shadow-sm"
-                          : "border border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/40",
-                      )}
-                      onClick={() => {
-                        setActiveSlotId(slot.id);
-                      }}
-                    >
-                      {slot.title}
-                    </Button>
-                  ))}
-                {nodeSupportsGptText(nodeType) && gptTextSlotForNode(nodeType) && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className={cn(
-                      "h-7 text-[13px] font-medium rounded-lg transition-all",
-                      activeSlotId === "gpt_text"
-                        ? "bg-violet-950/80 text-violet-200 border border-violet-500/50 shadow-sm"
-                        : "border border-violet-900/40 bg-violet-950/20 text-violet-300 hover:text-violet-100 hover:bg-violet-900/30",
-                    )}
-                    onClick={() => {
-                      setActiveSlotId("gpt_text");
-                    }}
-                    title="Сопроводительный (прилагаемый) текст в диалог GPT"
-                  >
-                    <MessageSquareText className="mr-1 h-3.5 w-3.5" />
-                    Сопроводительный текст
-                  </Button>
-                )}
-              </div>
-            )}
-          </header>
-
-          {isReportNode && tab === "results" && projectId ? (
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-black">
-              {resultSnapshot && (resultSnapshot.hasResult || resultSnapshot.items.length > 0) ? (
-                <NodeResultViewBody
-                  projectId={projectId}
-                  nodeKey={nodeKey}
-                  nodeType={nodeType}
-                  snapshot={resultSnapshot}
-                />
-              ) : (
-                <p className="text-[15px] text-muted-foreground">
-                  Отчёт ещё не собран. Запусти ноду «Отчёт: кадры + промты».
-                </p>
-              )}
-            </div>
-          ) : tab === "excel" && projectId ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-5">
-                  <div className="flex shrink-0 flex-wrap gap-2">
-                    <Button size="sm" variant="outline" asChild>
-                      <a
-                        href={api.downloadProjectXlsx(projectId, {
-                          nodeKey: nodeKey ?? undefined,
-                        })}
-                        download
-                      >
-                        <Download className="h-3.5 w-3.5" />
-                        Скачать Excel
-                      </a>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => fileRef.current?.click()}
-                      disabled={uploadXlsx.isPending}
-                    >
-                      <Upload className="h-3.5 w-3.5" />
-                      Загрузить
-                    </Button>
-                    <input
-                      ref={fileRef}
-                      type="file"
-                      accept=".xlsx"
-                      className="hidden"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0];
-                        if (f) uploadXlsx.mutate(f);
-                        e.target.value = "";
-                      }}
-                    />
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => reloadXlsx.mutate()}
-                      disabled={reloadXlsx.isPending}
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                      Перечитать
-                    </Button>
-                  </div>
-                  {(xlsxSheetsMeta.data?.sheets?.length ?? 0) > 0 && (
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      <select
-                        className="studio-select h-8 max-w-xs rounded-md border border-input bg-card px-2 text-[13px]"
-                        value={xlsxSheet || pickDefaultSheetForNode(nodeType, xlsxSheetsMeta.data?.sheets ?? [])}
-                        onChange={(e) => setXlsxSheet(e.target.value)}
-                      >
-                        {(xlsxSheetsMeta.data?.sheets ?? []).map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                      {focusAvailable ? (
-                        <label className="flex cursor-pointer items-center gap-1.5 text-[13px] text-muted-foreground">
-                          <input
-                            type="checkbox"
-                            className="rounded border-white/20"
-                            checked={xlsxFocusKeyRows}
-                            onChange={(e) => setXlsxFocusKeyRows(e.target.checked)}
-                          />
-                          Только ключевые строки
-                        </label>
-                      ) : null}
-                    </div>
-                  )}
-                  {(xlsxSheetsMeta.isLoading || xlsxPreview.isLoading) && (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                    </div>
-                  )}
-                  {!xlsxSheetsMeta.isLoading && !xlsxPreview.isLoading && (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden">
-                      {xlsxPreview.data?.xlsx_snapshot || xlsxSheetsMeta.data?.xlsx_snapshot ? (
-                        <p className="shrink-0 text-[13px] text-muted-foreground">
-                          Показан файл:{" "}
-                          <span className="font-mono text-foreground/90">
-                            {xlsxPreview.data?.xlsx_snapshot ||
-                              xlsxSheetsMeta.data?.xlsx_snapshot}
-                          </span>
-                        </p>
-                      ) : null}
-                      {xlsxParams.hint && xlsxFocusKeyRows ? (
-                        <p className="shrink-0 rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[13px] text-amber-100/90">
-                          {xlsxParams.hint}
-                        </p>
-                      ) : null}
-                      {xlsxPreview.data?.truncated_rows || xlsxPreview.data?.truncated_cols ? (
-                        <p className="shrink-0 rounded-lg border border-sky-500/20 bg-sky-500/10 px-3 py-2 text-[13px] text-sky-100/90">
-                          Показана часть листа
-                          {xlsxPreview.data.sheet_max_row
-                            ? ` (в файле ~${xlsxPreview.data.sheet_max_row}×${xlsxPreview.data.sheet_max_col || "?"})`
-                            : ""}
-                          . Для полного файла — «Скачать Excel».
-                        </p>
-                      ) : null}
-                      {(xlsxPreview.data?.rows?.length ?? 0) > 0 ? (
-                        <StudioExcelGrid
-                          className="min-h-0 flex-1"
-                          rows={xlsxPreview.data?.rows ?? []}
-                          startRow={xlsxPreview.data?.start_row ?? xlsxParams.startRow}
-                          colLetters={xlsxPreview.data?.col_letters}
-                        />
-                      ) : (
-                        <p className="rounded-xl border border-white/10 p-4 text-[13px] text-muted-foreground">
-                          {nodeType === "plan"
-                            ? "Лист пуст или Excel ещё не создан — запустите шаг или загрузите project.xlsx. Переключите лист в списке выше (например «план»)."
-                            : "Таблица пуста или ещё не создана. Проверьте выбранный лист."}
-                          {nodeType === "plan" && project.data?.general_plan?.trim() ? (
-                            <span className="mt-2 block whitespace-pre-wrap text-foreground/90">
-                              Текст плана в БД: {project.data.general_plan}
-                            </span>
-                          ) : null}
-                        </p>
-                      )}
-                    </div>
-                  )}
-            </div>
-          ) : (
-          <ScrollArea className="flex-1">
-            <div className="p-5">
-              {tab === "settings" && (
-                <div className="flex flex-col gap-4 text-[15px] text-muted-foreground">
-                  {isExcelGptNode(nodeType) && projectId && nodeKey ? (
-                    <ExcelGptSettingsPanel
-                      projectId={projectId}
-                      nodeKey={nodeKey}
-                      config={excelConfig}
-                      onConfigChange={patchExcelNodeData}
-                    />
-                  ) : null}
-                  {showStepParams ? (
-                    <NodeStepParamsPanel projectId={projectId!} nodeType={nodeType} />
-                  ) : null}
-                  {nodeType === "items" && projectId ? (
-                    <div className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
-                      <ItemsConfigPanel projectId={projectId} />
-                    </div>
-                  ) : null}
-                  {nodeType === "hero" && projectId ? (
-                    <div className="rounded-xl border border-amber-400/20 bg-amber-500/[0.05] p-3">
-                      <HeroConfigPanel projectId={projectId} />
-                    </div>
-                  ) : null}
-                  {nodeType === "script" && projectId ? (
-                    <Nii67CardPanel projectId={projectId} />
-                  ) : null}
-                  {nodeType === "sfx_plan" && projectId ? (
-                    <SfxPlanSettingsPanel projectId={projectId} />
-                  ) : null}
-                  {(nodeType === "sfx_gen" || nodeType === "sfx") && projectId ? (
-                    <SfxGenSettingsPanel projectId={projectId} />
-                  ) : null}
-                  {nodeDisabled && (
-                    <p className="text-amber-400">Нода отключена в графе — шаг не запустится. Кнопка включения — во встроенном меню ноды.</p>
-                  )}
-                </div>
-              )}
-
-              {tab === "prompts" && (
-                <div className="flex flex-col gap-4">
-                  {activeSlot && !showGptTextPanel && showFilesPanel && (
-                    <p className="text-[13px] text-muted-foreground">
-                      Редактируется:{" "}
-                      <span className="font-medium text-foreground">{activeSlot.title}</span>
-                    </p>
-                  )}
-                  {showGptTextPanel ? (
-                    <GptTextPanel
-                      key={`gpt-${activeSlot?.id}-${activeStepCode}`}
-                      projectId={projectId}
-                      stepCode={activeStepCode}
-                    />
-                  ) : showFramePromptsPanel ? (
-                    <FramePromptsPanel
-                      key={`frame-prompts-${projectId}-${nodeType}`}
-                      projectId={projectId}
-                      field={nodeType === "videos" ? "animation_prompt" : "image_prompt"}
-                    />
-                  ) : showFilesPanel && isCheckNode ? (
-                    <CheckNodePromptPanel
-                      projectId={projectId!}
-                      nodeKey={nodeKey!}
-                      resolve={operatorResolve.data}
-                      loading={operatorResolve.isLoading}
-                    />
-                  ) : showFilesPanel && promptStepCode ? (
-                    <PromptFilesPanel
-                      key={`files-${nodeKey}-${activeSlot?.id}-${promptStepCode}`}
-                      stepCode={promptStepCode}
-                      slotId={activeSlot?.id}
-                      projectId={projectId ?? undefined}
-                      preferredFile={preferredFile}
-                      folderHint={
-                        legacyPromptFolder(promptStepCode) ??
-                        (activeSlot?.stepCode && activeSlot.stepCode !== stepCode
-                          ? activeSlot.stepCode
-                          : (promptPaths.legacyDir ?? promptStepCode))
-                      }
-                      activeVariant={activeVariant}
-                      activeVariantSourceLabel={activeVariantSourceLabel}
-                      onActivateVariant={(variant) => activateVariant.mutate(variant)}
-                      activating={activateVariant.isPending}
-                      catalogPanel={
-                        catalogActive && nodeKey
-                          ? {
-                              nodeKey,
-                              onOpenSettings: () => {
-                                setCatalogMode(false);
-                                setTab("settings");
-                              },
-                              onClose: () => requestClose(),
-                            }
-                          : null
-                      }
-                    />
-                  ) : activeSlot?.kind === "excel" ? (
-                    <div className="flex flex-col gap-3 text-[15px] text-muted-foreground">
-                      <p>
-                        Для этой ноды мастер-промт задаётся через{" "}
-                        <span className="font-medium text-foreground">project.xlsx</span> — откройте
-                        вкладку «Excel».
-                      </p>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-fit"
-                        onClick={() => setTab("excel")}
-                      >
-                        Открыть Excel
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-4 text-sm text-muted-foreground">
-                      <p>
-                        Для этой ноды нет отдельных текстовых промтов на этом шаге.
-                      </p>
-                      <p className="text-xs text-white/50">
-                        Промпты и параметры настраиваются на предшествующих шагах или в таблице Excel.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-
-              {tab === "results" && (
-                <div className="flex flex-col gap-4">
-                  {resultSnapshot && (resultSnapshot.hasResult || resultSnapshot.items.length > 0) ? (
-                    <NodeResultViewBody
-                      projectId={projectId!}
-                      nodeKey={nodeKey}
-                      nodeType={nodeType}
-                      snapshot={resultSnapshot}
-                    />
-                  ) : filteredArtifacts.length > 0 ? (
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {filteredArtifacts.map((a) => (
-                        <div
-                          key={a.id}
-                          className="rounded-xl border border-white/10 bg-white/5 p-2"
-                        >
-                          <div className="text-[13px] uppercase text-muted-foreground">
-                            {humanizeSlug(a.kind)}
-                          </div>
-                          {a.path.match(/\.(mp4|webm)$/i) ? (
-                            <video
-                              controls
-                              className="mt-1 max-h-40 w-full rounded"
-                              src={api.artifactFileUrl(a.uuid)}
-                            />
-                          ) : a.path.match(/\.(mp3|wav|m4a|ogg|aac|flac)$/i) ? (
-                            <div className="mt-2 flex flex-col gap-1 rounded bg-black/40 p-2">
-                              <audio
-                                controls
-                                className="w-full"
-                                src={api.artifactFileUrl(a.uuid)}
-                              />
-                            </div>
-                          ) : a.path.match(/\.(json|txt|tsv|md|csv)$/i) ? (
-                            <div className="mt-1 flex max-h-40 flex-col overflow-auto rounded bg-black/40 p-2 text-[13px] font-mono text-zinc-300">
-                              <div className="text-[12px] text-zinc-500">
-                                {a.path.split(/[\\/]/).pop()}
-                              </div>
-                              <span className="mt-1 text-[13px] text-zinc-400">Текстовый артефакт (доступен для скачивания)</span>
-                            </div>
-                          ) : (
-                            <img
-                              alt=""
-                              className="mt-1 max-h-40 w-full rounded object-contain"
-                              src={api.artifactFileUrl(a.uuid)}
-                            />
-                          )}
-                          <a
-                            href={api.artifactFileUrl(a.uuid)}
-                            download
-                            className="mt-2 inline-flex items-center gap-1 text-[13px] text-primary hover:underline"
-                          >
-                            <Download className="h-3 w-3" />
-                            Скачать
-                          </a>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
-                      <p className="text-[15px]">
-                        {resultSnapshot?.summary || "Результаты ещё не сформированы. Запустите шаг для генерации."}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-          )}
-        </div>
       </aside>
-    </>,
-    inlineEl ?? document.body,
+    </div>,
+    document.body,
   );
 }
 
