@@ -55,8 +55,8 @@ export const NODE_CATALOG: Record<string, NodeSpec> = {
   /* Canon C palette: Idea→Script→Scenes→Frames→Motion→Edit→Export */
   excel_feed: {
     type: "excel_feed",
-    label: "Excel — темы",
-    description: "Загрузка topics.xlsx и связи к нодам «План» для массовой генерации.",
+    label: "Пакет тем",
+    description: "Загрузка списка тем и связки к нодам «План» для массовой генерации.",
     category: "planning",
     accent: "88 70% 52%",
     iconKey: "plan",

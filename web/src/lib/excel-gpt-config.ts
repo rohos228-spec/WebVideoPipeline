@@ -32,7 +32,7 @@ export const WORK_MODE_OPTIONS: {
   {
     value: "assist",
     title: "Участвует в работе",
-    hint: "Шлёт ввод в GPT вместе с промтом — как этап пайплайна (Excel и др.).",
+    hint: "Шлёт ввод в GPT вместе с промтом как этап пайплайна.",
   },
   {
     value: "review",
@@ -51,7 +51,7 @@ export const INPUT_SOURCE_OPTIONS: {
   title: string;
   group: "data" | "media";
 }[] = [
-  { value: "project_xlsx", title: "project.xlsx", group: "data" },
+  { value: "project_xlsx", title: "Кадры проекта", group: "data" },
   { value: "upload", title: "Свой файл", group: "data" },
   { value: "voiceover", title: "voiceover.txt", group: "data" },
   { value: "image", title: "Изображение", group: "media" },
@@ -79,7 +79,7 @@ export function attachmentLabel(source: ExcelGptInputSource, fileName?: string):
   if (source === "scene_images") return "scenes/*";
   if (source === "image") return fileName?.trim() || "image.png";
   if (source === "upload") return fileName?.trim() || "upload.xlsx";
-  return "project.xlsx";
+  return "Кадры проекта";
 }
 
 /** Номер слота 1..5 из node_key (n_excel_gpt_2) или meta/canvas. */
@@ -107,7 +107,7 @@ export function excelGptAttachmentChipTitle(source: ExcelGptInputSource): string
   if (source === "image") return "Изображение";
   if (source === "hero_refs") return "Рефы";
   if (source === "scene_images") return "Кадры";
-  return "Excel";
+  return "Кадры";
 }
 
 export function workModeLabel(mode?: ExcelGptWorkMode | null): string {

@@ -39,15 +39,12 @@ const BASE: Record<string, NodePromptSlot[]> = {
     { id: "main", title: "Промт сценария", kind: "gpt", stepCode: "plan" },
   ],
   script: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "script" },
     { id: "main", title: "Промт закадрового текста", kind: "gpt", stepCode: "script" },
   ],
   split: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "split" },
     { id: "main", title: "Промт разбивки", kind: "gpt", stepCode: "split" },
   ],
   sd_agent: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "scene_d" },
     {
       id: "main",
       title: "Промт агента",
@@ -57,7 +54,6 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   sd_assemble: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "scene_asm" },
     {
       id: "main",
       title: "Промт сборщика",
@@ -68,24 +64,19 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   hero: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "hero" },
     { id: "main", title: "Промт персонажа", kind: "gpt", stepCode: "hero" },
     { id: "style", title: "Стиль персонажа", kind: "gpt", stepCode: "hero_style" },
   ],
   items: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "items" },
     { id: "main", title: "Промт предмета", kind: "gpt", stepCode: "items" },
   ],
   excel_gpt: [
-    { id: "excel", title: "Excel", kind: "excel", stepCode: "excel_gpt" },
-    { id: "main", title: "Промты", kind: "gpt", stepCode: "excel_gpt" },
+    { id: "main", title: "Промт режиссера", kind: "gpt", stepCode: "excel_gpt" },
   ],
   image_prompts: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "img_pr" },
     { id: "main", title: "Промт картинок", kind: "gpt", stepCode: "img_pr" },
   ],
   images: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "img" },
     {
       id: "frame_prompts",
       title: "Промты кадров",
@@ -101,11 +92,9 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   animation_prompts: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "anim_pr" },
     { id: "main", title: "Промт анимации", kind: "gpt", stepCode: "anim_pr" },
   ],
   videos: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "video" },
     {
       id: "frame_prompts",
       title: "Промты анимации",
@@ -121,19 +110,14 @@ const BASE: Record<string, NodePromptSlot[]> = {
     },
   ],
   audio: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "audio" },
     { id: "tts", title: "ElevenLabs TTS", kind: "gpt" },
   ],
   music: [
     { id: "voiceover", title: "voiceover.txt", kind: "text", stepCode: "music" },
     { id: "gpt_text", title: "Текст для GPT (Suno)", kind: "text", stepCode: "music" },
   ],
-  assemble: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "assemble" },
-  ],
-  publish: [
-    { id: "excel", title: "Excel таблица", kind: "excel", stepCode: "publish" },
-  ],
+  assemble: [],
+  publish: [],
 };
 
 const SD_AGENT_KEY_RE = /_sd_(characters|world|style|camera|action)$/;
@@ -158,10 +142,8 @@ export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
   return [{ id: "main", title: "Настройки ноды", kind: "gpt" }];
 }
 
-export function nodeTypeRequiresExcel(nodeType: string): boolean {
-  if (!nodeType || isHitlNodeType(nodeType)) return false;
-  if (NO_EXCEL_NODE_TYPES.has(nodeType)) return false;
-  return nodeType in NODE_CATALOG;
+export function nodeTypeRequiresExcel(_nodeType: string): boolean {
+  return false;
 }
 
 export function excelSlotForNodeType(nodeType: string): NodePromptSlot {
@@ -224,11 +206,7 @@ export function mergePromptSlotsWithDefaults(
     merged.push(s);
   }
 
-  const excel =
-    slots.find((s) => s.kind === "excel") ??
-    defaults.find((s) => s.kind === "excel");
-
-  return excel ? [excel, ...merged] : merged;
+  return merged;
 }
 
 export function ensureBlocksPromptSlot(
@@ -241,10 +219,8 @@ export function ensureBlocksPromptSlot(
 }
 
 function normalizeExcelGptSlots(slots: NodePromptSlot[]): NodePromptSlot[] {
-  const excel = slots.find((s) => s.kind === "excel");
   const others = slots.filter((s) => s.kind !== "excel" && s.kind !== "text");
   const out: NodePromptSlot[] = [];
-  if (excel) out.push(excel);
   const seen = new Set<string>();
   for (const s of others) {
     if (seen.has(s.id)) continue;
@@ -277,7 +253,7 @@ function applyExcelGptNodeContext(
             ? s.title
             : s.custom
               ? s.title
-              : "Промты",
+              : "Промт режиссера",
       };
     }
     if (!s.stepCode) return { ...s, stepCode: enrichStep };
@@ -298,7 +274,7 @@ export function resolvePromptSlots(
 
   let result: NodePromptSlot[];
   if (!nodeTypeRequiresExcel(nodeType)) {
-    const filtered = raw.filter((s) => s.kind !== "text");
+    const filtered = raw.filter((s) => s.kind !== "text" && s.kind !== "excel");
     if (isExcelGptNode(nodeType)) {
       const normalized = normalizeExcelGptSlots(filtered);
       result = applyExcelGptNodeContext(normalized, nodeKey, slotIndex);
@@ -306,11 +282,7 @@ export function resolvePromptSlots(
       result = filtered;
     }
   } else {
-    const excel =
-      raw.find((s) => s.kind === "excel") ??
-      defaultPromptSlots(nodeType).find((s) => s.kind === "excel") ??
-      excelSlotForNodeType(nodeType);
-    result = [excel, ...rest];
+    result = rest;
   }
   return result.filter((s) => s.kind !== "blocks");
 }

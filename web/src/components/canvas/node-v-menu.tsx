@@ -175,7 +175,7 @@ export function NodeVMenu({
     : "project.xlsx";
   const excelAttachmentTitle = isExcelGptNode(nodeType)
     ? excelGptAttachmentChipTitle(source)
-    : "Excel";
+    : "Кадры";
 
   if (!open || !mounted) return null;
 
@@ -405,7 +405,7 @@ export function NodeVMenu({
           {excelSlot != null && projectId != null && (
             <MenuAction
               icon={FileSpreadsheet}
-              label="Просмотр Excel"
+              label="Таблица кадров"
               onClick={() => openPromptSlot(excelSlot, onClose, onSelectPrompt)}
             />
           )}
