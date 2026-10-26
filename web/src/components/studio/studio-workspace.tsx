@@ -215,6 +215,11 @@ export function StudioWorkspace({
     return () => window.removeEventListener("canvas-open-ai-node", onOpen);
   }, [onSelectNode]);
 
+  const selectedNodeKeyRef = useRef(selectedNodeKey);
+  useEffect(() => {
+    selectedNodeKeyRef.current = selectedNodeKey;
+  }, [selectedNodeKey]);
+
   // Шапка «Промты» → студия выбранной ноды (не legacy PromptEditor из SQLite).
   useEffect(() => {
     const onOpenPrompts = (ev: Event) => {
@@ -223,7 +228,7 @@ export function StudioWorkspace({
         return;
       }
       const d = (ev as CustomEvent<{ nodeKey?: string | null; initialTab?: "settings" | "prompts"; inline?: boolean }>).detail ?? {};
-      const nodeKey = d.nodeKey ?? selectedNodeKey;
+      const nodeKey = d.nodeKey ?? selectedNodeKeyRef.current;
       if (!nodeKey) {
         toast.error("Выберите ноду на канвасе");
         return;
@@ -233,6 +238,7 @@ export function StudioWorkspace({
         toast.message("У ноды «Тема» нет файловых промтов");
         return;
       }
+      setVMenuNodeKey(null);
       if (!d.inline) {
         openStudioForNode(nodeKey);
         return;
@@ -242,7 +248,7 @@ export function StudioWorkspace({
     };
     window.addEventListener("studio-open-node-prompts", onOpenPrompts);
     return () => window.removeEventListener("studio-open-node-prompts", onOpenPrompts);
-  }, [projectId, selectedNodeKey, openStudioForNode, openStudioInline]);
+  }, [projectId, openStudioForNode, openStudioInline]);
 
   const project = useQuery({
     queryKey: ["project", projectId],
