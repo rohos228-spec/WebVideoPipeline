@@ -681,13 +681,51 @@ class Settings(BaseSettings):
         return not self.accounts_enabled
 
     @property
+    def s3_effective_endpoint(self) -> str:
+        explicit = (self.s3_endpoint or "").strip()
+        if explicit:
+            return explicit
+        return (self.yandex_storage_endpoint or "https://storage.yandexcloud.net").strip().rstrip("/")
+
+    @property
+    def s3_effective_region(self) -> str:
+        explicit = (self.s3_region or "").strip()
+        if explicit and explicit != "auto":
+            return explicit
+        y_reg = (self.yandex_storage_region or "").strip()
+        if y_reg:
+            return y_reg
+        return explicit or "ru-central1"
+
+    @property
+    def s3_effective_access_key(self) -> str:
+        return (self.s3_access_key or self.yandex_storage_access_key or "").strip()
+
+    @property
+    def s3_effective_secret_key(self) -> str:
+        return self.s3_secret_key or self.yandex_storage_secret_key or ""
+
+    @property
+    def s3_effective_bucket(self) -> str:
+        return (self.s3_bucket or self.yandex_storage_bucket or "").strip()
+
+    @property
+    def s3_effective_force_path_style(self) -> bool:
+        if self.s3_force_path_style:
+            return True
+        endpoint = self.s3_effective_endpoint.lower()
+        if "yandexcloud.net" in endpoint or bool(self.yandex_storage_bucket and not self.s3_bucket):
+            return True
+        return False
+
+    @property
     def s3_configured(self) -> bool:
         """Есть ли всё, чтобы говорить с объектным хранилищем."""
         return bool(
-            self.s3_endpoint.strip()
-            and self.s3_access_key.strip()
-            and self.s3_secret_key
-            and self.s3_bucket.strip()
+            self.s3_effective_endpoint
+            and self.s3_effective_access_key
+            and self.s3_effective_secret_key
+            and self.s3_effective_bucket
         )
 
     @property

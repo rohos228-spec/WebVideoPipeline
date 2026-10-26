@@ -44,12 +44,12 @@ def get_storage() -> Storage:
 
     if settings.s3_configured:
         return S3Storage(
-            endpoint=settings.s3_endpoint.strip(),
-            region=settings.s3_region.strip() or "auto",
-            access_key=settings.s3_access_key.strip(),
-            secret_key=settings.s3_secret_key,
-            bucket=settings.s3_bucket.strip(),
-            force_path_style=settings.s3_force_path_style,
+            endpoint=settings.s3_effective_endpoint,
+            region=settings.s3_effective_region,
+            access_key=settings.s3_effective_access_key,
+            secret_key=settings.s3_effective_secret_key,
+            bucket=settings.s3_effective_bucket,
+            force_path_style=settings.s3_effective_force_path_style,
         )
     return LocalStorage(Path(settings.data_dir) / "objects")
 
