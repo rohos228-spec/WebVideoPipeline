@@ -136,7 +136,8 @@ function slotToneRing(tone: SlotTone | undefined): string | false {
 }
 
 function voiceoverForFrame(fr: MontageBoardFrame): string {
-  return (fr.voiceover_excel || fr.voiceover_text || "").trim();
+  // Озвучка читает текст из БД (generate_audio): Excel первым показывал старый текст после правки.
+  return (fr.voiceover_text || fr.voiceover_excel || "").trim();
 }
 
 function formatTs(sec: number | null | undefined): string {

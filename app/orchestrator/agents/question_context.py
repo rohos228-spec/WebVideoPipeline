@@ -234,6 +234,10 @@ def _norm(text: str) -> str:
     return " ".join((text or "").lower().replace("ё", "е").split())
 
 
+_MONTAGE = ("доск", "очередь правок", "очереди правок", "очередь монтаж", "очереди монтаж")
+_PROJECT_NO = re.compile(r"проект\w*\s+(?:№\s*|#\s*)?(\d{1,6})")
+
+
 def _has(norm: str, words: tuple[str, ...]) -> bool:
     for word in words:
         if not word[:1].isalnum():
@@ -266,6 +270,12 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     from app.orchestrator.agents.data_report import report_params, wants_data_report
 
     norm = _norm(text)
+    if _has(norm, _MONTAGE):
+        # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
+        named = _PROJECT_NO.search(norm)
+        pid = project_id if project_id is not None else (int(named.group(1)) if named else None)
+        if pid is not None:
+            return _allowed([("montage.get_board", {"project_id": int(pid)})])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
     asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q
@@ -420,6 +430,10 @@ def fact_text(action: str, result: Any) -> str:
         parts = [_plain(result) or fields_ru(result)]
     if action == "report.nodes" and result.get("markdown"):
         parts = [str(result["markdown"])]
+    if action == "montage.get_board":
+        from app.orchestrator.agents.summarizer import _board_text
+
+        parts = [_board_text(result)]
     if action == "logs.tail":
         lines = [str(row.get("text") or "") for row in result.get("lines") or [] if isinstance(row, dict)]
         parts.extend(lines[-_LOG_LINES:])

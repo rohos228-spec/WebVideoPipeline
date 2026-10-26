@@ -906,7 +906,18 @@ DELETION_ACTIONS: frozenset[str] = frozenset(
 )
 APPROVAL_RISKS: frozenset[str] = frozenset({"medium", "high"})
 # Destructive без медиа. Другие имена с destructive=True остаются deletion_blocked.
-APPROVABLE_DESTRUCTIVE = frozenset({"revert_node_to_git", "prompt.retire_master", "frame.restore"})
+# Склейка и разбивка сцен кадры и медиа не стирают: меняется только деление на сцены (цепочка
+# действий правой сцены), поэтому это карточка с предупреждением, а не запрет как удаление.
+APPROVABLE_DESTRUCTIVE = frozenset(
+    {
+        "revert_node_to_git",
+        "prompt.retire_master",
+        "frame.restore",
+        "montage.merge_scenes",
+        "montage.split_scene",
+        "montage.explode_scene",
+    }
+)
 PIPELINE_FORECAST_LIMIT_USD = 40.0
 _RISK_RANK: dict[Risk, int] = {Risk.none: 0, Risk.low: 1, Risk.medium: 2, Risk.high: 3}
 

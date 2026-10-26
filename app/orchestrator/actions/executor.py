@@ -36,7 +36,18 @@ _SOFT_FRAME_DELETE = frozenset({"montage.delete_frame", "montage.delete_child_fr
 # Имена из SOFT_DELETE_RESTORE, у которых есть исполнитель. Остальные — только метаданные.
 _IMPLEMENTED_RESTORES = frozenset({"frame.restore"})
 # Помечены мягкими, но исполнитель необратим. До R2 их нет ни в списке, ни в вызове.
-_HELD_UNTIL_R2 = frozenset({"group.delete", "prompt.delete_master"})
+_HELD_UNTIL_R2 = frozenset(
+    {
+        "group.delete",
+        "prompt.delete_master",
+        # На доске этой линии нет этих ручек (scenes/split, scene-improve, scene-action-generate):
+        # шаг падал 404 уже после подтверждения человеком.
+        "montage.split_scene",
+        "montage.explode_scene",
+        "montage.improve_scene",
+        "montage.generate_scene",
+    }
+)
 
 
 class BoundResult(ActionResult):
@@ -586,6 +597,11 @@ def plan_defaults(name: str, params: dict | None) -> dict:
     if str(name) == "report.nodes" and params.get("kind") == "md":
         # В чате нужен вариант с файлом: md отдаёт только текст без ссылки на скачивание.
         params["kind"] = "chat"
+    if str(name) == "montage.set_coverage":
+        # «Крупный план» → «КРУПНЫЙ»: доска показывает только значения из своего списка.
+        from app.services.action_layer.planner_rules import _normalize_values
+
+        _normalize_values(str(name), params, [])
     if str(name) == "node.set_prompt_variant" and params.get("slot_id") == "default":
         # «default» — имя варианта промта, не слот: нода читает слот main.
         params["slot_id"] = "main"

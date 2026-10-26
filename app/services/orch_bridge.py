@@ -189,7 +189,7 @@ async def _prepare_card(name: str, params: dict | None, ctx: dict | None) -> dic
     try:
         plan_id, preview = await service.create_plan(
             ctx.get("app"),
-            _steps(spec.id, params or {}),
+            _steps(spec.id, await frame_numbers_to_ids(spec.id, dict(params or {}))),
             operator=_creator(ctx.get("task_id")),
             request_text=_request_text(spec, ctx.get("goal")),
         )
@@ -204,6 +204,37 @@ async def _prepare_card(name: str, params: dict | None, ctx: dict | None) -> dic
     if plan_id:
         card["plan_id"] = plan_id
     return card
+
+
+# Кадр в чате — номер на доске («кадр 9»): карты id планировщик чата не видит. Действия монтажа
+# ждут id строки; у проекта 10 кадр 9 — id 11, и «шот в кадр 9» уезжал в кадр 7. Переводим ровно
+# один раз на входе в слой действий: карточка, подтверждение и запуск видят одни и те же id.
+_FRAME_ID_KEYS = ("frame_id", "after_frame_id", "left_frame_id", "right_frame_id")
+
+
+async def frame_numbers_to_ids(name: str, params: dict) -> dict:
+    if not str(name).startswith("montage.") or params.get("project_id") is None:
+        return params
+    keys = [k for k in _FRAME_ID_KEYS if isinstance(params.get(k), int)]
+    many = isinstance(params.get("frame_ids"), list)
+    if not keys and not many:
+        return params
+    from sqlalchemy import select
+
+    from app.models import Frame
+    from app.services.action_layer.store import sessions
+
+    async with sessions()() as session:
+        rows = await session.execute(
+            select(Frame.number, Frame.id).where(Frame.project_id == int(params["project_id"]))
+        )
+        by_number = {int(n): int(i) for n, i in rows if n is not None}
+    out = dict(params)
+    for key in keys:
+        out[key] = by_number.get(out[key], out[key])
+    if many:
+        out["frame_ids"] = [by_number.get(v, v) if isinstance(v, int) else v for v in out["frame_ids"]]
+    return out
 
 
 async def _plan_steps(plan_id: str) -> tuple[Any, list]:
@@ -349,6 +380,7 @@ async def _approve_card(
     """(plan_id, fresh). Повтор по уже одобренной карточке нового подтверждения не выпускает:
     create_approval гасит прежнее, и шаг, который его ждёт, падал бы без подтверждения."""
     spec = _spec(action)
+    params = await frame_numbers_to_ids(action, dict(params or {}))
     bound = await bound_plan(change_id, action)
     if bound and await plan_matches(bound, action, params) and await _live_approval(bound):
         return bound, False
@@ -522,6 +554,10 @@ async def run_bridged(spec, params: dict, ctx: dict, core_approval: dict | None)
     ctx = ctx if isinstance(ctx, dict) else {}
     app = ctx.get("app")
     task_id = ctx.get("task_id")
+    try:
+        params = await frame_numbers_to_ids(spec.id, dict(params or {}))
+    except Exception as exc:
+        return _failed(f"кадры проекта не прочитаны: {type(exc).__name__}: {exc}")
     if spec.needs_approval:
         change_id = (core_approval or {}).get("change_id")
         plan_id = await bound_plan(change_id, spec.id)

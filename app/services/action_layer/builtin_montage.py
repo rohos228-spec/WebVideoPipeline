@@ -187,6 +187,7 @@ async def _set_coverage(ctx: ActionContext, params: dict) -> dict:
         "ok": bool(data.get("ok")),
         "frame_number": params["frame_number"],
         "type": op_type,
+        "value": params["value"],
         "shot_kind": data.get("shot_kind"),
         "shot_parent_number": (data.get("frame") or {}).get("shot_parent_number"),
     }

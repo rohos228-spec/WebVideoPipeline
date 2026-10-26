@@ -104,12 +104,36 @@ NOT_SUPPORTED = "Этого чат пока не умеет."
 DELETE_PROJECT_HINT = "Удалить проект можно в списке проектов слева: меню у проекта → «Удалить»."
 
 
+# Планировщику запрещено удалять кадры и сцены («Удаление кадров не планируется»): раньше это
+# уходило человеку как «Не понял, что сделать».
+_NO_FRAME_DELETE = re.compile(
+    r"удален\w*\s+(?:\w+\s+)?(?:кадр|сцен|шот)\w*[^.;]{0,40}?(?:не\s+(?:планир|выполн|делаю)|нельзя)",
+    re.IGNORECASE,
+)
+FRAME_DELETE_HINT = (
+    "Удалять кадры и сцены через чат я не могу, так задумано для безопасности. "
+    "Удалите кадр кнопкой на доске монтажа."
+)
+
+
+# Разбивки сцен на доске этой линии нет (executor._HELD_UNTIL_R2): объясняем, а не «не умею».
+_SPLIT_SCENE = re.compile(r"(?:отдел|раздел|разбе|разби|расклей)\w*[^.?!]{0,40}сцен", re.IGNORECASE)
+SPLIT_SCENE_HINT = (
+    "Разделять сцены в этой версии доски монтажа нельзя: такой функции на доске нет. "
+    "Объединить сцены можно, напишите «объедини сцены кадров 13 и 14»."
+)
+
+
 def missing_action_text(reason: str, goal: str = "") -> str:
     """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
+    if _NO_FRAME_DELETE.search(reason or ""):
+        return FRAME_DELETE_HINT
     if not _MISSING_ACTION.search(reason or ""):
         return ""
     if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):
         return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
+    if _SPLIT_SCENE.search(goal or ""):
+        return f"{NOT_SUPPORTED} {SPLIT_SCENE_HINT}"
     return NOT_SUPPORTED
 
 
@@ -570,7 +594,101 @@ def _resume_text(body: dict[str, Any]) -> str:
     return f"Пауза снята, статус проекта: {_status_ru(str(status))}." if status else "Пауза снята."
 
 
+_BOARD_LINES = 30
+
+
+def _board_text(body: dict[str, Any]) -> str:
+    """Доска монтажа строками «кадр N: текст»: модель без списка писала «кадры не предоставлены»."""
+    frames = [f for f in body.get("frames") or [] if isinstance(f, dict)]
+    count = body.get("frame_count") or len(frames)
+    lines = [f"На доске монтажа {count} {_plural(int(count), 'кадр', 'кадра', 'кадров')}."]
+    for frame in frames[:_BOARD_LINES]:
+        text = " ".join(str(frame.get("voiceover_text") or "").split())
+        two = ", два шота" if frame.get("has_shot2") else ""
+        lines.append(f"• кадр {frame.get('number')}{two}: {text[:90] or 'без текста'}")
+    if len(frames) > _BOARD_LINES or body.get("frames_truncated"):
+        lines.append(f"…и ещё {max(int(count) - _BOARD_LINES, 0)}.")
+    pending = body.get("pending_ops") or []
+    if pending:
+        lines.append(f"В очереди правок {len(pending)}, они ещё не применены.")
+    else:
+        lines.append("Очередь правок пуста.")
+    stale = body.get("stale_videos") or []
+    if stale:
+        lines.append(f"Устаревших видео {len(stale)}: их нужно пересобрать.")
+    return "\n".join(lines)
+
+
+def _voiceover_text(body: dict[str, Any]) -> str:
+    text = " ".join(str(body.get("voiceover_text") or "").split())
+    return f"Закадровый текст кадра {body.get('number')} теперь «{text}»." if text else ""
+
+
+_COVERAGE_RU = {
+    "coverage_plan": "крупность",
+    "coverage_angle": "ракурс",
+    "coverage_move": "движение камеры",
+    "coverage_stitch": "склейка",
+    "coverage_light": "свет",
+    "coverage_action": "действие",
+    "coverage_kind": "тип кадра",
+}
+
+
+def _coverage_text(body: dict[str, Any]) -> str:
+    if not body.get("ok"):
+        return ""
+    what = _COVERAGE_RU.get(str(body.get("type") or ""), "покрытие")
+    value = body.get("value")
+    tail = f" — {value}" if value not in (None, "") else " изменено"
+    return f"Кадр {body.get('frame_number')}: {what}{tail}."
+
+
+def _insert_frame_text(body: dict[str, Any]) -> str:
+    if not body.get("number"):
+        return ""
+    # Доска не перенумеровывает кадры: новый встаёт на место, но получает номер max+1.
+    return f"Добавил кадр на нужное место, его номер на доске {body['number']}: номера других кадров не меняются."
+
+
+def _swap_shots_text(body: dict[str, Any]) -> str:
+    what = [
+        name
+        for key, name in (("images_swapped", "картинки"), ("videos_swapped", "видео"), ("prompts_swapped", "промты"))
+        if body.get(key)
+    ]
+    if not what:
+        return ""
+    return f"В кадре {body.get('frame_number')} шоты поменяны местами: " + ", ".join(what) + "."
+
+
+def _queue_ops_text(body: dict[str, Any]) -> str:
+    n = body.get("queued")
+    if not n:
+        return ""
+    total = body.get("total_in_queue") or n
+    return (
+        f"Поставил в очередь правок монтажа {n}, всего в очереди {total}. Сами правки ещё не сделаны: "
+        "напишите «примени очередь», когда будете готовы."
+    )
+
+
+def _merge_scenes_text(body: dict[str, Any]) -> str:
+    if not body.get("parent_number"):
+        return ""
+    size = body.get("vo_scene_size")
+    tail = f", в ней теперь {size} {_plural(int(size), 'кадр', 'кадра', 'кадров')}" if size else ""
+    return f"Сцены объединены в одну, она начинается с кадра {body['parent_number']}{tail}."
+
+
 _KNOWN_TEXT = {
+    "montage.get_board": _board_text,
+    "montage.merge_scenes": _merge_scenes_text,
+    "montage.queue_ops": _queue_ops_text,
+    "montage.set_voiceover": _voiceover_text,
+    "montage.set_coverage": _coverage_text,
+    "montage.insert_frame": _insert_frame_text,
+    "montage.swap_shots": _swap_shots_text,
     "project.create_batch": _batch_text,
     "queue.enqueue_many": _queue_text,
     "queue.set_parallel": _parallel_text,

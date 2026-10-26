@@ -248,7 +248,37 @@ def _hints(rows: list[dict[str, Any]]) -> list[str]:
     out: list[str] = []
     if any("image_generator" in str(row.get("p") or "") for row in rows):
         out.extend(media_hints())
-    return out + _step_hints(rows)
+    return out + _step_hints(rows) + _frame_hints(rows) + _montage_notes(rows)
+
+
+def _montage_notes(rows: list[dict[str, Any]]) -> list[str]:
+    """Подсказки к действиям монтажа из старого планировщика: без них чат вставлял шот вместо
+    кадра и на «объедини кадры» только читал доску."""
+    from app.services.action_layer.planner_rules import ACTION_NOTES
+
+    ids = [str(row.get("id") or "") for row in rows]
+    notes = [f"{key}: {ACTION_NOTES[key]}" for key in ids if key.startswith("montage.") and key in ACTION_NOTES]
+    if "montage.insert_frame" in ids and "montage.split_scene" not in ids:
+        # Разбивки сцен в каталоге нет: «раздели сцену» планировщик подменял вставкой пустого кадра.
+        notes.append(
+            "Разделить или разбить сцену в этом каталоге нельзя: insert_frame добавляет новый пустой "
+            "кадр и сцену не делит. На «раздели/отдели/разбей сцену» верни пустой план с причиной "
+            "«нет подходящего действия»."
+        )
+    return notes
+
+
+_FRAME_PARAM = re.compile(r"\b(?:after_|left_|right_)?frame_ids?\b")
+
+
+def _frame_hints(rows: list[dict[str, Any]]) -> list[str]:
+    if not any(_FRAME_PARAM.search(str(row.get("p") or "")) for row in rows):
+        return []
+    return [
+        "frame_id, after_frame_id, left_frame_id, right_frame_id и frame_ids в действиях монтажа — "
+        "номер кадра на доске из слов человека: «кадр 9» — 9, «после кадра 12» — after_frame_id=12. "
+        "Сервер сам найдёт кадр по номеру; не спрашивай id кадра и не читай доску ради него."
+    ]
 
 
 def _step_hints(rows: list[dict[str, Any]]) -> list[str]:
