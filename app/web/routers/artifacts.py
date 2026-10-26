@@ -20,7 +20,7 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,23 +34,22 @@ router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 files_router = APIRouter(tags=["files"])
 
 
-@files_router.get("/files")
+@files_router.get("/files", response_model=None)
 async def serve_data_file(
     path: str = Query(..., description="Абсолютный путь под data_dir"),
     download: int = Query(0, description="1 = Content-Disposition: attachment"),
     thumb: int = Query(0, description="1 = уменьшенная WebP-копия для сетки истории"),
     session: AsyncSession = Depends(get_session),
-) -> FileResponse:
+) -> FileResponse | RedirectResponse:
     """Отдаёт файл из data_dir (или его подкаталогов). Безопасный whitelist
     предотвращает path traversal — допускаем только пути, чей resolve
     начинается с data_dir.resolve().
 
-    Имя на диске (.bin) не доверяем: magic → MIME и filename при download.
-
-    ``thumb=1`` — только для картинок: отдаёт кэшированный WebP 320px
-    (ключ — путь + mtime, stale невозможен). Проверки доступа те же, что и
-    у оригинала; не-картинки и сбои PIL молча отдают оригинал.
+    Если объект выгружен в S3-хранилище (Яндекс.Облако), перенаправляет 307
+    на подписанную ссылку, снимая нагрузку с сервера.
     """
+    import json
+
     from app.services.gpt_api import suggested_name_and_mime
 
     candidate = Path(path).resolve()
@@ -59,15 +58,35 @@ async def serve_data_file(
         candidate.relative_to(base)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="path outside data_dir") from exc
-    if not candidate.is_file():
+
+    sidecar = candidate.with_suffix(".json")
+    storage_key: str | None = None
+    if sidecar.is_file():
+        try:
+            meta = json.loads(sidecar.read_text(encoding="utf-8"))
+            storage_key = meta.get("storage_key")
+        except Exception:  # noqa: BLE001
+            pass
+
+    if not candidate.is_file() and not storage_key:
         raise HTTPException(status_code=404, detail="file not found")
+
     try:
         await assert_readable(session, candidate)
     except ForeignFile as exc:
         # 404, а не 403: существование чужого файла — тоже сведения о чужом
         # проекте. Отвечать «есть, но не дам» значит подтверждать слаг.
         raise HTTPException(status_code=404, detail="file not found") from exc
-    if thumb and not download:
+
+    download_name, mime = suggested_name_and_mime(candidate)
+
+    if getattr(settings, "s3_configured", False) and storage_key and not (thumb and candidate.is_file()):
+        from app.services.storage import get_storage
+
+        url = get_storage().url(storage_key, download_name=download_name if download else "")
+        return RedirectResponse(url, status_code=307)
+
+    if thumb and not download and candidate.is_file():
         from app.services.thumbnails import thumbnail_path
 
         small = thumbnail_path(candidate)
@@ -77,7 +96,10 @@ async def serve_data_file(
                 media_type="image/webp",
                 headers={"Cache-Control": "private, max-age=31536000, immutable"},
             )
-    download_name, mime = suggested_name_and_mime(candidate)
+
+    if not candidate.is_file():
+        raise HTTPException(status_code=404, detail="file not found on disk")
+
     kwargs: dict = {
         "media_type": mime or "application/octet-stream",
         "headers": {
@@ -117,48 +139,67 @@ async def get_project_cover(
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
     """Отдаёт изображение-обложку проекта для карточек в сайдбаре / профиле."""
+
     project = (await session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
+
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
 
     # 1. Проверяем явный custom cover в project.meta
+
     meta = (project.meta or {}) if isinstance(project.meta, dict) else {}
+
     custom_cover = meta.get("cover_image") or meta.get("custom_cover")
+
     if custom_cover and isinstance(custom_cover, str):
         c_path = Path(custom_cover)
+
         if c_path.is_file():
             try:
                 await assert_readable(session, c_path)
+
                 mime, _ = mimetypes.guess_type(str(c_path))
+
                 return FileResponse(
                     c_path,
                     media_type=mime or "image/png",
                     headers={"Cache-Control": "private, max-age=60, must-revalidate"},
                 )
+
             except Exception:
                 pass
 
     # 2. Ищем артефакты готовых кадров сцены (scene_image)
+
     scene_arts = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project_id,
-                Artifact.kind == ArtifactKind.scene_image,
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind == ArtifactKind.scene_image,
+                )
+                .order_by(Artifact.id.asc())
+                .limit(10)
             )
-            .order_by(Artifact.id.asc())
-            .limit(10)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
+
     for art in scene_arts:
         if art.path:
             p = Path(art.path)
+
             if p.is_file() and p.stat().st_size > 0:
                 try:
                     await assert_readable(session, p)
+
                 except Exception:
                     continue
+
                 mime, _ = mimetypes.guess_type(str(p))
+
                 return FileResponse(
                     p,
                     media_type=mime or "image/png",
@@ -166,32 +207,44 @@ async def get_project_cover(
                 )
 
     # 3. Ищем другие графические артефакты (hero_reference, item_reference, image)
+
     other_arts = (
-        await session.execute(
-            select(Artifact)
-            .where(
-                Artifact.project_id == project_id,
-                Artifact.kind.in_([
-                    ArtifactKind.hero_reference,
-                    ArtifactKind.item_reference,
-                    "image",
-                    "hero",
-                    "item",
-                ]),
+        (
+            await session.execute(
+                select(Artifact)
+                .where(
+                    Artifact.project_id == project_id,
+                    Artifact.kind.in_(
+                        [
+                            ArtifactKind.hero_reference,
+                            ArtifactKind.item_reference,
+                            "image",
+                            "hero",
+                            "item",
+                        ]
+                    ),
+                )
+                .order_by(Artifact.id.asc())
+                .limit(10)
             )
-            .order_by(Artifact.id.asc())
-            .limit(10)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
+
     for art in other_arts:
         if art.path:
             p = Path(art.path)
+
             if p.is_file() and p.stat().st_size > 0:
                 try:
                     await assert_readable(session, p)
+
                 except Exception:
                     continue
+
                 mime, _ = mimetypes.guess_type(str(p))
+
                 return FileResponse(
                     p,
                     media_type=mime or "image/png",
@@ -199,19 +252,25 @@ async def get_project_cover(
                 )
 
     # 4. Фоллбэк: файлы на диске проекта (data_dir / images или frames)
+
     if project.data_dir:
         p_dir = Path(project.data_dir)
+
         for folder in ("images", "frames"):
             f_dir = p_dir / folder
+
             if f_dir.is_dir():
                 for ext in ("*.png", "*.webp", "*.jpg", "*.jpeg"):
                     for candidate in sorted(f_dir.glob(ext)):
                         if candidate.is_file() and candidate.stat().st_size > 0:
                             try:
                                 await assert_readable(session, candidate)
+
                             except Exception:
                                 continue
+
                             mime, _ = mimetypes.guess_type(str(candidate))
+
                             return FileResponse(
                                 candidate,
                                 media_type=mime or "image/png",
