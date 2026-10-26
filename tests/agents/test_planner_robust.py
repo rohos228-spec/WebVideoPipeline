@@ -313,3 +313,16 @@ def test_scenario_node_name_is_not_a_task_marker() -> None:
 
     found = classify_deterministic("какая модель стоит на сценарии в проекте 6")
     assert found is not None and found.mode is MessageMode.append
+
+
+def test_shot_numbers_written_as_strings_become_ints() -> None:
+    from app.orchestrator.agents.planner import _schema_numbers
+    from app.services.action_layer.spec import ensure_builtin_actions
+
+    ensure_builtin_actions()
+    out = _schema_numbers(
+        "montage.move_image",
+        {"project_id": "4", "from_frame": "1", "from_shot": "2", "to_frame": "2", "to_shot": "1", "note": "x"},
+    )
+    assert out["to_shot"] == 1 and out["from_frame"] == 1 and out["note"] == "x"
+    assert _schema_numbers("no.such_action", {"a": "1"}) == {"a": "1"}

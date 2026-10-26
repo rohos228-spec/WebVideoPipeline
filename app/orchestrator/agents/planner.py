@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -238,6 +239,37 @@ def _one_text_source(params: dict) -> dict:
     return {k: v for k, v in params.items() if not (k in _TEXT_SOURCES and _blank(v))}
 
 
+_DIGITS = re.compile(r"^-?\d+$")
+_DECIMAL = re.compile(r"^-?\d+(?:[.,]\d+)?$")
+
+
+def _schema_numbers(action: str, params: dict) -> dict:
+    """«to_shot": "2" -> 2 там, где схема действия ждёт число.
+
+    Модель иногда пишет номер строкой; проверка плана отклоняла шаг, а на пересборке
+    модель отвечала «такого действия нет» (перенос картинки между кадрами).
+    """
+    try:
+        from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+        ensure_builtin_actions()
+        spec = registry.find(action)
+    except Exception:
+        return params
+    props = ((spec.params_schema or {}).get("properties") or {}) if spec is not None else {}
+    out = dict(params)
+    for key, value in params.items():
+        kind = (props.get(key) or {}).get("type")
+        if not isinstance(value, str):
+            continue
+        text = value.strip()
+        if kind == "integer" and _DIGITS.match(text):
+            out[key] = int(text)
+        elif kind == "number" and _DECIMAL.match(text):
+            out[key] = float(text.replace(",", "."))
+    return out
+
+
 def _tolerant(item: Any) -> Any:
     if not isinstance(item, dict):
         return item
@@ -252,6 +284,8 @@ def _tolerant(item: Any) -> Any:
             out["params"] = {k: v for k, v in params.items() if k != "node_key"}
     if out.get("action") == "prompt.edit_text" and isinstance(params, dict):
         out["params"] = _one_text_source(params)
+    if isinstance(out.get("params"), dict):
+        out["params"] = _schema_numbers(str(out.get("action") or ""), out["params"])
     for name in ("paid", "mutating"):
         if name in out:
             flag = _flag(out[name])

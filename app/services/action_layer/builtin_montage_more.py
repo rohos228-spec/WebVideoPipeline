@@ -846,6 +846,9 @@ async def _unlink_linked_ref(ctx, params):
     wanted = str(params["ref_id"]).strip().lower()
     refs = [r for r in (frame or {}).get("manual_refs") or [] if isinstance(r, dict)]
     hit = [r for r in refs if wanted in {str(r.get("id") or "").lower(), str(r.get("name") or "").lower()}]
+    if not hit:
+        # Имя приложенного ассета — имя файла («predmet2_b0c165a8»), человек зовёт его «predmet2».
+        hit = [r for r in refs if str(r.get("name") or "").lower().startswith(wanted + "_")]
     if len(hit) != 1:
         raise ValueError(f"у кадра {number} нет приложенного рефа «{params['ref_id']}»")
     if not hit[0].get("linked"):
