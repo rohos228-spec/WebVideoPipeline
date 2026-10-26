@@ -119,13 +119,11 @@ export function StudioWorkspace({
     onSelectNode(null);
     setPromptFocus(null);
     setStudioTarget(null);
-    setInlineStudioKey(null);
     setStudioTab("settings");
     setVMenuNodeKey(null);
     window.dispatchEvent(new CustomEvent("node-studio-closed"));
   }, [onStudioOpenChange, onSelectNode]);
 
-  const [inlineStudioKey, setInlineStudioKey] = useState<string | null>(null);
   const openStudioInline = useCallback(
     (
       nodeKey: string,
@@ -134,8 +132,7 @@ export function StudioWorkspace({
       tab: "settings" | "prompts" | "results" | "excel" = "prompts",
     ) => {
       suppressStudioOpenUntil.current = 0;
-      setInlineStudioKey(null);
-      const resolvedTab =
+        const resolvedTab =
         slot?.kind === "excel" && isExcelGptNode(nodeType)
           ? "settings"
           : slot?.kind === "excel"
@@ -171,13 +168,17 @@ export function StudioWorkspace({
     },
     [onSelectNode, onStudioOpenChange],
   );
-  // Every legacy "open node studio" path now just expands the node inline.
   const openStudioForNode = useCallback(
-    (nodeKey: string, _nodeType?: string, _slot?: NodePromptSlot | null, _tab?: string) => {
-      onSelectNode(nodeKey);
-      window.dispatchEvent(new CustomEvent("vp-node-inline-open", { detail: { nodeKey } }));
+    (
+      nodeKey: string,
+      nodeType?: string,
+      slot?: NodePromptSlot | null,
+      tab: "settings" | "prompts" | "results" | "excel" = "settings",
+    ) => {
+      const type = nodeType ?? nodeTypeFromKey(nodeKey);
+      openStudioInline(nodeKey, type, slot ?? null, tab);
     },
-    [onSelectNode],
+    [openStudioInline],
   );
 
   useEffect(() => {
@@ -240,16 +241,11 @@ export function StudioWorkspace({
         return;
       }
       setVMenuNodeKey(null);
-      if (!d.inline) {
-        openStudioForNode(nodeKey);
-        return;
-      }
-      openStudioInline(nodeKey, nodeType, null, d.initialTab ?? "prompts");
-      setInlineStudioKey(nodeKey);
+      openStudioInline(nodeKey, nodeType, null, d.initialTab ?? "settings");
     };
     window.addEventListener("studio-open-node-prompts", onOpenPrompts);
     return () => window.removeEventListener("studio-open-node-prompts", onOpenPrompts);
-  }, [projectId, openStudioForNode, openStudioInline]);
+  }, [projectId, openStudioInline]);
 
   const project = useQuery({
     queryKey: ["project", projectId],
@@ -710,7 +706,6 @@ export function StudioWorkspace({
         }}
         projectId={projectId}
         nodeKey={effectiveNodeKey}
-        inlineTargetId={inlineStudioKey && inlineStudioKey === effectiveNodeKey ? `vp-inline-studio-${inlineStudioKey}` : null}
         initialTab={studioTarget?.tab ?? studioTab}
         promptFocus={
           effectiveNodeKey && studioTarget?.nodeKey === effectiveNodeKey
