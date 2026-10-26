@@ -246,10 +246,10 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const openSettings = useCallback(() => {
     window.dispatchEvent(
       new CustomEvent("studio-open-node-prompts", {
-        detail: { nodeKey: d.nodeKey, initialTab: "settings" },
+        detail: { nodeKey: d.nodeKey, initialTab: "settings", nodeData: d },
       }),
     );
-  }, [d.nodeKey]);
+  }, [d]);
   // Wheel over a node zooms the canvas (like the background). Only an inner area that
   // can actually scroll in the wheel direction keeps the wheel (React Flow skips .nowheel).
   useEffect(() => {

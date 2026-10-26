@@ -58,6 +58,7 @@ export function StudioWorkspace({
     nodeType: string;
     promptFocus: NodePromptSlot | null;
     tab: "settings" | "prompts" | "results" | "excel";
+    nodeData?: Record<string, any> | null;
   } | null>(null);
   const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results" | "excel">(
     "settings",
@@ -130,6 +131,7 @@ export function StudioWorkspace({
       nodeType: string,
       slot: NodePromptSlot | null,
       tab: "settings" | "prompts" | "results" | "excel" = "prompts",
+      nodeData?: Record<string, any> | null,
     ) => {
       suppressStudioOpenUntil.current = 0;
         const resolvedTab =
@@ -159,6 +161,7 @@ export function StudioWorkspace({
         nodeType,
         promptFocus: focus,
         tab: focusTab,
+        nodeData,
       });
       onSelectNode(nodeKey);
       setVMenuNodeKey(null);
@@ -174,9 +177,10 @@ export function StudioWorkspace({
       nodeType?: string,
       slot?: NodePromptSlot | null,
       tab: "settings" | "prompts" | "results" | "excel" = "settings",
+      nodeData?: Record<string, any> | null,
     ) => {
       const type = nodeType ?? nodeTypeFromKey(nodeKey);
-      openStudioInline(nodeKey, type, slot ?? null, tab);
+      openStudioInline(nodeKey, type, slot ?? null, tab, nodeData);
     },
     [openStudioInline],
   );
@@ -229,7 +233,12 @@ export function StudioWorkspace({
         toast.error("Сначала выберите проект");
         return;
       }
-      const d = (ev as CustomEvent<{ nodeKey?: string | null; initialTab?: "settings" | "prompts"; inline?: boolean }>).detail ?? {};
+      const d = (ev as CustomEvent<{
+        nodeKey?: string | null;
+        initialTab?: "settings" | "prompts";
+        inline?: boolean;
+        nodeData?: Record<string, any> | null;
+      }>).detail ?? {};
       const nodeKey = d.nodeKey ?? selectedNodeKeyRef.current;
       if (!nodeKey) {
         toast.error("Выберите ноду на канвасе");
@@ -241,7 +250,7 @@ export function StudioWorkspace({
         return;
       }
       setVMenuNodeKey(null);
-      openStudioInline(nodeKey, nodeType, null, d.initialTab ?? "settings");
+      openStudioInline(nodeKey, nodeType, null, d.initialTab ?? "settings", d.nodeData);
     };
     window.addEventListener("studio-open-node-prompts", onOpenPrompts);
     return () => window.removeEventListener("studio-open-node-prompts", onOpenPrompts);
@@ -707,6 +716,11 @@ export function StudioWorkspace({
         projectId={projectId}
         nodeKey={effectiveNodeKey}
         initialTab={studioTarget?.tab ?? studioTab}
+        nodeData={
+          effectiveNodeKey && studioTarget?.nodeKey === effectiveNodeKey
+            ? studioTarget.nodeData
+            : null
+        }
         promptFocus={
           effectiveNodeKey && studioTarget?.nodeKey === effectiveNodeKey
             ? studioTarget.promptFocus ?? promptFocus
