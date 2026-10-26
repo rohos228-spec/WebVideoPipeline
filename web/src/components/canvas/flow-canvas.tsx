@@ -1157,7 +1157,7 @@ export function FlowCanvas({
           const d = node.data as PipelineNodeData;
           window.dispatchEvent(
             new CustomEvent("studio-open-node-prompts", {
-              detail: { nodeKey: d.nodeKey, initialTab: "settings" },
+              detail: { nodeKey: d.nodeKey, initialTab: "settings", nodeData: d },
             }),
           );
         }}
@@ -1184,7 +1184,7 @@ export function FlowCanvas({
             inlineClickTimerRef.current = null;
             window.dispatchEvent(
               new CustomEvent("studio-open-node-prompts", {
-                detail: { nodeKey: d.nodeKey, initialTab: "settings" },
+                detail: { nodeKey: d.nodeKey, initialTab: "settings", nodeData: d },
               }),
             );
           }, 0);

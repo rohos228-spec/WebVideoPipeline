@@ -2600,3 +2600,33 @@ async def harness_verify(
     out = report.to_dict()
     out["forbidden_steps"] = sorted(HARNESS_FORBIDDEN_STEPS)
     return out
+
+
+@router.post("/{project_id}/node-bg")
+async def upload_node_background(
+    project_id: int,
+    node_key: str = Query(..., min_length=1),
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Загрузить кастомный фон для карточки ноды на канвасе."""
+    import re
+    from urllib.parse import quote
+
+    p = _project_or_404(await session.get(Project, project_id))
+    safe_key = re.sub(r"[^a-zA-Z0-9_\-]", "_", node_key.strip())
+    suffix = Path(file.filename or "bg.png").suffix.lower()
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        suffix = ".png"
+
+    bg_dir = Path(p.data_dir) / "node_backgrounds"
+    bg_dir.mkdir(parents=True, exist_ok=True)
+    target = bg_dir / f"{safe_key}{suffix}"
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="пустой файл")
+    target.write_bytes(content)
+
+    preview_url = f"/api/files?path={quote(str(target.resolve()))}"
+    return {"ok": True, "preview_url": preview_url}

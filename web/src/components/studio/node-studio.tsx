@@ -22,6 +22,7 @@ import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { Copy as CopyIcon, Play as PlayIcon, X as XIcon, Loader2 as SpinIcon, Maximize2 as OpenIcon } from "lucide-react";
 import { NodeModelPicker } from "@/components/canvas/node-model-picker";
+import { isTextNodeType } from "@/lib/node-model-catalog";
 import { getNodeSpec } from "@/lib/node-catalog";
 import { getNodeIcon } from "@/lib/node-icons";
 import { nodeTypeFromKey } from "@/lib/node-key";
@@ -100,6 +101,7 @@ export function NodeStudio({
   projectId,
   nodeKey,
   initialTab = "settings",
+  nodeData: nodeDataProp,
   promptFocus,
   nodeDisabled = false,
   onEnableNode,
@@ -111,6 +113,7 @@ export function NodeStudio({
   projectId: number | null;
   nodeKey: string | null;
   initialTab?: StudioTab;
+  nodeData?: Record<string, any> | null;
   promptFocus?: NodePromptSlot | null;
   nodeDisabled?: boolean;
   onEnableNode?: () => void;
@@ -680,12 +683,80 @@ export function NodeStudio({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, requestClose]);
 
-  const nodeData = useMemo(() => {
+  const metaNodeData = useMemo(() => {
+    if (!nodeKey) return null;
     const meta = (project.data?.meta || {}) as {
+      canvas_graph?: { nodes?: Array<{ id: string; data?: Record<string, any> }> };
       workflow?: { nodes?: Array<{ id: string; data?: Record<string, any> }> };
     };
-    return meta.workflow?.nodes?.find((n) => n.id === nodeKey)?.data;
+    const cgNode = meta.canvas_graph?.nodes?.find((n) => n.id === nodeKey)?.data;
+    if (cgNode) return cgNode;
+    return meta.workflow?.nodes?.find((n) => n.id === nodeKey)?.data ?? null;
   }, [project.data?.meta, nodeKey]);
+
+  const [liveNodeData, setLiveNodeData] = useState<Record<string, any> | null>(() => {
+    if (nodeDataProp && (!nodeDataProp.nodeKey || nodeDataProp.nodeKey === nodeKey)) {
+      return { ...(metaNodeData || {}), ...nodeDataProp };
+    }
+    return metaNodeData ?? null;
+  });
+
+  const lastNodeKeyRef = useRef(nodeKey);
+  useEffect(() => {
+    if (!open || !nodeKey) return;
+    if (lastNodeKeyRef.current !== nodeKey) {
+      lastNodeKeyRef.current = nodeKey;
+      const fromProp = nodeDataProp && (!nodeDataProp.nodeKey || nodeDataProp.nodeKey === nodeKey) ? nodeDataProp : null;
+      setLiveNodeData({
+        ...(metaNodeData || {}),
+        ...(fromProp || {}),
+      });
+      return;
+    }
+    if (nodeDataProp && (!nodeDataProp.nodeKey || nodeDataProp.nodeKey === nodeKey)) {
+      setLiveNodeData((prev) => ({
+        ...(metaNodeData || {}),
+        ...(prev || {}),
+        ...nodeDataProp,
+      }));
+    } else if (metaNodeData) {
+      setLiveNodeData((prev) => ({
+        ...metaNodeData,
+        ...(prev || {}),
+      }));
+    }
+  }, [open, nodeKey, nodeDataProp, metaNodeData]);
+
+  useEffect(() => {
+    if (!open || !nodeKey) return;
+    const onPatch = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ nodeKey: string; patch: Record<string, any> }>).detail;
+      if (!detail || detail.nodeKey !== nodeKey) return;
+      setLiveNodeData((prev) => ({
+        ...(prev || {}),
+        ...detail.patch,
+        ...(detail.patch.modelId != null ? { modelPinned: true } : {}),
+      }));
+    };
+    const onGlobalModel = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ modelId: string }>).detail;
+      if (!detail?.modelId) return;
+      if (!isTextNodeType(nodeType)) return;
+      setLiveNodeData((prev) => {
+        if (prev?.modelPinned === true) return prev;
+        return {
+          ...(prev || {}),
+          modelId: detail.modelId,
+        };
+      });
+    };
+    window.addEventListener("canvas-patch-node-data", onPatch);
+    window.addEventListener("canvas-patch-global-model", onGlobalModel);
+    return () => {
+      window.removeEventListener("canvas-patch-node-data", onPatch);
+      window.removeEventListener("canvas-patch-global-model", onGlobalModel);
+    };
+  }, [open, nodeKey, nodeType]);
 
   if (!nodeKey || !mounted || !open) return null;
 
@@ -792,11 +863,11 @@ export function NodeStudio({
                   <NodeModelPicker
                     nodeKey={nodeKey}
                     nodeType={nodeType}
-                    modelId={nodeData?.modelId}
-                    imageResolution={nodeData?.imageResolution || project.data?.image_resolution || undefined}
-                    imageQuality={nodeData?.imageQuality || project.data?.image_quality || undefined}
-                    aspectRatio={nodeData?.aspectRatio || project.data?.aspect_ratio || undefined}
-                    reasoningEffort={nodeData?.reasoningEffort}
+                    modelId={liveNodeData?.modelId}
+                    imageResolution={liveNodeData?.imageResolution || project.data?.image_resolution || undefined}
+                    imageQuality={liveNodeData?.imageQuality || project.data?.image_quality || undefined}
+                    aspectRatio={liveNodeData?.aspectRatio || project.data?.aspect_ratio || undefined}
+                    reasoningEffort={liveNodeData?.reasoningEffort}
                   />
                 </div>
               <span className="flex-1" />
@@ -826,7 +897,7 @@ export function NodeStudio({
                 onActivate={(v) => activateVariant.mutate(v)}
                 nodeKey={nodeKey ?? ""}
                 projectId={projectId ?? undefined}
-                description={nodeData?.description || spec.description || ""}
+                description={liveNodeData?.description || spec.description || ""}
               />
             ) : null}
             {showFilesPanel && promptStepCode && !canCatalog ? (
