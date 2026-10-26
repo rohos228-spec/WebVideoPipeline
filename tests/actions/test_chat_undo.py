@@ -451,3 +451,29 @@ async def test_restore_from_last_snapshot_is_the_chat_undo(env) -> None:
     # Снимок без просьбы вернуть — не откат.
     for text in ("сделай снимок проекта 6", "сколько снимков в проекте 6?", "что в последнем снимке?"):
         assert not chat_undo.undo_phrase(text), text
+
+
+async def test_plain_undo_after_edit_without_snapshot_does_not_revert_older_edit() -> None:
+    """Живой случай: закадр, потом крупность кадра с пустым прежним значением (снимка нет) —
+    «верни как было» откатывало закадр. Теперь честно говорит, что последнюю правку не вернуть."""
+    from datetime import datetime, timedelta
+
+    old = SimpleNamespace(id=29, kind="voiceover", project_id=6, plan_id="vo", before="а", after="б",
+                          target={"project_id": 6, "frame_id": 5}, created_at=datetime(2026, 1, 1))
+    newer = SimpleNamespace(plan_id="cov", action_id="montage.set_coverage", params={"frame_number": 12},
+                            finished_at=old.created_at + timedelta(minutes=1), started_at=None)
+
+    async def snapshots(project_id):
+        return [old]
+
+    async def steps(project_id):
+        return [newer]
+
+    plan = await chat_undo.resolve("верни как было", 6, snapshots_of=snapshots, steps_of=steps,
+                                   meta_of=_meta, current_of=_always)
+    assert plan is not None and plan.steps == []
+    assert "Изменить покрытие кадра" in plan.reason and "(кадр 12)" in plan.reason
+    # Шаг старше снимка — откат снимка как раньше.
+    newer.finished_at = old.created_at - timedelta(minutes=1)
+    assert (await chat_undo.resolve("верни как было", 6, snapshots_of=snapshots, steps_of=steps,
+                                    meta_of=_meta, current_of=_always)).steps

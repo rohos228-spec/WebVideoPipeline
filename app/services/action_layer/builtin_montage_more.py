@@ -357,8 +357,17 @@ async def _cancel_queue_ops(ctx, params):
         if params.get("clear_all"):
             kept = []
         else:
-            gone = {_op_key({**o, "shot": o.get("shot", 1)}) for o in params["ops"]}
-            kept = [o for o in existing if _op_key(o) not in gone]
+            typed = [o for o in params["ops"] if o.get("type")]
+            gone = {_op_key({**o, "shot": o.get("shot", 1)}) for o in typed}
+            # «Убери правку кадра 8» без типа: все правки кадра (и шота, если назван).
+            whole = {(int(o["frame_number"]), o.get("shot")) for o in params["ops"] if not o.get("type")}
+
+            def _whole(op: dict) -> bool:
+                frame = int(op.get("frame_number") or 0)
+                shot = 2 if op.get("shot") == 2 else 1
+                return (frame, None) in whole or (frame, shot) in whole
+
+            kept = [o for o in existing if _op_key(o) not in gone and not _whole(o)]
         return QueueChange(
             kept,
             {"force_clear": not kept},
@@ -739,14 +748,16 @@ async def _swap_slots(ctx, params):
             "b_shot": params["b_shot"],
         },
     )
-    return {"ok": bool(data.get("ok")), "kind": params["kind"]}
+    slots = {k: params[k] for k in ("a_frame", "a_shot", "b_frame", "b_shot")}
+    return {"ok": bool(data.get("ok")), "kind": params["kind"], **slots}
 
 
 async def _move_image(ctx, params):
     q = {k: params[k] for k in ("from_frame", "from_shot", "to_frame", "to_shot")}
     q["from_slot"], q["to_slot"] = params.get("from_slot", ""), params.get("to_slot", "")
     data = await ctx.call("POST", f"{_base(params['project_id'])}/move-image", params=q)
-    return {"ok": bool(data.get("ok")), "action": data.get("action")}
+    slots = {k: params[k] for k in ("from_frame", "from_shot", "to_frame", "to_shot")}
+    return {"ok": bool(data.get("ok")), "action": data.get("action"), **slots}
 
 
 async def _delete_image(ctx, params):
@@ -827,10 +838,28 @@ async def _delete_ref(ctx, params):
     return {"deleted": bool(data.get("ok")), "refs": data.get("refs")}
 
 
+async def _unlink_linked_ref(ctx, params):
+    """Отвязать приложенный готовый реф: файл ассета остаётся, загруженный файл сюда не попадает."""
+    board = await ctx.call("GET", _base(params["project_id"]))
+    number = int(params["frame_number"])
+    frame = next((f for f in board.get("frames") or [] if int(f.get("number") or 0) == number), None)
+    wanted = str(params["ref_id"]).strip().lower()
+    refs = [r for r in (frame or {}).get("manual_refs") or [] if isinstance(r, dict)]
+    hit = [r for r in refs if wanted in {str(r.get("id") or "").lower(), str(r.get("name") or "").lower()}]
+    if len(hit) != 1:
+        raise ValueError(f"у кадра {number} нет приложенного рефа «{params['ref_id']}»")
+    if not hit[0].get("linked"):
+        raise ValueError("это загруженный файл, а не приложенный готовый реф: его убирает delete_manual_ref")
+    out = await _delete_ref(ctx, {**params, "ref_id": hit[0]["id"], "kind": "manual"})
+    return {**out, "frame_number": number, "name": hit[0].get("name")}
+
+
 async def _unlink_ref(ctx, params):
+    if params.get("kind") == "linked":
+        return await _unlink_linked_ref(ctx, params)
     if params.get("kind") not in ("character", "item"):
         raise ValueError(
-            "unlink_ref: допустимы только kind=character|item; "
+            "unlink_ref: допустимы только kind=character|item|linked; "
             "удаление загруженного рефа - отдельное действие delete_manual_ref"
         )
     return await _delete_ref(ctx, params)
@@ -964,7 +993,7 @@ def _specs() -> list[ActionSpec]:
                                 "shot": _SHOT,
                                 "slot": {"type": "string", "enum": ["parent"]},
                             },
-                            "required": ["type", "frame_number"],
+                            "required": ["frame_number"],
                             "additionalProperties": False,
                         },
                     },
@@ -1490,13 +1519,14 @@ def _specs() -> list[ActionSpec]:
         ),
         S(
             id="montage.unlink_ref",
-            title_ru="Убрать авто-реф персонажа или предмета",
-            description_ru="Скрывает персонажа/предмет из рефов ячейки. Файлы проекта не трогает.",
+            title_ru="Убрать реф кадра, файлы остаются",
+            description_ru="Скрывает персонажа/предмет из рефов ячейки (kind character|item) или "
+            "отвязывает приложенный готовый реф (kind linked, ref_id — его id или имя). Файлы проекта не трогает.",
             params_schema=_obj(
                 {
                     "frame_number": _FRAME_NO,
                     "ref_id": {"type": "string", "minLength": 1, "maxLength": 100},
-                    "kind": {"type": "string", "enum": ["character", "item"]},
+                    "kind": {"type": "string", "enum": ["character", "item", "linked"]},
                 },
                 ["frame_number", "ref_id", "kind"],
             ),

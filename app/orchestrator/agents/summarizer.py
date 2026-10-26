@@ -681,8 +681,53 @@ def _merge_scenes_text(body: dict[str, Any]) -> str:
     return f"Сцены объединены в одну, она начинается с кадра {body['parent_number']}{tail}."
 
 
+def _cancel_queue_text(body: dict[str, Any]) -> str:
+    if "removed" not in body:
+        return ""
+    removed, left = int(body.get("removed") or 0), int(body.get("left_in_queue") or 0)
+    if not removed:
+        return f"Таких правок в очереди не было, ничего не убрал. В очереди {left}."
+    return f"Убрал из очереди правок {removed}, осталось {left}."
+
+
+
+def _video_trim_text(body: dict[str, Any]) -> str:
+    key = str(body.get("key") or "")
+    if ":" not in key:
+        return ""
+    frame, shot = key.split(":", 1)
+    trim = body.get("trim")
+    if not trim:
+        return f"Обрезка видео снята: кадр {frame}, шот {shot}."
+    end = trim.get("end")
+    span = f"с {trim.get('start', 0):g} по {end:g} с" if end is not None else f"с {trim.get('start', 0):g} с до конца"
+    return f"Обрезка видео задана: кадр {frame}, шот {shot}, {span}."
+
+
+def _move_image_text(body: dict[str, Any]) -> str:
+    if not body.get("ok") or body.get("to_frame") is None:
+        return ""
+    return (
+        f"Картинка перенесена: из кадра {body['from_frame']} (шот {body['from_shot']}) "
+        f"в кадр {body['to_frame']} (шот {body['to_shot']})."
+    )
+
+
+def _swap_slots_text(body: dict[str, Any]) -> str:
+    if not body.get("ok") or body.get("b_frame") is None:
+        return ""
+    what = "видео" if body.get("kind") == "video" else "картинки"
+    return (
+        f"Поменял местами {what}: кадр {body['a_frame']} (шот {body['a_shot']}) "
+        f"и кадр {body['b_frame']} (шот {body['b_shot']})."
+    )
+
 _KNOWN_TEXT = {
     "montage.get_board": _board_text,
+    "montage.cancel_queue_ops": _cancel_queue_text,
+    "montage.set_video_trim": _video_trim_text,
+    "montage.move_image": _move_image_text,
+    "montage.swap_slots": _swap_slots_text,
     "montage.merge_scenes": _merge_scenes_text,
     "montage.queue_ops": _queue_ops_text,
     "montage.set_voiceover": _voiceover_text,
@@ -732,8 +777,27 @@ _KNOWN_TEXT = {
 }
 
 
+def _montage_done_text(action: str, body: dict[str, Any]) -> str:
+    """Правка монтажа без своего текста: название шага и кадр, а не поля «frame number: 5»."""
+    if body.get("ok") is False or body.get("success") is False:
+        return ""
+    from app.services.action_layer.spec import RISK_READ, registry
+
+    spec = registry.find(action)
+    if spec is None or spec.risk == RISK_READ:
+        return ""
+    frame = body.get("frame_number") or body.get("number")
+    where = f" (кадр {frame})" if frame not in (None, "") else ""
+    return f"Готово: {step_title(action).rstrip('.')}{where}."
+
+
 def known_text(action: str, body: dict[str, Any]) -> str:
     fn = _KNOWN_TEXT.get(action)
+    if fn is None and action.startswith("montage.") and action != "montage.get_board":
+        try:
+            return _montage_done_text(action, body)
+        except Exception:
+            return ""
     if fn is None:
         return ""
     try:

@@ -235,6 +235,8 @@ def _norm(text: str) -> str:
 
 
 _MONTAGE = ("доск", "очередь правок", "очереди правок", "очередь монтаж", "очереди монтаж")
+_REF_KIND = {"character": "персонаж", "item": "предмет", "manual": "загруженный"}
+_REF_TO_FRAME = ("привяз", "прилож", "кадр", "доск")
 _PROJECT_NO = re.compile(r"проект\w*\s+(?:№\s*|#\s*)?(\d{1,6})")
 
 
@@ -270,10 +272,13 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     from app.orchestrator.agents.data_report import report_params, wants_data_report
 
     norm = _norm(text)
+    named = _PROJECT_NO.search(norm)
+    pid = project_id if project_id is not None else (int(named.group(1)) if named else None)
+    if pid is not None and _has(norm, ("реф",)) and _has(norm, _REF_TO_FRAME):
+        # «Какие рефы можно привязать к кадру»: без списка ref-assets модель отвечала «в данных не указано».
+        return _allowed([("montage.list_ref_assets", {"project_id": int(pid)})])
     if _has(norm, _MONTAGE):
         # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
-        named = _PROJECT_NO.search(norm)
-        pid = project_id if project_id is not None else (int(named.group(1)) if named else None)
         if pid is not None:
             return _allowed([("montage.get_board", {"project_id": int(pid)})])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
@@ -434,6 +439,11 @@ def fact_text(action: str, result: Any) -> str:
         from app.orchestrator.agents.summarizer import _board_text
 
         parts = [_board_text(result)]
+    if action == "montage.list_ref_assets":
+        assets = [a for a in result.get("assets") or [] if isinstance(a, dict)]
+        parts = [f"Готовых рефов {len(assets)}; их можно приложить к любому кадру:"] + [
+            f"- {a.get('name') or a.get('code')} ({_REF_KIND.get(str(a.get('kind')), a.get('kind'))}), файл {a.get('file')}" for a in assets
+        ]
     if action == "logs.tail":
         lines = [str(row.get("text") or "") for row in result.get("lines") or [] if isinstance(row, dict)]
         parts.extend(lines[-_LOG_LINES:])

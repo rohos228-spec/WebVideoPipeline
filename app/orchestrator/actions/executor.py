@@ -46,6 +46,8 @@ _HELD_UNTIL_R2 = frozenset(
         "montage.explode_scene",
         "montage.improve_scene",
         "montage.generate_scene",
+        # coverage_vo_span на этой линии нет (нет apply_vo_span): HTTP 400 после подтверждения.
+        "montage.set_voiceover_span",
     }
 )
 
@@ -608,11 +610,99 @@ def plan_defaults(name: str, params: dict | None) -> dict:
     return params
 
 
+# Шот не назван («обрежь видео кадра 1»): у кадра обычно один шот с файлом, его и берём, как
+# старый планировщик (planner_rules._fill_shots). Файлы в обоих шотах — вопрос человеку.
+_SHOT_FILL: dict[str, tuple[tuple[str, str], ...]] = {
+    "montage.set_video_trim": (("shot", "frame_number"),),
+    "montage.swap_slots": (("a_shot", "a_frame"), ("b_shot", "b_frame")),
+    "montage.move_image": (("from_shot", "from_frame"), ("to_shot", "to_frame")),
+}
+
+
+def _media_kind(name: str, params: dict) -> str:
+    if name == "montage.set_video_trim":
+        return "video"
+    if name == "montage.move_image":
+        return "image"
+    return "video" if params.get("kind") == "video" else "image"
+
+
+async def _fill_shots(name: str, params: dict) -> dict:
+    keys = [(shot, frame) for shot, frame in _SHOT_FILL[name] if shot not in params and frame in params]
+    if not keys or params.get("project_id") is None:
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+    from app.services.montage_board import build_montage_board
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, int(params["project_id"]))
+        if project is None:
+            return params
+        board = await build_montage_board(session, project)
+        await session.rollback()
+    kind = _media_kind(name, params)
+    what = "видео" if kind == "video" else "картинка"
+    by_number = {int(f.get("number") or 0): f for f in board.get("frames") or []}
+    out = dict(params)
+    for shot_key, frame_key in keys:
+        frame = by_number.get(int(out[frame_key]))
+        if frame is None:
+            continue
+        have = [n for n in (1, 2) if frame.get(f"{kind}_shot{n}_url")]
+        if len(have) == 2:
+            raise PlanResolveRefused(
+                f"У кадра {out[frame_key]} {what} есть в обоих шотах. Какой взять: шот 1 или шот 2?"
+            )
+        out[shot_key] = have[0] if have else 1
+    return out
+
+
+async def _fill_ref_file(params: dict) -> dict:
+    """«Приложи реф predmet2»: в file — код или имя рефа, а не путь; путь берём из ref-assets проекта."""
+    want = str(params.get("file") or params.get("name") or "").strip()
+    if not want or params.get("project_id") is None:
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+    from app.services.montage_board import _entity_name_maps
+    from app.services.montage_frame_refs import list_ref_assets
+
+    project_id = int(params["project_id"])
+    async with store.sessions()() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return params
+        data_dir = project.data_dir
+        char_names, item_names = await _entity_name_maps(session, project_id)
+        await session.rollback()
+    assets = list_ref_assets(data_dir, names={"character": char_names, "item": item_names})
+    key = want.lower().replace("/", "\\")
+    stem = key.rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+    found = [
+        a
+        for a in assets
+        if key == str(a.get("file") or "").lower()
+        or stem in {str(a.get("code") or "").lower(), str(a.get("name") or "").lower()}
+    ]
+    if not found:
+        found = [a for a in assets if str(a.get("name") or "").lower().startswith(stem)]
+    if len(found) != 1:
+        names = ", ".join(str(a.get("name") or a.get("code")) for a in assets[:12])
+        raise PlanResolveRefused(f"Не нашёл реф «{want}» в проекте {project_id}. Есть: {names}.")
+    out = dict(params)
+    out["file"] = found[0]["file"]
+    out.setdefault("kind", found[0].get("kind") or "")
+    return out
+
+
 async def plan_resolve(name: str, params: dict | None) -> dict:
     """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы.
 
     Правка настроек проекта: без ключей, значение которых в проекте уже такое же."""
     params = dict(params or {})
+    if str(name) == "montage.link_ref":
+        return await _fill_ref_file(params)
+    if str(name) in _SHOT_FILL:
+        return await _fill_shots(str(name), params)
     if str(name) in ("project.patch_settings", "project.patch_settings_costly"):
         from app.services.action_layer.builtin_wave5 import changed_settings_only
 
