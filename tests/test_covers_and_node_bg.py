@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import io
 import uuid
-from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Artifact, ArtifactKind, Base, Frame, FrameStatus, Project, ProjectStatus
+from app.models import Artifact, ArtifactKind, Base, Project, ProjectStatus
 from app.web.api import create_app
 from app.web.deps import get_session
 
