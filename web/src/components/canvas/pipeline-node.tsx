@@ -280,9 +280,13 @@ export function PipelineNode({ data, selected }: NodeProps) {
   }, [inlineStudio, beginClose, d.nodeKey]);
   const openInline = useCallback(() => {
     window.dispatchEvent(new CustomEvent("vp-node-inline-exclusive", { detail: { nodeKey: d.nodeKey } }));
-    if (closeTimer.current) window.clearTimeout(closeTimer.current);
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
     setInlineStudio(true);
     setTileExpanded(true);
+    setVis(true);
     window.dispatchEvent(
       new CustomEvent("studio-open-node-prompts", {
         detail: { nodeKey: d.nodeKey, initialTab: "settings", inline: true },
@@ -292,11 +296,11 @@ export function PipelineNode({ data, selected }: NodeProps) {
   useEffect(() => {
     const onOpen = (ev: Event) => {
       const key = (ev as CustomEvent<{ nodeKey?: string }>).detail?.nodeKey;
-      if (key === d.nodeKey && !inlineStudio) openInline();
+      if (key === d.nodeKey) openInline();
     };
     window.addEventListener("vp-node-inline-open", onOpen);
     return () => window.removeEventListener("vp-node-inline-open", onOpen);
-  }, [d.nodeKey, inlineStudio, openInline]);
+  }, [d.nodeKey, openInline]);
   // Wheel over a node zooms the canvas (like the background). Only an inner area that
   // can actually scroll in the wheel direction keeps the wheel (React Flow skips .nowheel).
   useEffect(() => {
@@ -1043,8 +1047,10 @@ function PosterTile({
   const [menuH, setMenuH] = useState(0);
   const readyRef = useRef(false);
   useEffect(() => {
-    if (!inlineStudio) {
+    if (!inlineStudio || !vis) {
       readyRef.current = false;
+    }
+    if (!inlineStudio) {
       return;
     }
     const el = menuRef.current;
@@ -1070,8 +1076,7 @@ function PosterTile({
       window.clearTimeout(fallback);
       ro?.disconnect();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inlineStudio]);
+  }, [inlineStudio, vis, onMenuReady]);
   const genBg = useNodeBg(nodeKey, projectId ?? null);
   const fixedBg = customBg && customBg.startsWith("/api/files?path=") && /[\\:]/.test(customBg.slice(16)) ? "/api/files?path=" + encodeURIComponent(customBg.slice(16)) : customBg;
   const nodeBg = fixedBg || genBg;

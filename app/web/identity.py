@@ -114,6 +114,7 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/prompt-files",
     "/api/meta-agent",
     "/api/projects",  # проекты и всё вложенное: кадры, шаги, смета, холст
+    "/api/db/projects",  # база проекта: операции, чат оркестратора, подтверждения
     "/api/artifacts",
     "/api/files",
     "/api/hitl",

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
+from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -494,11 +495,16 @@ async def get_stats(request: Request, session: AsyncSession = Depends(get_sessio
         d_str = (today - timedelta(days=i)).isoformat()
         daily_map[d_str] = DayStat(date=d_str)
 
-    since = datetime.now(UTC) - timedelta(days=30)
-    q_media = select(MediaCall).where(MediaCall.created_at >= since, MediaCall.result == "ok")
-    if tenant_id and not (identity and identity.is_admin):
-        q_media = q_media.where(MediaCall.tenant_id == tenant_id)
-    media_rows = (await session.execute(q_media)).scalars().all()
+    since = (datetime.now(UTC) - timedelta(days=30)).replace(tzinfo=None)
+    media_rows: list[MediaCall] = []
+    try:
+        q_media = select(MediaCall).where(MediaCall.created_at >= since, MediaCall.result == "ok")
+        if tenant_id and not (identity and identity.is_admin):
+            q_media = q_media.where(MediaCall.tenant_id == tenant_id)
+        media_rows = list((await session.execute(q_media)).scalars().all())
+    except Exception as exc:
+        logger.warning("Failed to fetch MediaCall stats for profile: {}", exc)
+        media_rows = []
     for row in media_rows:
         created = row.created_at
         if created.tzinfo is None:
