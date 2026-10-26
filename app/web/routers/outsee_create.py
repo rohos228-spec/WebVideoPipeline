@@ -283,13 +283,22 @@ async def delete_outsee_create_history_item(
     path: str | None = Query(None),
     item_id: str | None = Query(None),
 ) -> dict[str, Any]:
-    """Удалить файл генерации из локальной истории Create."""
+    """Удалить файл генерации из локальной истории Create и S3-хранилища."""
     from app.services.generation_storage import delete_generation_item
 
-    ok = delete_generation_item(path=path, item_id=item_id)
+    ok = await delete_generation_item(path=path, item_id=item_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Файл генерации не найден")
     return {"ok": True, "deleted": True}
+
+
+@router.post("/sync-storage")
+async def sync_outsee_create_storage() -> dict[str, Any]:
+    """Синхронизировать локальные результаты генерации в S3-хранилище."""
+    from app.services.generation_storage import sync_pending_generations_to_s3
+
+    published = await sync_pending_generations_to_s3()
+    return {"ok": True, "published": published}
 
 
 @router.get("/download")
@@ -315,7 +324,7 @@ async def download_media(
         except UnicodeEncodeError:
             ascii_name = re.sub(r"[^\x20-\x7E]", "_", name)
             encoded_name = quote(name, encoding="utf-8")
-            return f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{encoded_name}'
+            return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded_name}"
 
     target_format = (format or "png").lower().strip()
     if target_format not in {"png", "jpg", "jpeg", "webp", "mp4", "mp3", "wav"}:
@@ -378,9 +387,7 @@ async def download_media(
 
                     async with session_scope() as session:
                         art = (
-                            await session.execute(
-                                select(Artifact).where(Artifact.uuid == art_uuid)
-                            )
+                            await session.execute(select(Artifact).where(Artifact.uuid == art_uuid))
                         ).scalar_one_or_none()
                         if art and art.path:
                             local_path = _resolve_candidate(art.path)
@@ -394,7 +401,10 @@ async def download_media(
     ):
         media_type = (
             "video/mp4"
-            if (target_format in {"mp4", "webm", "mov"} or local_path.suffix.lower() in {".mp4", ".webm", ".mov"})
+            if (
+                target_format in {"mp4", "webm", "mov"}
+                or local_path.suffix.lower() in {".mp4", ".webm", ".mov"}
+            )
             else ("audio/mpeg" if target_format == "mp3" else "application/octet-stream")
         )
         return FileResponse(
@@ -459,7 +469,11 @@ async def download_media(
         raise HTTPException(status_code=404, detail="Файл не найден для скачивания")
 
     if target_format in {"mp3", "wav", "mp4", "webm", "mov"}:
-        media_type = "audio/mpeg" if target_format == "mp3" else ("video/mp4" if target_format == "mp4" else "application/octet-stream")
+        media_type = (
+            "audio/mpeg"
+            if target_format == "mp3"
+            else ("video/mp4" if target_format == "mp4" else "application/octet-stream")
+        )
         return Response(
             content=img_bytes,
             media_type=media_type,
