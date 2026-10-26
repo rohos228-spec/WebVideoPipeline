@@ -21,7 +21,6 @@ import httpx
 from loguru import logger
 
 from app.bots.outsee import GenerationResult
-from app.settings import settings
 
 _POLL_INTERVAL_S = 2.0
 _POLL_MAX_S = 300.0
@@ -36,12 +35,15 @@ class WaveSpeedError(RuntimeError):
 
 
 def wavespeed_api_key() -> str:
-    return (getattr(settings, "wavespeed_api_key", "") or "").strip()
+    from app.services.provider_keys import resolve
+
+    return resolve("wavespeed")["api_key"]
 
 
 def wavespeed_api_base_url() -> str:
-    base = (getattr(settings, "wavespeed_api_base_url", "") or "https://api.wavespeed.ai").strip()
-    return base.rstrip("/")
+    from app.services.provider_keys import resolve
+
+    return (resolve("wavespeed")["base_url"] or "https://api.wavespeed.ai").rstrip("/")
 
 
 def wavespeed_configured() -> bool:

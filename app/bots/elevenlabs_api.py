@@ -56,9 +56,9 @@ class ElevenLabsApiError(RuntimeError):
 
 
 def elevenlabs_api_key() -> str:
-    from app.settings import settings
+    from app.services.provider_keys import resolve
 
-    return (settings.elevenlabs_api_key or "").strip()
+    return resolve("elevenlabs")["api_key"]
 
 
 def elevenlabs_api_configured() -> bool:

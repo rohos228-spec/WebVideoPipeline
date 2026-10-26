@@ -95,12 +95,21 @@ async def outsee_job_status(job_id: str) -> dict[str, Any]:
     return job.to_dict()
 
 
+# Единый conservative fallback холда, когда модели нет в прайсе.
+# Не угадываем multi-dollar ставки по имени (sora/vip) — списание всё равно
+# по факту; холд лишь не должен молча блокировать баланс в разы.
+_UNPRICED_HOLD_IMAGE_USD = 0.05
+_UNPRICED_HOLD_VIDEO_USD = 0.45
+
+
 def _estimate_outsee_cost_usd(media: str, model: str | None, duration: int | None = None) -> float:
-    """Оценка для ХОЛДА (не для списания). Сначала прайс, потом грубый резерв.
+    """Оценка для ХОЛДА (не для списания). Сначала прайс, потом единый резерв.
 
     Списание идёт по факту (`create_billing`), но резерв обязан быть близок к
     цене: иначе холд блокирует баланс в разы больше реального расхода.
     """
+    from loguru import logger
+
     from app.services.media_ledger import compute_cost
 
     if media == "image":
@@ -108,23 +117,27 @@ def _estimate_outsee_cost_usd(media: str, model: str | None, duration: int | Non
         cost, _unit, unpriced = compute_cost("outsee", slug, 1.0, "item")
         if not unpriced:
             return round(cost, 4)
-        m = (model or "").lower()
-        if "vip" in m or "pro" in m:
-            return 0.12
-        if "lite" in m or "fast" in m:
-            return 0.03
-        return 0.08
+        logger.warning(
+            "outsee hold: unpriced image model={!r} slug={!r} → fallback ${}",
+            model,
+            slug,
+            _UNPRICED_HOLD_IMAGE_USD,
+        )
+        return _UNPRICED_HOLD_IMAGE_USD
     if media == "video":
         d = int(duration or 5)
         slug = oh.studio_id_to_outsee_video_slug(model)
         cost, _unit, unpriced = compute_cost("outsee", slug, float(d), "second")
         if not unpriced:
             return round(cost, 4)
-        base = 0.80 if "sora" in (model or "").lower() else 1.20
-        if d > 5:
-            base *= d / 5.0
-        return round(base, 2)
-    return 0.08
+        logger.warning(
+            "outsee hold: unpriced video model={!r} slug={!r} → fallback ${}",
+            model,
+            slug,
+            _UNPRICED_HOLD_VIDEO_USD,
+        )
+        return _UNPRICED_HOLD_VIDEO_USD
+    return _UNPRICED_HOLD_IMAGE_USD
 
 
 @router.post("/generate")

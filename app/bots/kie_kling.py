@@ -25,7 +25,6 @@ from loguru import logger
 
 from app.bots.outsee import GenerationResult, OutseeImageError
 from app.generation_options import KIE_KLING_PROMPT_MAX_CHARS
-from app.settings import settings
 
 KLING_I2V_MODEL = "kling-2.6/image-to-video"
 KLING_T2V_MODEL = "kling-2.6/text-to-video"
@@ -45,25 +44,16 @@ def kie_api_configured() -> bool:
 
 
 def kie_api_key() -> str:
-    key = (getattr(settings, "kie_api_key", None) or "").strip()
-    if key:
-        return key
-    # Тот же ключ, что для GPT на kie.ai
-    base = (settings.gpt_base_url or "").strip().lower()
-    if "kie.ai" in base:
-        return (settings.gpt_api_key or "").strip()
-    return (settings.gpt_api_key or "").strip()
+    from app.services.provider_keys import resolve
+
+    return resolve("kie", "market")["api_key"]
 
 
 def kie_api_base_url() -> str:
-    base = (getattr(settings, "kie_api_base_url", None) or "").strip()
-    if base:
-        return base.rstrip("/")
-    gpt_base = (settings.gpt_base_url or "").strip().rstrip("/")
-    if "kie.ai" in gpt_base.lower():
-        # GPT_BASE_URL может быть https://api.kie.ai — ок для jobs
-        return gpt_base.split("/codex")[0].rstrip("/") or _DEFAULT_BASE
-    return _DEFAULT_BASE
+    from app.services.provider_keys import resolve
+
+    base = resolve("kie", "market")["base_url"]
+    return base or _DEFAULT_BASE
 
 
 def truncate_kling_prompt(prompt: str, *, max_chars: int = KIE_KLING_PROMPT_MAX_CHARS) -> str:
