@@ -72,3 +72,13 @@ def test_gpt_step_without_node_takes_first_chain_head(monkeypatch: pytest.Monkey
     assert same["node_key"] == "n_excel_gpt_2"
     other = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "images"}))
     assert "node_key" not in other
+
+
+def test_planner_hint_names_next_gpt_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def done_of(_pid: int) -> set[str]:
+        return {"n_excel_gpt_1"}
+
+    monkeypatch.setattr(executor, "_done_nodes", done_of)
+    line = asyncio.run(project_nodes._next_gpt_line(26, ROWS, "запусти работу с gpt в 26"))
+    assert "n_excel_gpt_2" in line
+    assert asyncio.run(project_nodes._next_gpt_line(26, ROWS, "запусти сценарий")) == ""

@@ -457,6 +457,26 @@ async def load_image_generator(project_id: int) -> str | None:
         return str(gid).strip() or None if gid else None
 
 
+async def _next_gpt_line(project_id: int, rows: list[dict[str, Any]], text: str) -> str:
+    """«Запусти работу с gpt» без номера при двух нодах: следующая неготовая, а не вопрос «какую»."""
+    gpt = [str(row["key"]) for row in rows if row.get("step_code") == "excel_gpt"]
+    if len(gpt) < 2 or not any(word in _norm(text) for word in ("gpt", "гпт")):
+        return ""
+    from app.orchestrator.actions.executor import _done_nodes
+
+    try:
+        done = await _done_nodes(int(project_id))
+    except Exception:
+        return ""
+    left = [key for key in gpt if key not in done]
+    if not left:
+        return ""
+    return (
+        f"«Работа с GPT» без номера в просьбе — следующая неготовая нода {left[0]}; "
+        "переспрашивать, какую из них, не нужно."
+    )
+
+
 async def _meta_from_db(project_id: int) -> Any:
     from app.models import Project
     from app.services.action_layer.builtin_insight import _sessions
@@ -936,6 +956,9 @@ class ProjectNodes:
                         lines.extend(variants)
             if any(word in _norm(text) for word in _AGENT_WORDS):
                 lines.extend(agents_text(meta, rows, hits))
+            gpt_next = await _next_gpt_line(project_id, rows, text)
+            if gpt_next:
+                lines.append(gpt_next)
         if finish_words(text):
             lines.append(FINISH_RULE)
         if await self.frames(project_id) == 0:
