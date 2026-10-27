@@ -82,3 +82,41 @@ def test_planner_hint_names_next_gpt_node(monkeypatch: pytest.MonkeyPatch) -> No
     line = asyncio.run(project_nodes._next_gpt_line(26, ROWS, "запусти работу с gpt в 26"))
     assert "n_excel_gpt_2" in line
     assert asyncio.run(project_nodes._next_gpt_line(26, ROWS, "запусти сценарий")) == ""
+
+
+def test_scene_images_take_project_media_basis(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.action_layer.builtin_montage_more as mm
+
+    class _Project:
+        meta: dict = {}
+        image_generator = "nano_banana_2"
+        image_resolution = "2k"
+        image_quality = None
+        aspect_ratio = None
+        video_generator = None
+        video_resolution = None
+
+    class _Session:
+        async def get(self, _model, _pid):
+            return _Project()
+
+        async def rollback(self):
+            return None
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(executor.store, "sessions", lambda: (lambda: _Session()))
+    monkeypatch.setattr(
+        mm, "_effective_settings", lambda d: {"image_generator": d["image_generator"], "image_resolution": d["image_resolution"]}
+    )
+    out = asyncio.run(
+        executor.plan_resolve(
+            "montage.generate_scene_images",
+            {"project_id": 26, "frame_numbers": [1], "image_generator": "x", "image_resolution": "1k"},
+        )
+    )
+    assert (out["image_generator"], out["image_resolution"]) == ("nano_banana_2", "2k")

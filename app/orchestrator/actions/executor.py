@@ -758,6 +758,51 @@ async def _done_nodes(project_id: int) -> set[str]:
         return {str(key) for key in rows.scalars()}
 
 
+# Платные действия доски с условием «модель и разрешение как в проекте»: планировщик их
+# угадывал (1k при 2k в проекте), и карточку нельзя было подтвердить. Другое значение условие
+# не пропустит никогда, поэтому берём значения проекта — карточка их и покажет.
+_BASIS_FIELDS = {
+    "montage.generate_scene_images": ("image",),
+    "montage.improve_scene": ("image",),
+    "montage.apply_queue": ("image", "video"),
+}
+
+
+async def _fill_media_basis(name: str, params: dict) -> dict:
+    pid = params.get("project_id")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return params
+    from app.services.action_layer.builtin_montage_more import _effective_settings
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, pid)
+        if project is None:
+            return params
+        detail = {
+            field: getattr(project, field, None)
+            for field in (
+                "meta",
+                "image_generator",
+                "image_resolution",
+                "image_quality",
+                "aspect_ratio",
+                "video_generator",
+                "video_resolution",
+            )
+        }
+        await session.rollback()
+    eff = _effective_settings(detail)
+    out = dict(params)
+    for kind in _BASIS_FIELDS[name]:
+        if kind == "video" and not out.get("max_video_ops"):
+            continue
+        if kind == "image" and name == "montage.apply_queue" and not out.get("max_image_ops"):
+            continue
+        for field in (f"{kind}_generator", f"{kind}_resolution"):
+            out[field] = eff[field]
+    return out
+
+
 async def plan_resolve(name: str, params: dict | None) -> dict:
     """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы.
 
@@ -769,6 +814,8 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
         return await _fill_ref_file(params)
     if str(name) in _SHOT_FILL:
         return await _fill_shots(str(name), params)
+    if str(name) in _BASIS_FIELDS:
+        return await _fill_media_basis(str(name), params)
     if str(name) in ("project.patch_settings", "project.patch_settings_costly"):
         from app.services.action_layer.builtin_wave5 import changed_settings_only
 
