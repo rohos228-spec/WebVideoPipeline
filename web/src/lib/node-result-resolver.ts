@@ -604,7 +604,7 @@ function computeNodeResult(
               content: replyPreview,
             },
           ],
-          "Ответ GPT готов",
+          "",
           "text",
         );
       }
@@ -613,7 +613,7 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: 1,
-          summary: "Ответ GPT на диске",
+          summary: "",
           items: [
             {
               id: "gpt_reply_path",
