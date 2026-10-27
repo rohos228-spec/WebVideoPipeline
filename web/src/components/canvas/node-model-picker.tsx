@@ -291,7 +291,7 @@ function ModelNodeMenu({
 }) {
   const [mounted, setMounted] = useState(false);
   const [vis, setVis] = useState(false);
-  const selectedModel = findCatalogModel(catalog, selectedId);
+  const selectedModel = findCatalogModel(catalog, selectedId) ?? findCatalogModel(localCatalog(), selectedId);
   const [vendor, setVendor] = useState<string>(selectedModel?.vendor || "openai");
   const [tab, setTab] = useState<"models" | "thinking">("models");
 
@@ -371,7 +371,9 @@ function ModelNodeMenu({
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
           <div className="absolute inset-0 flex items-center px-4 pr-14 text-[17px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]">
-            <span className="truncate">Модель: {selectedModel?.label || selectedId}</span>
+            <span className="truncate">
+              Модель: {(selectedModel?.label || selectedId || "").replace(/-vip$/i, "").replace(/^gpt-image-2$/i, "GPT Image 2")}
+            </span>
           </div>
           <button
             type="button"

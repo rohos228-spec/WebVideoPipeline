@@ -471,13 +471,23 @@ export function catalogForNodeType(
     : VIDEO_NODE_TYPES.has(nodeType || "")
       ? "video"
       : "text";
-  const models = catalog.models.filter((m) => m.kind === kind);
-  const vendors = catalog.vendors
+  let models = catalog.models.filter((m) => m.kind === kind);
+  let vendors = catalog.vendors
     .map((v) => {
       const items = v.models.filter((m) => m.kind === kind);
       return { ...v, models: items, count: items.length };
     })
     .filter((v) => v.count > 0);
+  if (models.length === 0 && (kind === "image" || kind === "video")) {
+    const loc = localCatalog();
+    models = loc.models.filter((m) => m.kind === kind);
+    vendors = loc.vendors
+      .map((v) => {
+        const items = v.models.filter((m) => m.kind === kind);
+        return { ...v, models: items, count: items.length };
+      })
+      .filter((v) => v.count > 0);
+  }
   return { ...catalog, models, vendors };
 }
 

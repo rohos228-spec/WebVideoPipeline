@@ -65,7 +65,9 @@ export function NodeResultPanel({
           )}
         >
           <DialogTitle>Результат — {spec.label}</DialogTitle>
-          <DialogDescription>{snapshot.summary}</DialogDescription>
+          {snapshot.summary && snapshot.summary !== "Ответ GPT готов" && snapshot.summary !== "Ответ GPT на диске" ? (
+            <DialogDescription>{snapshot.summary}</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {!snapshot.hasResult && snapshot.viewMode === "default" ? (
