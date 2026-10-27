@@ -1,3 +1,11 @@
+# Глобальные настройки: отключаем HTTP/3 (QUIC/UDP) для стабильной работы из РФ
+# без зависаний из-за фильтрации UDP 443 на ТСПУ. Оставляем только TCP (HTTP/1.1 и HTTP/2).
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 # DOMAIN — публичный хост (DNS A → IP VPS). TLS через Let's Encrypt.
 {$DOMAIN:localhost} {
 	# health без upstream
@@ -40,5 +48,9 @@
 				dial_timeout 30s
 			}
 		}
+	}
+
+	header {
+		-Alt-Svc
 	}
 }
