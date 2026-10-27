@@ -240,11 +240,21 @@ def _score(row: dict[str, Any], words: set[str], stems: list[str]) -> int:
     return best
 
 
+# «Текст озвучки» — это закадровый текст, а не нода озвучки: у той текста результата нет.
+_TYPE_PHRASES = {"script": ("текст озвуч", "текст для озвуч", "текст закадр", "для озвуч")}
+
+
 def match_nodes(rows: list[dict[str, Any]], text: str) -> list[str]:
     norm = _norm(text)
     words = set(_WORD.findall(norm))
     stems = _stems(norm)
-    scored = [(_score(row, words, stems), str(row["key"])) for row in rows]
+    scored = [
+        (
+            10 if any(p in norm for p in _TYPE_PHRASES.get(str(row.get("type") or ""), ())) else _score(row, words, stems),
+            str(row["key"]),
+        )
+        for row in rows
+    ]
     top = max((score for score, _key in scored), default=0)
     if top <= 0:
         return []

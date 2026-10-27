@@ -593,6 +593,28 @@ def _artifacts(project, key: str, *, sample: int = 5) -> dict:
     }
 
 
+_TEXT_SUFFIXES = (".txt", ".md")
+_EXCERPT_CHARS = 1500
+
+
+def _text_excerpt(project, sample: list[str]) -> dict | None:
+    """Начало первого текстового файла результата: «покажи текст озвучки» без него — «в данных нет»."""
+    root = Path(project.data_dir)
+    for rel in sample:
+        path = root / rel
+        if path.suffix.lower() not in _TEXT_SUFFIXES:
+            continue
+        try:
+            if not path.is_file() or path.stat().st_size > 1_000_000:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if text:
+            return {"file": rel, "text": text[:_EXCERPT_CHARS], "cut": len(text) > _EXCERPT_CHARS}
+    return None
+
+
 def _gate(project, meta: dict, key: str, raw: str, *, excerpt: bool) -> dict | None:
     from app.services.excel_gpt_node import is_excel_gpt_node_type, upload_dir
 
@@ -952,6 +974,12 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Проверки: {checks_text}.")
     arts = card["artifacts"]
     lines.append(f"Файлов результата: {arts['count']}{'+' if arts.get('more') else ''}.")
+    excerpt = _text_excerpt(project, list(arts.get("sample") or [])) if project is not None else None
+    if excerpt:
+        card["text_excerpt"] = excerpt
+        lines.append(
+            f"Текст файла {excerpt['file']}{' (начало)' if excerpt['cut'] else ''}: «{excerpt['text']}»"
+        )
     if card["cost_usd"] is not None:
         lines.append(f"Траты по ноде (оценка): ${card['cost_usd']}.")
     if card["errors"]:
