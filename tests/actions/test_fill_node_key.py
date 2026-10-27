@@ -39,3 +39,27 @@ def test_type_and_label_become_the_key() -> None:
 def test_real_key_and_ambiguous_type_stay() -> None:
     assert _fill("n_script") == "n_script"
     assert _fill("excel_gpt") == "excel_gpt"
+
+
+def test_gpt_step_without_node_takes_first_chain_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_split", "type": "split"},
+                {"id": "n_excel_gpt_1", "type": "excel_gpt"},
+                {"id": "n_excel_gpt_2", "type": "excel_gpt"},
+            ],
+            "edges": [],
+        }
+    }
+
+    async def meta_of(_pid: int) -> dict:
+        return meta
+
+    monkeypatch.setattr(project_nodes, "_meta_from_db", meta_of)
+    out = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt"}))
+    assert out["node_key"] == "n_excel_gpt_1"
+    same = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt", "node_key": "n_excel_gpt_2"}))
+    assert same["node_key"] == "n_excel_gpt_2"
+    other = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "images"}))
+    assert "node_key" not in other

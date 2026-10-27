@@ -224,7 +224,7 @@ async def test_gpt_step_needs_a_node_key(env, not_managed, stub, steps_open) -> 
     pid = await env.add_project(frames=1)
     r = await _preview(env, [step("step.run_step", project_id=pid, step_code="excel_gpt",
                                   ceiling_credits=3)])
-    assert r.status_code == 422 and "node_key" in str(r.json())
+    assert r.status_code == 422 and "какую ноду" in str(r.json())
     wrong = await _preview(env, [step("step.run_step", project_id=pid, step_code="plan",
                                       node_key="n1", ceiling_credits=3)])
     assert wrong.status_code == 422 and "step_runnable" in str(wrong.json())

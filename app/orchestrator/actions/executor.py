@@ -721,6 +721,30 @@ async def _fill_node_key(params: dict) -> dict:
     return params
 
 
+async def _fill_gpt_head(params: dict) -> dict:
+    """«Запусти работу с gpt, лимит $0.5»: без ноды шаг не стартовал («укажите node_key»).
+
+    Берём первую по схеме голову цепочки «Работа с GPT» (до неё не доходит другая такая нода);
+    какая нода пойдёт, человек видит на карточке до подтверждения.
+    """
+    pid = params.get("project_id")
+    if params.get("step_code") != "excel_gpt" or params.get("node_key") or not isinstance(pid, int):
+        return params
+    from app.orchestrator.agents.project_nodes import _meta_from_db
+    from app.services.action_layer.builtin_launch import gpt_chain
+    from app.services.excel_gpt_node import is_excel_gpt_node_type
+    from app.services.node_config import graph_nodes
+
+    try:
+        meta = await _meta_from_db(pid)
+        keys = [str(n.get("id")) for n in graph_nodes(meta) if is_excel_gpt_node_type(str(n.get("type") or ""))]
+        reached = {k for key in keys for k in gpt_chain(meta, key)[1:]}
+    except Exception:
+        return params
+    heads = [key for key in keys if key not in reached]
+    return {**params, "node_key": heads[0]} if heads else params
+
+
 async def plan_resolve(name: str, params: dict | None) -> dict:
     """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы.
 
@@ -738,6 +762,7 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
         return await changed_settings_only(params)
     if str(name) != "step.run_step":
         return params
+    params = await _fill_gpt_head(params)
     from app.services.action_layer.builtin_wave5 import declared_media_values
 
     return await declared_media_values(params)
