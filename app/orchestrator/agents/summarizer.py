@@ -62,6 +62,8 @@ _CLAUSE = re.compile(r"(?<=[,;:])\s+|\s+(?=или\s)")
 
 def _scrub(sentence: str) -> str:
     end = sentence[-1] if sentence[-1:] in ".!?…" else ""
+    # «Уточните их номера (project_id)»: служебное в скобках убираем, сам вопрос оставляем.
+    sentence = _JARGON[0][0].sub("", sentence)
     clauses = [part for part in _CLAUSE.split(sentence.rstrip(".!?…")) if not _TECH_ASK.search(part)]
     out = " ".join(clauses).rstrip(",;: ") + end if clauses else ""
     out = re.sub(r"\s*(?:№|#)\s?\d+\b", "", out)

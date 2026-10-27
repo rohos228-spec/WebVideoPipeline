@@ -103,7 +103,10 @@ _ROLE = ("делает", "отвечает за", "отвечает", "заче�
 # «Сценарий через какой сервис ходит?»: провайдер ноды — маршрут модели, без слова «нода».
 _ROUTE = ("провайдер", "поставщик", "сервис", "через кого", "через как")
 # «На какие модели можно поменять картинки?»: список моделей ноды, иначе чат знал только текущую.
-_OPTIONS = ("какие модел", "какую модел", "каких модел", "можно постав", "на что помен", "список модел", "другие модел", "доступн модел")
+_OPTIONS = (
+    "какие модел", "какую модел", "каких модел", "можно постав", "на что помен", "список модел", "другие модел",
+    "доступн модел", "чем ещ", "чем еще", "чем другим", "из чего выбр", "выбрать модел",
+)
 _BLOCKED = ("блокир", "заблокир", "неизвестн", "исход")
 # «сколько потрачено на #10»: номер с решёткой - проект и без слова «проект».
 _HASH_NUMBER_RE = re.compile(r"(?<![\w#])#(\d{1,5})(?!\d)")
@@ -567,7 +570,8 @@ class QuestionContext:
 
     async def _roster(self, text: str, project_id: int | None) -> list[dict[str, Any]]:
         norm = _norm(text)
-        if self._nodes is None or project_id is None or not (_has(norm, _NODES) or _has(norm, _ROLE) or _has(norm, _ROUTE)):
+        asks = any(_has(norm, words) for words in (_NODES, _ROLE, _ROUTE, _OPTIONS))
+        if self._nodes is None or project_id is None or not asks:
             return []
         try:
             return list(await asyncio.wait_for(self._nodes.rows(int(project_id)), self.timeout_s))
