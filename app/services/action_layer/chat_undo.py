@@ -493,7 +493,7 @@ async def chat_steps(
     project_id: int | None = None, *, operators: list[str] | None = None, limit: int = _MAX_ROWS
 ) -> list[Any]:
     """Сделанные шаги правок чата, самые свежие первыми: и те, что снимка «до» не оставили."""
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
 
     from app.services.action_layer.spec import RISK_READ, ensure_builtin_actions, registry
 
@@ -508,7 +508,10 @@ async def chat_steps(
     )
     q = _by_operator(q, operators)
     if project_id is not None:
-        q = q.where(store.ActionPlan.project_id == int(project_id))
+        # Шаг на всю студию («одновременно 2 проекта») без проекта: при открытом проекте он тоже свой.
+        q = q.where(
+            or_(store.ActionPlan.project_id == int(project_id), store.ActionPlan.project_id.is_(None))
+        )
     async with store.sessions()() as s:
         rows = list((await s.scalars(q)).all())
         plan_ids = {row.plan_id for row in rows}
