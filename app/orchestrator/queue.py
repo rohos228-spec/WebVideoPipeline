@@ -240,6 +240,45 @@ def canon_project_refs(text: str) -> str:
     return _NUMBER_FIRST_RE.sub(lambda m: f"{m.group(2)} {m.group(1)}", out)
 
 
+# «Да, запускай» в ответ на подсказку «запусти закадровый текст в проекте 26»: согласие без
+# названия шага. Без этого чат отвечал «не указан шаг» на собственную подсказку.
+_GO_WORDS = frozenset(
+    "да ага угу ок окей ok давай давайте го поехали запускай запусти делай сделай жми можно "
+    "конечно вперед вперёд хорошо ладно применяй примени включай".split()
+)
+_QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
+
+
+def is_go_ahead(text: str) -> bool:
+    words = _TOKEN_RE.findall((text or "").lower())
+    return 0 < len(words) <= 4 and all(word in _GO_WORDS for word in words)
+
+
+def suggested_command(previous: str | None) -> str | None:
+    """Команда, которой чат закончил прошлый ответ: «…» в самом конце сообщения."""
+    found = _QUOTED_TAIL_RE.search((previous or "").strip())
+    command = found.group(1).strip() if found else ""
+    # «Следующий шаг — «Сценарий»» — название, не команда: команда со строчной и из двух слов.
+    if not command[:1].islower() or len(command.split()) < 2:
+        return None
+    return command
+
+
+def _previous_message(session_id: str, before_id: int) -> tuple[str, str] | None:
+    conn = connect()
+    try:
+        row = conn.execute(
+            text(
+                "SELECT role, content FROM orch_messages WHERE session_id = :sid AND id < :mid "
+                "ORDER BY id DESC LIMIT 1"
+            ),
+            {"sid": session_id, "mid": int(before_id)},
+        ).first()
+    finally:
+        conn.close()
+    return (str(row[0]), str(row[1] or "")) if row is not None else None
+
+
 def _has_stop_word(text: str) -> bool:
     """Есть ли во фразе слово остановки: без него «прервать задачу» модели не верим."""
     low = (text or "").lower()
@@ -443,10 +482,16 @@ class MessageQueue:
             {"text": text, "accepted": True},
             task_id=task_id,
         )
+        parsed = text
+        if mode in (None, MessageMode.task) and is_go_ahead(text) and not self._card_waiting(session_id):
+            previous = await asyncio.to_thread(_previous_message, session_id, message_id)
+            command = suggested_command(previous[1]) if previous and previous[0] == "assistant" else None
+            if command:
+                parsed = command
         job = asyncio.create_task(
             self._classify(
                 session_id,
-                canon_project_refs(text),
+                canon_project_refs(parsed),
                 run_id,
                 mode,
                 project_id,
