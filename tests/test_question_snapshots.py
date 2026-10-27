@@ -17,3 +17,8 @@ def test_snapshots_text_empty():
     from app.services.action_layer.builtin_wave5_history import _snapshots_text
 
     assert asyncio.run(_snapshots_text([])) == "Снимков для отката нет."
+
+
+def test_schema_pieces_are_groups():
+    for text in ("а есть какие-то готовые куски схемы, чтобы вставить?", "какие заготовки нод можно вставить"):
+        assert plan_reads(text, 12) == [("group.list", {})]

@@ -299,7 +299,11 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     if pid is not None and _has(norm, ("реф",)) and _has(norm, _REF_TO_FRAME):
         # «Какие рефы можно привязать к кадру»: без списка ref-assets модель отвечала «в данных не указано».
         return _allowed([("montage.list_ref_assets", {"project_id": int(pid)})])
-    if _has(norm, ("групп",)) and _has(norm, ("нод", "встав", "готов", "каки", "есть", "покаж", "список")):
+    # «Готовые куски схемы, чтобы вставить» — те же группы нод, другими словами.
+    pieces = _has(norm, ("куск", "кусоч", "заготов", "шаблон")) and _has(norm, ("схем", "встав", "нод", "готов"))
+    if pieces or (
+        _has(norm, ("групп",)) and _has(norm, ("нод", "встав", "готов", "каки", "есть", "покаж", "список"))
+    ):
         # «Какие группы нод есть»: без списка групп модель отвечала «в фактах не указано».
         return _allowed([("group.list", {})])
     if (
