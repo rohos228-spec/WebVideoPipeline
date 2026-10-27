@@ -627,7 +627,13 @@ def _board_text(body: dict[str, Any]) -> str:
     for frame in frames[:_BOARD_LINES]:
         text = " ".join(str(frame.get("voiceover_text") or "").split())
         two = ", два шота" if frame.get("has_shot2") else ""
-        lines.append(f"• кадр {frame.get('number')}{two}: {text[:90] or 'без текста'}")
+        media = [name for name, key in (("картинка", "has_image"), ("видео", "has_video")) if frame.get(key)]
+        have = f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
+        lines.append(f"• кадр {frame.get('number')}{two}{have}: {text[:90] or 'без текста'}")
+    if "frames_with_image" in body:
+        lines.append(
+            f"Картинки есть у {body['frames_with_image']} из {count}, видео у {body.get('frames_with_video', 0)} из {count}."
+        )
     if len(frames) > _BOARD_LINES or body.get("frames_truncated"):
         lines.append(f"…и ещё {max(int(count) - _BOARD_LINES, 0)}.")
     pending = body.get("pending_ops") or []

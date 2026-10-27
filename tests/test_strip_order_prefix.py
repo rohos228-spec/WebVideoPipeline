@@ -34,3 +34,21 @@ def test_missing_action_drops_developer_advice():
 
     reason = "В каталоге нет действия для шага «Разбивка»; нужно добавить его или уточнить доступный способ запуска."
     assert missing_action_text(reason) == NOT_SUPPORTED
+
+
+def test_board_text_shows_which_frames_have_images():
+    from app.orchestrator.agents.summarizer import _board_text
+
+    text = _board_text(
+        {
+            "frame_count": 2,
+            "frames": [
+                {"number": 1, "voiceover_text": "а", "has_image": True, "has_video": False},
+                {"number": 2, "voiceover_text": "б", "has_image": False, "has_video": False},
+            ],
+            "frames_with_image": 1,
+            "frames_with_video": 0,
+        }
+    )
+    assert "кадр 1 [есть картинка]" in text and "кадр 2 [без картинки]" in text
+    assert "Картинки есть у 1 из 2" in text
