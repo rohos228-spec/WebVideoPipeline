@@ -278,19 +278,37 @@ def suggested_command(previous: str | None) -> str | None:
     return command
 
 
-def _previous_message(session_id: str, before_id: int) -> tuple[str, str] | None:
+def _previous_messages(session_id: str, before_id: int, limit: int = 2) -> list[tuple[str, str]]:
+    """Реплики перед ``before_id``, свежая первой."""
     conn = connect()
     try:
-        row = conn.execute(
+        rows = conn.execute(
             text(
                 "SELECT role, content FROM orch_messages WHERE session_id = :sid AND id < :mid "
-                "ORDER BY id DESC LIMIT 1"
+                "ORDER BY id DESC LIMIT :lim"
             ),
-            {"sid": session_id, "mid": int(before_id)},
-        ).first()
+            {"sid": session_id, "mid": int(before_id), "lim": int(limit)},
+        ).all()
     finally:
         conn.close()
-    return (str(row[0]), str(row[1] or "")) if row is not None else None
+    return [(str(row[0]), str(row[1] or "")) for row in rows]
+
+
+# «Уточните, для какого шота…» → «шот 1»: короткий ответ без исходной просьбы терял её
+# («Не указано, что нужно сделать с шотом 1»). Склеиваем ответ с просьбой, которую уточняли.
+_CLARIFY_RE = re.compile(r"(?:^|[.!?;]\s+)уточните(?![а-я])|какой из|какую из|какого из", re.IGNORECASE)
+_ANSWER_MAX_WORDS = 5
+
+
+def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
+    """Исходная просьба вместе с коротким ответом на уточняющий вопрос чата; иначе None."""
+    words = _TOKEN_RE.findall((reply or "").lower())
+    if not words or len(words) > _ANSWER_MAX_WORDS or has_imperative(reply) or len(previous) < 2:
+        return None
+    (role_a, asked), (role_u, request) = previous[0], previous[1]
+    if role_a != "assistant" or role_u != "user" or not _CLARIFY_RE.search(asked.strip()):
+        return None
+    return f"{request.strip().rstrip('.')}; уточнение: {reply.strip()}"
 
 
 def _has_stop_word(text: str) -> bool:
@@ -498,11 +516,13 @@ class MessageQueue:
             task_id=task_id,
         )
         parsed = text
-        if mode in (None, MessageMode.task) and is_go_ahead(text) and not self._card_waiting(session_id):
-            previous = await asyncio.to_thread(_previous_message, session_id, message_id)
-            command = suggested_command(previous[1]) if previous and previous[0] == "assistant" else None
-            if command:
-                parsed = command
+        if mode in (None, MessageMode.task) and not self._card_waiting(session_id):
+            previous = await asyncio.to_thread(_previous_messages, session_id, message_id)
+            last = previous[0] if previous else None
+            command = (
+                suggested_command(last[1]) if is_go_ahead(text) and last and last[0] == "assistant" else None
+            )
+            parsed = command or answered_request(previous, text) or text
         job = asyncio.create_task(
             self._classify(
                 session_id,
