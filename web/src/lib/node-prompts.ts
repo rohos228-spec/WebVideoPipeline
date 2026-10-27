@@ -30,6 +30,18 @@ const NO_EXCEL_NODE_TYPES = new Set([
   "hitl_style",
 ]);
 
+export const NO_PROMPTS_NODE_TYPES = new Set([
+  "images",
+  "videos",
+  "assemble",
+  "publish",
+  "topic",
+  "storage",
+  "shot_menu",
+  "style_extract",
+  "hitl_style",
+]);
+
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
   shot_menu: [],
@@ -76,39 +88,11 @@ const BASE: Record<string, NodePromptSlot[]> = {
   image_prompts: [
     { id: "main", title: "Промт картинок", kind: "gpt", stepCode: "img_pr" },
   ],
-  images: [
-    {
-      id: "frame_prompts",
-      title: "Промты кадров",
-      kind: "frame_prompts",
-      description: "image_prompt по кадрам — уходит в генератор",
-    },
-    {
-      id: "master",
-      title: "Мастер-промт",
-      kind: "gpt",
-      stepCode: "img_pr",
-      description: "prompts/05_image_prompts (шаг 6)",
-    },
-  ],
+  images: [],
   animation_prompts: [
     { id: "main", title: "Промт анимации", kind: "gpt", stepCode: "anim_pr" },
   ],
-  videos: [
-    {
-      id: "frame_prompts",
-      title: "Промты анимации",
-      kind: "frame_prompts",
-      description: "animation_prompt по кадрам — уходит в модель видео",
-    },
-    {
-      id: "master",
-      title: "Мастер-промт",
-      kind: "gpt",
-      stepCode: "anim_pr",
-      description: "prompts/07_animation_prompts",
-    },
-  ],
+  videos: [],
   audio: [
     { id: "tts", title: "ElevenLabs TTS", kind: "gpt" },
   ],
@@ -133,7 +117,7 @@ export function sceneAgentFromNodeKey(nodeKey?: string | null): string | undefin
 }
 
 export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
-  if (isHitlNodeType(nodeType) || nodeType === "shot_menu") return [];
+  if (isHitlNodeType(nodeType) || nodeType === "shot_menu" || NO_PROMPTS_NODE_TYPES.has(nodeType)) return [];
   const base = BASE[nodeType];
   if (base?.length) return base;
   if (nodeTypeRequiresExcel(nodeType)) {
@@ -267,6 +251,7 @@ export function resolvePromptSlots(
   nodeKey?: string,
   slotIndex?: number,
 ): NodePromptSlot[] {
+  if (NO_PROMPTS_NODE_TYPES.has(nodeType)) return [];
   const raw = slots?.length
     ? mergePromptSlotsWithDefaults(nodeType, [...slots])
     : [...defaultPromptSlots(nodeType)];

@@ -265,6 +265,7 @@ export function NodeStudio({
   });
 
   const pipelineSlots = useMemo(() => pipelinePromptSlots(allSlots), [allSlots]);
+  const hasPrompts = pipelineSlots.length > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -272,12 +273,16 @@ export function NodeStudio({
       setTab(initialTab === "settings" ? "settings" : "results");
       return;
     }
+    if (!hasPrompts) {
+      setTab(initialTab === "results" ? "results" : "settings");
+      return;
+    }
     if (promptFocus && initialTab !== "settings") {
       setTab(promptFocus.kind === "excel" ? "excel" : "prompts");
       return;
     }
-    setTab(initialTab);
-  }, [open, initialTab, promptFocus, nodeKey]);
+    setTab(initialTab ?? "prompts");
+  }, [open, initialTab, promptFocus, nodeKey, hasPrompts]);
 
   useEffect(() => {
     if (!open) return;
@@ -765,14 +770,26 @@ export function NodeStudio({
     (isExcelGptNode(nodeType) && !!projectId) ||
     !!showStepParams ||
     ((nodeType === "items" || nodeType === "hero" || nodeType === "script") && !!projectId);
-  const inTab0 = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
+  const inTab0 = hasPrompts && tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
   const activeName = String(activeVariant || "default");
   const detailOpen = inTab0 === "prompts" && !!catalogDetail && catalogDetail.nodeKey === nodeKey && !!catalogDetail.item;
   const headPrompt =
     inTab0 === "prompts" && catalogDetail && catalogDetail.nodeKey === nodeKey && catalogDetail.item
       ? catalogDetail.item
       : { id: activeName, label: activeName };
-  const inTab: "settings" | "prompts" | "results" = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
+  const inTab: "settings" | "prompts" | "results" =
+    hasPrompts && tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
+
+  const tabsList = hasPrompts
+    ? ([
+        ["prompts", "Каталог промтов"],
+        ["settings", "Настройки"],
+        ["results", "Результат"],
+      ] as const)
+    : ([
+        ["settings", "Настройки"],
+        ["results", "Результат"],
+      ] as const);
 
   return createPortal(
     <div
@@ -788,12 +805,14 @@ export function NodeStudio({
         <div
           data-vp-menu-header
           className="vp-head-img relative h-[60px] shrink-0 overflow-hidden bg-cover"
-          style={{ backgroundImage: `url(${getNodeCustomBg(nodeKey) || nodeBgFor(nodeKey, promptBgFor(headPrompt.id, headPrompt.label, nodeKey))})`, backgroundPosition: "center top" }}
+          style={{ backgroundImage: `url(${getNodeCustomBg(nodeKey) || nodeBgFor(nodeKey, hasPrompts ? promptBgFor(headPrompt.id, headPrompt.label, nodeKey) : null)})`, backgroundPosition: "center top" }}
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
             <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : "pr-14")}>
               <span className="truncate">
-                {(excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")}
+                {hasPrompts
+                  ? (excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")
+                  : (excelConfig.label?.trim() || spec.label)}
               </span>
             </div>
             {detailOpen ? (
@@ -818,14 +837,8 @@ export function NodeStudio({
           </div>
         <div className="flex shrink-0 cursor-grab items-stretch gap-2 p-3 pb-0 active:cursor-grabbing" title="Перетащите за верхнюю панель">
           {detailOpen ? <div id={`vp-detail-actions-${nodeKey}`} className="flex flex-1" /> : (
-          <div className="grid flex-1 grid-cols-3 border border-white/10">
-            {(
-              [
-                ["prompts", "Каталог промтов"],
-                ["settings", "Настройки"],
-                ["results", "Результат"],
-              ] as const
-            ).map(([id, label]) => (
+          <div className={cn("grid flex-1 border border-white/10", tabsList.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
+            {tabsList.map(([id, label]) => (
               <button
                 key={id}
                 type="button"
