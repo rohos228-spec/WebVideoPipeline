@@ -154,11 +154,13 @@ export function StudioWorkspace({
       }
       const focusTab = isShotsReportNode(nodeKey)
         ? "results"
-        : slot?.kind === "excel" && isExcelGptNode(nodeType)
+        : !focus
           ? "settings"
-          : focus?.kind === "excel"
-            ? "excel"
-            : resolvedTab;
+          : slot?.kind === "excel" && isExcelGptNode(nodeType)
+            ? "settings"
+            : focus?.kind === "excel"
+              ? "excel"
+              : resolvedTab;
       setStudioTarget({
         nodeKey,
         nodeType,
@@ -410,9 +412,9 @@ export function StudioWorkspace({
         openStudioForNode(nodeKey, nodeType, slot, "prompts");
       },
       onViewAllPrompts: (nodeKey: string, nodeType: string) => {
-        if (nodeType === "images") {
-          const excel = getPromptSlots(nodeKey, nodeType).find((s) => s.kind === "excel");
-          openStudioForNode(nodeKey, nodeType, excel ?? null, "excel");
+        const slots = resolvePromptSlots(nodeType, null);
+        if (slots.length === 0) {
+          openStudioForNode(nodeKey, nodeType, null, "settings");
         } else {
           openStudioForNode(nodeKey, nodeType, null, "prompts");
         }
