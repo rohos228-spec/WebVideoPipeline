@@ -278,6 +278,9 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     if pid is not None and _has(norm, ("реф",)) and _has(norm, _REF_TO_FRAME):
         # «Какие рефы можно привязать к кадру»: без списка ref-assets модель отвечала «в данных не указано».
         return _allowed([("montage.list_ref_assets", {"project_id": int(pid)})])
+    if _has(norm, ("групп",)) and _has(norm, ("нод", "встав", "готов", "каки", "есть", "покаж", "список")):
+        # «Какие группы нод есть»: без списка групп модель отвечала «в фактах не указано».
+        return _allowed([("group.list", {})])
     if _has(norm, _MONTAGE):
         # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
         if pid is not None:
@@ -447,6 +450,12 @@ def fact_text(action: str, result: Any) -> str:
         assets = [a for a in result.get("assets") or [] if isinstance(a, dict)]
         parts = [f"Готовых рефов {len(assets)}; их можно приложить к любому кадру:"] + [
             f"- {a.get('name') or a.get('code')} ({_REF_KIND.get(str(a.get('kind')), a.get('kind'))}), файл {a.get('file')}" for a in assets
+        ]
+    if action == "group.list":
+        groups = [g for g in result.get("groups") or [] if isinstance(g, dict)]
+        parts = [f"Готовых групп нод {len(groups)}; любую можно вставить в проект:"] + [
+            f"- {g.get('title') or g.get('id')} ({g.get('id')}): {' '.join(str(g.get('description') or '').split())[:160]}"
+            for g in groups
         ]
     if action == "logs.tail":
         lines = [str(row.get("text") or "") for row in result.get("lines") or [] if isinstance(row, dict)]

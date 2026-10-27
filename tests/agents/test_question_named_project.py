@@ -65,3 +65,12 @@ def test_frame_count_question_reads_the_board() -> None:
     assert ("montage.get_board", {"project_id": 4}) in plan_reads("сколько кадров в проекте 4?", 4)
     assert ("montage.get_board", {"project_id": 4}) in plan_reads("сколько шотов в проекте 4", 4)
     assert all(a != "montage.get_board" for a, _ in plan_reads("какой статус проекта 4?", 4))
+
+
+def test_group_questions_read_the_group_list() -> None:
+    from app.orchestrator.agents.question_context import fact_text
+
+    for text in ("какие группы нод есть?", "покажи готовые группы нод", "что за группы можно вставить в проект"):
+        assert plan_reads(text, None) == [("group.list", {})]
+    fact = fact_text("group.list", {"count": 1, "groups": [{"id": "g1", "title": "Сцены: веер", "description": "4 агента"}]})
+    assert "Сцены: веер (g1): 4 агента" in fact
