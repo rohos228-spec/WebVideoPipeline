@@ -11,6 +11,7 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
+  Film,
   Loader2,
   Maximize2,
   Replace,
@@ -198,24 +199,19 @@ function XlsxUploadBar({
 
   return (
     <div className="mb-2 flex flex-wrap gap-2">
-      <Button size="sm" variant="outline" asChild>
-        <a
-          href={api.downloadProjectXlsx(projectId, {
-            nodeKey: nodeKey ?? undefined,
-          })}
-          download
-        >
-          <Download className="h-3.5 w-3.5" />
-          Скачать Excel
-        </a>
-      </Button>
-      <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} disabled={upload.isPending}>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => fileRef.current?.click()}
+        disabled={upload.isPending}
+        className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+      >
         {upload.isPending ? (
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
         ) : (
           <Upload className="h-3.5 w-3.5" />
         )}
-        Загрузить
+        Загрузить файл
       </Button>
       <input
         ref={fileRef}
@@ -658,12 +654,42 @@ function SplitRowView({
   nodeKey?: string | null;
   nodeType?: string | null;
 }) {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [copied, setCopied] = useState(false);
+  const isExcelGpt = nodeType === "excel_gpt" || Boolean(nodeType?.startsWith("enrich_"));
+
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      if (isExcelGpt && nodeKey) {
+        return api.uploadExcelGptFile(projectId, nodeKey, file);
+      }
+      await api.uploadProjectXlsx(projectId, file, {
+        nodeKey: nodeKey ?? undefined,
+      });
+      return { fileName: file.name, replacedXlsx: true as const };
+    },
+    onSuccess: (res) => {
+      const name =
+        res && typeof res === "object" && "fileName" in res
+          ? String((res as { fileName?: string }).fileName || "")
+          : "";
+      toast.success(name ? `Файл обновлён: ${name}` : "Файл загружен");
+      qc.invalidateQueries({ queryKey: ["project", projectId] });
+      qc.invalidateQueries({ queryKey: ["frames", projectId] });
+      qc.invalidateQueries({ queryKey: ["xlsx-preview", projectId] });
+      qc.invalidateQueries({ queryKey: ["xlsx-split-row", projectId] });
+    },
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+
   // DB SoT: после replace_frames UI должен показывать кадры из БД, не stale xlsx/snapshot.
   const framesQ = useQuery({
     queryKey: ["frames", projectId],
     queryFn: () => api.listFrames(projectId),
     refetchInterval: 8000,
   });
+
   const row = useQuery({
     queryKey: ["xlsx-split-row", projectId, nodeKey ?? "live"],
     queryFn: () =>
@@ -673,7 +699,6 @@ function SplitRowView({
         maxCols: 300,
         nodeKey: nodeKey ?? undefined,
       }),
-    // xlsx — fallback, если кадров в DB ещё нет
     enabled: (framesQ.data?.length ?? 0) < 2,
   });
 
@@ -684,80 +709,183 @@ function SplitRowView({
     .sort((a, b) => a.number - b.number)
     .filter((f) => (f.voiceover_text || "").trim());
 
-  if (dbFrames.length >= 2) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <XlsxUploadBar projectId={projectId} nodeKey={nodeKey} nodeType={nodeType} />
-        <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-white/10 bg-black/20 p-3">
-          <p className="mb-2 text-[11px] text-muted-foreground">
-            База · {dbFrames.length} кадров (закадр) — прокрутите вправо
-          </p>
-          <div className="flex min-w-max gap-2">
-            {dbFrames.map((fr) => (
-              <div
-                key={fr.id}
-                className="flex w-[220px] shrink-0 flex-col rounded-lg border border-white/10 bg-black/30 p-2"
-              >
-                <span className="mb-1 text-[10px] font-medium text-primary">
-                  Кадр {fr.number}
-                </span>
-                <p className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">
-                  {(fr.voiceover_text || "").trim()}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (row.isLoading) return <LoadingBlock />;
-
+  const isDb = dbFrames.length >= 2;
   const cells = row.data?.cells ?? [];
   const frameCells = cells
     .map((cell, colIndex) => ({ cell, colIndex }))
     .filter(({ cell }) => cell.trim() && !isSplitRowLabel(cell));
 
-  if (!frameCells.length) {
+  if (!isDb && row.isLoading) return <LoadingBlock />;
+
+  const items = isDb
+    ? dbFrames.map((fr) => ({
+        id: String(fr.id),
+        number: fr.number,
+        text: (fr.voiceover_text || "").trim(),
+        subLabel: undefined as string | undefined,
+      }))
+    : frameCells.map(({ cell, colIndex }, idx) => ({
+        id: `cell_${colIndex}`,
+        number: idx + 1,
+        text: cell.trim(),
+        subLabel: `кол. ${colIndex + 1}`,
+      }));
+
+  if (items.length === 0) {
     return (
-      <div className="flex flex-col gap-3">
-        <XlsxUploadBar projectId={projectId} nodeKey={nodeKey} nodeType={nodeType} />
-        <p className="py-8 text-center text-sm text-muted-foreground">
-          Строка {ROW_VOICEOVER_V8} листа «{SHEET_PLAN_V8}» пока пуста — сначала выполните разбивку.
+      <div className="flex flex-col gap-3 py-16 items-center justify-center text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-800/80 border border-white/10 text-zinc-400 mb-2">
+          <Film className="h-6 w-6" />
+        </div>
+        <p className="text-sm font-semibold text-zinc-200">Кадры ещё не разбиты</p>
+        <p className="text-xs text-muted-foreground max-w-sm leading-relaxed">
+          Запустите шаг «Разбивка» на канвасе для разделения текста на отдельные кадры ролика.
         </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="mt-3 h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+          onClick={() => fileRef.current?.click()}
+          disabled={upload.isPending}
+        >
+          {upload.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          Загрузить файл
+        </Button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".xlsx,.xls,.txt"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) upload.mutate(f);
+            e.target.value = "";
+          }}
+        />
       </div>
     );
   }
 
+  const totalFrames = items.length;
+  const totalChars = items.reduce((acc, it) => acc + it.text.length, 0);
+  const totalWords = items.reduce(
+    (acc, it) => acc + (it.text ? it.text.split(/\s+/).length : 0),
+    0,
+  );
+  const estSeconds = Math.round(totalWords / 2.5) || Math.round(totalChars / 14);
+  const estMin = Math.floor(estSeconds / 60);
+  const estSecRem = estSeconds % 60;
+  const estTotalDuration = estMin > 0 ? `${estMin} мин ${estSecRem} сек` : `${estSecRem} сек`;
+
+  const handleCopyAll = () => {
+    const fullText = items
+      .map((it) => `Кадр ${it.number}:\n${it.text}`)
+      .join("\n\n");
+    navigator.clipboard.writeText(fullText);
+    setCopied(true);
+    toast.success("Все кадры скопированы");
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <XlsxUploadBar projectId={projectId} nodeKey={nodeKey} nodeType={nodeType} />
-      {row.data?.xlsx_snapshot ? (
-        <p className="mb-1 text-[10px] text-muted-foreground">
-          Снимок ноды: {row.data.xlsx_snapshot}
-        </p>
-      ) : null}
-      <div className="min-h-0 flex-1 overflow-x-auto overflow-y-hidden rounded-lg border border-white/10 bg-black/20 p-3">
-      <p className="mb-2 text-[11px] text-muted-foreground">
-        Лист «{SHEET_PLAN_V8}», строка {ROW_VOICEOVER_V8} — прокрутите вправо для всех кадров
-      </p>
-      <div className="flex min-w-max gap-2">
-        {frameCells.map(({ cell, colIndex }, frameIdx) => (
-          <div
-            key={colIndex}
-            className="flex w-[220px] shrink-0 flex-col rounded-lg border border-white/10 bg-black/30 p-2"
-          >
-            <span className="mb-1 text-[10px] font-medium text-primary">
-              Кадр {frameIdx + 1}
-              <span className="ml-1 font-normal text-muted-foreground">· кол. {colIndex + 1}</span>
-            </span>
-            <p className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-foreground/90">
-              {cell.trim()}
-            </p>
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
+      {/* Top Action & Stats Bar */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-lg bg-zinc-800/80 border border-white/10 px-3 py-1.5 text-xs font-semibold text-zinc-200">
+            <Film className="h-3.5 w-3.5 text-zinc-400" />
+            <span>Раскадровка</span>
           </div>
-        ))}
+          <div className="flex items-center gap-2 rounded-lg bg-zinc-900/80 border border-white/5 px-2.5 py-1 text-xs text-zinc-400">
+            <span className="font-mono font-medium text-zinc-200">{totalFrames}</span>
+            <span className="text-[11px] text-zinc-500">кадров</span>
+            <span className="text-zinc-600">·</span>
+            <span className="font-mono font-medium text-zinc-200">{totalChars.toLocaleString("ru-RU")}</span>
+            <span className="text-[11px] text-zinc-500">симв.</span>
+            <span className="text-zinc-600">·</span>
+            <Clock className="h-3 w-3 text-zinc-400" />
+            <span className="text-zinc-300 font-medium">≈ {estTotalDuration}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+            onClick={handleCopyAll}
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+            {copied ? "Скопировано" : "Копировать всё"}
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800"
+            onClick={() => fileRef.current?.click()}
+            disabled={upload.isPending}
+          >
+            {upload.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Upload className="h-3.5 w-3.5" />
+            )}
+            Загрузить файл
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) upload.mutate(f);
+              e.target.value = "";
+            }}
+          />
+        </div>
       </div>
+
+      {/* Vertical Cards Grid - scrolls DOWN */}
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pb-4">
+          {items.map((it) => {
+            const charCount = it.text.length;
+            const estSec = Math.max(1, Math.round(charCount / 14));
+            return (
+              <div
+                key={it.id}
+                className="group relative flex flex-col justify-between rounded-xl border border-white/[0.08] bg-zinc-900/40 p-3.5 transition-all hover:border-white/20 hover:bg-zinc-900/70 shadow-sm"
+              >
+                <div className="flex items-center justify-between gap-2 border-b border-white/5 pb-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="inline-flex items-center rounded-md bg-white/[0.08] border border-white/10 px-2.5 py-0.5 font-mono text-xs font-semibold text-zinc-100">
+                      Кадр {it.number}
+                    </span>
+                    {it.subLabel && (
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        {it.subLabel}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px] font-mono text-zinc-500">
+                    <span>{charCount} зн.</span>
+                    <span>·</span>
+                    <span>≈ {estSec}с</span>
+                  </div>
+                </div>
+                <p className="mt-2.5 whitespace-pre-wrap text-[13px] leading-relaxed text-zinc-200 font-normal select-text">
+                  {it.text}
+                </p>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -783,7 +911,7 @@ export function FramePromptsView({ items }: { items: NodeResultItem[] }) {
               className={cn(
                 "mb-1 w-full rounded-md px-2 py-2 text-left text-[11px] transition",
                 selected?.id === item.id
-                  ? "bg-primary/20 text-primary"
+                  ? "bg-white/10 text-white font-medium border border-white/15"
                   : "text-muted-foreground hover:bg-white/5",
               )}
             >
@@ -803,7 +931,7 @@ export function FramePromptsView({ items }: { items: NodeResultItem[] }) {
                 href={selected.previewUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="text-[10px] text-muted-foreground hover:text-primary underline"
+                className="text-[10px] text-muted-foreground hover:text-white underline"
               >
                 Открыть
               </a>
@@ -1299,23 +1427,9 @@ function DefaultResultView({
     <div className="space-y-3">
       {item.kind === "xlsx" && (
         <div className="flex gap-2">
-          <Button size="sm" variant="outline" asChild>
-            <a
-              href={
-                item.downloadUrl ||
-                api.downloadProjectXlsx(projectId, {
-                  nodeKey: nodeKey ?? undefined,
-                })
-              }
-              download
-            >
-              <Download className="h-3.5 w-3.5" />
-              Скачать Excel
-            </a>
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
+          <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800">
             <Upload className="h-3.5 w-3.5" />
-            Заменить
+            Загрузить файл
           </Button>
           <input
             ref={fileRef}
