@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from loguru import logger
@@ -696,8 +696,7 @@ def _queue_ops_text(body: dict[str, Any]) -> str:
         return ""
     total = body.get("total_in_queue") or n
     return (
-        f"Поставил в очередь правок монтажа {n}, всего в очереди {total}. Сами правки ещё не сделаны: "
-        "напишите «примени очередь», когда будете готовы."
+        f"Поставил в очередь правок монтажа {n}, всего в очереди {total}.{_APPLY_QUEUE_HINT}"
     )
 
 
@@ -1094,8 +1093,21 @@ def _project_tally(facts: TaskFacts) -> list[str]:
     return [line + "."]
 
 
+_APPLY_QUEUE_HINT = " Сами правки ещё не сделаны: напишите «примени очередь», когда будете готовы."
+
+
 def _superseded(notes: list[StepNote]) -> list[StepNote]:
-    """Правку промта подготовили и тут же применили: итог — применение, без «промт пока не изменён»."""
+    """Правку промта подготовили и тут же применили: итог — применение, без «промт пока не изменён».
+
+    Так же очередь монтажа: поставили и в той же задаче применили — без «напишите «примени очередь»».
+    """
+    if any(note.action == "montage.apply_queue" and note.ok for note in notes):
+        notes = [
+            replace(note, text=note.text.replace(_APPLY_QUEUE_HINT, ""))
+            if note.action == "montage.queue_ops"
+            else note
+            for note in notes
+        ]
     if not any(note.action == "change.apply" and note.ok for note in notes):
         return notes
     return [note for note in notes if not (note.action == "prompt.edit_text" and note.ok)]

@@ -59,3 +59,14 @@ def test_missing_action_drops_add_this_action_advice():
 
     reason = "В каталоге нет действия для шага; нужно добавить это действие, чтобы запустить шаг с лимитом."
     assert missing_action_text(reason) == NOT_SUPPORTED
+
+
+def test_queue_hint_dropped_when_queue_applied_in_same_task():
+    from app.orchestrator.agents.summarizer import StepNote, _queue_ops_text, _superseded
+
+    queued = StepNote("montage.queue_ops", "q", ok=True, text=_queue_ops_text({"queued": 1, "total_in_queue": 1}))
+    applied = StepNote("montage.apply_queue", "a", ok=True, text="Готово")
+    assert "примени очередь" in queued.text
+    out = _superseded([queued, applied])
+    assert "примени очередь" not in out[0].text and out[0].text.startswith("Поставил в очередь")
+    assert "примени очередь" in _superseded([queued])[0].text
