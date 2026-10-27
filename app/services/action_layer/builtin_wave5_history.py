@@ -5,6 +5,7 @@ import shutil
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -754,7 +755,32 @@ def _clip(value: Any, limit: int = 4000) -> Any:
 
 async def _list_snapshots(ctx: ActionContext, params: dict) -> dict:
     rows = await store.list_snapshots(params.get("project_id"), limit=params.get("limit", 20))
-    return {"count": len(rows), "snapshots": [_snapshot_json(r) for r in rows]}
+    return {
+        "count": len(rows),
+        "snapshots": [_snapshot_json(r) for r in rows],
+        "text_ru": await _snapshots_text(rows),
+    }
+
+
+async def _snapshots_text(rows: list[Any]) -> str:
+    """«Что тут можно откатить»: сырой JSON снимков длинный, чат видел только их число."""
+    from app.services.action_layer.chat_undo import _meta_of, describe
+
+    if not rows:
+        return "Снимков для отката нет."
+    metas: dict[Any, Any] = {}
+    lines = []
+    for row in rows:
+        if row.project_id not in metas:
+            metas[row.project_id] = await _meta_of(row.project_id)
+        title = describe(row, metas[row.project_id]).title
+        when = ""
+        if row.created_at:
+            at = row.created_at if row.created_at.tzinfo else row.created_at.replace(tzinfo=UTC)
+            when = at.astimezone().strftime("%d.%m %H:%M")
+        state = "уже возвращено" if row.restored_at else ("можно вернуть" if row.restorable else "откат недоступен")
+        lines.append(f"- {when} {title} ({state})".replace("-  ", "- "))
+    return f"Снимков: {len(rows)}. Самые свежие первыми:\n" + "\n".join(lines)
 
 
 async def _pre_rollback(ctx: ActionContext, params: dict) -> str | None:

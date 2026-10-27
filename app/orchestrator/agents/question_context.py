@@ -302,6 +302,16 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     if _has(norm, ("групп",)) and _has(norm, ("нод", "встав", "готов", "каки", "есть", "покаж", "список")):
         # «Какие группы нод есть»: без списка групп модель отвечала «в фактах не указано».
         return _allowed([("group.list", {})])
+    if (
+        _has(norm, ("сним",))
+        or re.search(r"истори\w*\s+(?:правок|изменени)", norm)
+        or (_has(norm, ("откат",)) and _has(norm, ("можно", "что", "как")))
+    ):
+        # «Что тут можно откатить, какие снимки есть»: без журнала снимков ответ был «данных нет».
+        snap: dict[str, Any] = {"limit": 20}
+        if pid is not None:
+            snap["project_id"] = int(pid)
+        return _allowed([("history.list_snapshots", snap)])
     if _has(norm, _MONTAGE):
         # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
         if pid is not None:
