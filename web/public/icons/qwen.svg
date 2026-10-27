@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="qwenGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#8B5CF6"/>
+      <stop offset="50%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+    <linearGradient id="qwenSpark" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#67E8F9"/>
+      <stop offset="100%" stop-color="#A78BFA"/>
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="#141420"/>
+  <!-- Stylized Qwen geometric loop -->
+  <path d="M24 10C16.82 10 11 15.82 11 23C11 30.18 16.82 36 24 36C26.54 36 28.91 35.27 30.9 34.01L34.29 37.4C34.68 37.79 35.32 37.79 35.71 37.4C36.1 37.01 36.1 36.38 35.71 35.99L32.44 32.72C35.03 30.28 37 26.88 37 23C37 15.82 31.18 10 24 10ZM24 31C19.58 31 16 27.42 16 23C16 18.58 19.58 15 24 15C28.42 15 32 18.58 32 23C32 27.42 28.42 31 24 31Z" fill="url(#qwenGrad)"/>
+  <!-- Central spark -->
+  <circle cx="24" cy="23" r="3" fill="url(#qwenSpark)"/>
+</svg>
