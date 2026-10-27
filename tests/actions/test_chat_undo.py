@@ -477,3 +477,30 @@ async def test_plain_undo_after_edit_without_snapshot_does_not_revert_older_edit
     newer.finished_at = old.created_at - timedelta(minutes=1)
     assert (await chat_undo.resolve("верни как было", 6, snapshots_of=snapshots, steps_of=steps,
                                     meta_of=_meta, current_of=_always)).steps
+
+
+@pytest.mark.asyncio
+async def test_plain_undo_after_parallel_change_sets_previous_number() -> None:
+    """«Поставь одновременно 3 проекта» → «верни как было»: было «прежнее значение не сохранялось»,
+    хотя шаг сам записал прежнее число."""
+    from datetime import datetime
+
+    step = SimpleNamespace(plan_id="par", action_id="queue.set_parallel", params={"workers": 3},
+                           result={"worker_max_parallel": 3, "before": 10},
+                           finished_at=datetime(2026, 1, 1), started_at=None)
+
+    async def none(project_id):
+        return []
+
+    async def steps(project_id):
+        return [step]
+
+    plan = await chat_undo.resolve("верни как было", None, snapshots_of=none, steps_of=steps,
+                                   meta_of=_meta, current_of=_always)
+    assert plan is not None and [s["action"] for s in plan.steps] == ["queue.set_parallel"]
+    assert plan.steps[0]["params"] == {"workers": 10}
+    # Прежнего числа нет — честный отказ, как раньше.
+    step.result = {"worker_max_parallel": 3}
+    plan = await chat_undo.resolve("верни как было", None, snapshots_of=none, steps_of=steps,
+                                   meta_of=_meta, current_of=_always)
+    assert plan is not None and plan.steps == [] and "не сохранялось" in plan.reason

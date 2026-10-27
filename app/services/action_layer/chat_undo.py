@@ -557,6 +557,24 @@ def _no_snapshot_text(step: Any, older: Described | None) -> str:
     return text
 
 
+def _parallel_back(step: Any) -> dict[str, Any] | None:
+    """«Верни как было» после смены параллели: прежнее число шаг сам записал в результат (before)."""
+    if getattr(step, "action_id", None) != "queue.set_parallel":
+        return None
+    result = step.result if isinstance(getattr(step, "result", None), dict) else {}
+    before = result.get("before")
+    if not isinstance(before, int) or isinstance(before, bool) or before < 1 or before == result.get("worker_max_parallel"):
+        return None
+    return {
+        "action": "queue.set_parallel",
+        "params": {"workers": before},
+        "expected": f"Вернуть {before} проектов одновременно в очереди генерации",
+        "paid": False,
+        "mutating": True,
+        "risk": "low",
+    }
+
+
 def _alias(word: str) -> str:
     if word in _ALIASES:
         return _ALIASES[word]
@@ -710,6 +728,9 @@ async def resolve(
             since = getattr(chosen[0], "created_at", None) if chosen else None
             done = newest.finished_at or newest.started_at
             if since is None or (done is not None and done > since):
+                back = _parallel_back(newest)
+                if back is not None:
+                    return UndoPlan([back])
                 return UndoPlan([], _no_snapshot_text(newest, chosen[1] if chosen else None))
     if chosen is None:
         if free:
