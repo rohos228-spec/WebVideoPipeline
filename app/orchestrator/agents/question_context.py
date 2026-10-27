@@ -98,6 +98,8 @@ _GPT = ("gpt", "гпт", "работа с gpt", "работа с гпт")
 _PROJECTS = ("проекты", "проектов", "все проект", "список проект")
 # «Текст озвучки» / «закадровый текст» — вопрос о ноде, без слова «нода» список нод не читался.
 _NODES = ("нод", "модел", "агент", "script", "закадров", "текст озвуч", "для озвуч")
+# «Что вообще делает разбивка?»: роль ноды без слова «нода» — список нод и описание ноды.
+_ROLE = ("делает", "отвечает за", "отвечает", "зачем нужн", "для чего")
 _BLOCKED = ("блокир", "заблокир", "неизвестн", "исход")
 # «сколько потрачено на #10»: номер с решёткой - проект и без слова «проект».
 _HASH_NUMBER_RE = re.compile(r"(?<![\w#])#(\d{1,5})(?!\d)")
@@ -553,7 +555,8 @@ class QuestionContext:
         return Fact(action, title, fact_text(action, result))
 
     async def _roster(self, text: str, project_id: int | None) -> list[dict[str, Any]]:
-        if self._nodes is None or project_id is None or not _has(_norm(text), _NODES):
+        norm = _norm(text)
+        if self._nodes is None or project_id is None or not (_has(norm, _NODES) or _has(norm, _ROLE)):
             return []
         try:
             return list(await asyncio.wait_for(self._nodes.rows(int(project_id)), self.timeout_s))
@@ -598,8 +601,16 @@ class QuestionContext:
         if rows:
             head.append(Fact("nodes.roster", "Ноды проекта", _clip(roster_text(rows), _FACT_LIMIT)))
             known = {params.get("node_key") for action, params in reads if action == "node.output"}
-            for key in match_nodes(rows, text)[:2]:
-                if key not in known:
+            role = _has(_norm(text), _ROLE)
+            # «Работа с gpt 2»: у всех таких нод одна подпись, номер ноды — из слов вопроса.
+            from app.orchestrator.agents.data_report import named_node
+
+            numbered = named_node(text)
+            keys = [numbered] if numbered in {str(row["key"]) for row in rows} else match_nodes(rows, text)
+            for key in keys[:2]:
+                if role:
+                    reads.append(("node.describe", {"project_id": int(project_id), "node_key": key}))
+                elif key not in known:
                     reads.append(("node.output", {"project_id": int(project_id), "node_key": key}))
         if not reads:
             return head
