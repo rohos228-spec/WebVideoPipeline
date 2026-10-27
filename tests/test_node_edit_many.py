@@ -166,3 +166,9 @@ def test_planner_catalog_offers_many_actions_for_a_batch_request() -> None:
     assert "node.set_prompt_variant_many" in ids
     ids = select_ids("в проектах 10, 12 и 14 верни прежнюю модель на ноде промты картинок", specs, 24)
     assert "node.revert_model_many" in ids
+
+
+def test_unset_reasoning_effort_reads_as_settable() -> None:
+    from app.services.node_edit import EFFORT_RU, REASONING_EFFORTS
+
+    assert "не задан" in EFFORT_RU["off"] and "off" not in REASONING_EFFORTS
