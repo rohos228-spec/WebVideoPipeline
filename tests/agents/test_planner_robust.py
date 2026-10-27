@@ -326,3 +326,20 @@ def test_shot_numbers_written_as_strings_become_ints() -> None:
     )
     assert out["to_shot"] == 1 and out["from_frame"] == 1 and out["note"] == "x"
     assert _schema_numbers("no.such_action", {"a": "1"}) == {"a": "1"}
+
+
+@pytest.mark.parametrize(
+    ("text", "action"),
+    [
+        ("проект 12 кадр 6 сними снизу", "montage.set_coverage"),
+        ("сделай вид снизу для кадра 8 в проекте 12", "montage.set_coverage"),
+        ("в проекте 4 верни картинку из второго шота кадра 1 в первый шот кадра 2", "montage.move_image"),
+        ("проект 4: картинку из кадра 2 положи вторым шотом в кадр 1", "montage.move_image"),
+    ],
+)
+def test_angle_and_image_move_phrases_reach_the_catalog(text: str, action: str) -> None:
+    from app.services.action_layer.planner_catalog import select_catalog
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    assert action in select_catalog(text, None, registry, 12).ids

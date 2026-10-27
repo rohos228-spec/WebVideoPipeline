@@ -815,7 +815,30 @@ async def _list_ref_assets(ctx, params):
     }
 
 
+def _ref_stem(ref: dict) -> str:
+    """Имя файла приложенного рефа без расширения: из ``image_url`` (?path=...), иначе имя."""
+    from pathlib import PureWindowsPath
+    from urllib.parse import parse_qs, urlparse
+
+    path = (parse_qs(urlparse(str(ref.get("image_url") or "")).query).get("path") or [""])[0]
+    return (PureWindowsPath(path).stem if path else str(ref.get("name") or "")).lower()
+
+
+async def _frame_refs(ctx, project_id, number: int) -> list[dict]:
+    board = await ctx.call("GET", _base(project_id))
+    frame = next((f for f in board.get("frames") or [] if int(f.get("number") or 0) == number), None)
+    return [r for r in (frame or {}).get("manual_refs") or [] if isinstance(r, dict)]
+
+
 async def _link_ref(ctx, params):
+    from pathlib import PureWindowsPath
+
+    stem = PureWindowsPath(str(params["file"])).stem.lower()
+    refs = await _frame_refs(ctx, params["project_id"], int(params["frame_number"]))
+    if any(r.get("linked") and _ref_stem(r) == stem for r in refs):
+        # Повторная привязка того же файла добавляла второй такой же реф, а отвязка потом
+        # находила два и отказывала.
+        return {"ok": True, "already_linked": True, "refs": refs}
     data = await ctx.call(
         "POST",
         f"{_base(params['project_id'])}/link-ref",
@@ -840,21 +863,22 @@ async def _delete_ref(ctx, params):
 
 async def _unlink_linked_ref(ctx, params):
     """Отвязать приложенный готовый реф: файл ассета остаётся, загруженный файл сюда не попадает."""
-    board = await ctx.call("GET", _base(params["project_id"]))
     number = int(params["frame_number"])
-    frame = next((f for f in board.get("frames") or [] if int(f.get("number") or 0) == number), None)
     wanted = str(params["ref_id"]).strip().lower()
-    refs = [r for r in (frame or {}).get("manual_refs") or [] if isinstance(r, dict)]
+    refs = await _frame_refs(ctx, params["project_id"], number)
     hit = [r for r in refs if wanted in {str(r.get("id") or "").lower(), str(r.get("name") or "").lower()}]
     if not hit:
         # Имя приложенного ассета — имя файла («predmet2_b0c165a8»), человек зовёт его «predmet2».
         hit = [r for r in refs if str(r.get("name") or "").lower().startswith(wanted + "_")]
-    if len(hit) != 1:
+    # Один и тот же файл, приложенный дважды (старые дубли), убираем целиком: все копии.
+    same_file = bool(hit) and all(r.get("linked") for r in hit) and len({_ref_stem(r) for r in hit}) == 1
+    if not same_file and len(hit) != 1:
         raise ValueError(f"у кадра {number} нет приложенного рефа «{params['ref_id']}»")
     if not hit[0].get("linked"):
         raise ValueError("это загруженный файл, а не приложенный готовый реф: его убирает delete_manual_ref")
-    out = await _delete_ref(ctx, {**params, "ref_id": hit[0]["id"], "kind": "manual"})
-    return {**out, "frame_number": number, "name": hit[0].get("name")}
+    for ref in hit:
+        out = await _delete_ref(ctx, {**params, "ref_id": ref["id"], "kind": "manual"})
+    return {**out, "frame_number": number, "name": hit[0].get("name"), "removed": len(hit)}
 
 
 async def _unlink_ref(ctx, params):
