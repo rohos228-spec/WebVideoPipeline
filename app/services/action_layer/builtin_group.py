@@ -727,7 +727,11 @@ def node_label_ru(meta: dict | None, node_key: str) -> str:
     from app.services.action_layer import builtin_insight as bi
 
     nodes = bi._canvas_nodes(meta) if isinstance(meta, dict) else []
-    labels = {str(n["id"]): str((n.get("data") or {}).get("label") or n["id"]) for n in nodes}
+    # У нод нового проекта подписи нет: русское название типа, а не ключ «n_excel_gpt_1».
+    labels = {
+        str(n["id"]): str((n.get("data") or {}).get("label") or bi._type_ru(str(n.get("type") or "")) or n["id"])
+        for n in nodes
+    }
     label = labels.get(node_key, node_key)
     number = "".join(ch for ch in node_key if ch.isdigit())
     if number and list(labels.values()).count(label) > 1:

@@ -75,3 +75,13 @@ def test_model_options_question_reads_list_models():
     ctx._one = one
     asyncio.run(ctx.gather("а для сценария какие еще модели есть, что можно поставить?", 12))
     assert ("node.list_models", {"project_id": 12, "node_key": "n_plan"}) in seen
+
+
+def test_node_label_without_data_label_uses_type_name():
+    from app.services.action_layer.builtin_group import node_label_ru
+
+    meta = {"canvas_graph": {"nodes": [
+        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {}},
+        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {}},
+    ]}}
+    assert node_label_ru(meta, "n_excel_gpt_1") == "Работа с GPT 1"
