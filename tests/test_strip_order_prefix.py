@@ -27,3 +27,10 @@ def test_missing_action_keeps_other_reason():
     out = missing_action_text(reason)
     assert out.startswith(NOT_SUPPORTED) and "0 кадров" in out and "каталог" not in out
     assert missing_action_text("Такого действия нет в каталоге.") == NOT_SUPPORTED
+
+
+def test_missing_action_drops_developer_advice():
+    from app.orchestrator.agents.summarizer import NOT_SUPPORTED, missing_action_text
+
+    reason = "В каталоге нет действия для шага «Разбивка»; нужно добавить его или уточнить доступный способ запуска."
+    assert missing_action_text(reason) == NOT_SUPPORTED
