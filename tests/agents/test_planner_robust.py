@@ -352,3 +352,12 @@ def test_rename_phrases_reach_project_settings(text: str) -> None:
 
     ensure_builtin_actions()
     assert "project.patch_settings" in select_catalog(text, None, registry, 12).ids
+
+
+@pytest.mark.parametrize("text", ["проект 12: сгенерируй картинки", "нарисуй картинки в проекте 12"])
+def test_generate_phrases_reach_step_run(text: str) -> None:
+    from app.services.action_layer.planner_catalog import select_catalog
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    assert "step.run_step" in select_catalog(text, None, registry, 12).ids
