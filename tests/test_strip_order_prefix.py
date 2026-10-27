@@ -15,3 +15,15 @@ def test_plain_lines_kept():
 def test_drop_echo_keeps_answer_after_prefix():
     out = drop_echo("Проверь проект #12: он стоит на паузе из-за «промтов картинок».", "что с 12")
     assert out == "Проект #12 стоит на паузе из-за «промтов картинок»."
+
+
+def test_missing_action_keeps_other_reason():
+    from app.orchestrator.agents.summarizer import NOT_SUPPORTED, missing_action_text
+
+    reason = (
+        "Нельзя безопасно запланировать прогон до промтов картинок: в проекте 26 сейчас 0 кадров, "
+        "сначала нужна разбивка на кадры; кроме того, действие очереди отсутствует в доступном каталоге."
+    )
+    out = missing_action_text(reason)
+    assert out.startswith(NOT_SUPPORTED) and "0 кадров" in out and "каталог" not in out
+    assert missing_action_text("Такого действия нет в каталоге.") == NOT_SUPPORTED

@@ -134,7 +134,22 @@ def missing_action_text(reason: str, goal: str = "") -> str:
         return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
     if _SPLIT_SCENE.search(goal or ""):
         return f"{NOT_SUPPORTED} {SPLIT_SCENE_HINT}"
-    return NOT_SUPPORTED
+    why = _other_reasons(reason)
+    return f"{NOT_SUPPORTED} {why}" if why else NOT_SUPPORTED
+
+
+def _other_reasons(reason: str) -> str:
+    """«В проекте 0 кадров, сначала нужна разбивка; кроме того, действия нет»: суть кроме «нет действия».
+
+    Без неё человек видел только «не умею» и не знал, что сделать первым.
+    """
+    keep = []
+    for part in re.split(r"[;.]\s+|[;.]$", reason or ""):
+        part = re.sub(r"^\s*(?:кроме того|также|и)\s*,?\s*", "", part.strip(), flags=re.IGNORECASE)
+        if part and not _MISSING_ACTION.search(part) and "_" not in part and "каталог" not in part.lower():
+            keep.append(part[:1].upper() + part[1:])
+    text = ". ".join(keep)[:300].strip()
+    return text + "." if text and not text.endswith((".", "!", "?")) else text
 
 
 # «Из файла / по файлу / в файле»: прикрепить файл к сообщению чата оркестратора нельзя.
