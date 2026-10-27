@@ -343,3 +343,12 @@ def test_angle_and_image_move_phrases_reach_the_catalog(text: str, action: str) 
 
     ensure_builtin_actions()
     assert action in select_catalog(text, None, registry, 12).ids
+
+
+@pytest.mark.parametrize("text", ["переименуй проект 12 в «Муравьи тест»", "назови проект 12 «Муравьи тест»"])
+def test_rename_phrases_reach_project_settings(text: str) -> None:
+    from app.services.action_layer.planner_catalog import select_catalog
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    assert "project.patch_settings" in select_catalog(text, None, registry, 12).ids

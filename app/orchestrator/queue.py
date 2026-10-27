@@ -178,9 +178,14 @@ _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IM
 _NEGATIONS = frozenset({"не", "ни"})
 
 
+# «Назови проект 12 «Муравьи»» — переименование; «назови модели» — вопрос. Различает новое имя в кавычках.
+_NAME_IT_RE = re.compile(r"(?<![а-я])назови(?:те)?\s[^«\"]*[«\"]")
+
+
 def has_imperative(text: str) -> bool:
-    tokens = _TOKEN_RE.findall(" ".join((text or "").lower().replace("ё", "е").split()))
-    return any(
+    norm = " ".join((text or "").lower().replace("ё", "е").split())
+    tokens = _TOKEN_RE.findall(norm)
+    return bool(_NAME_IT_RE.search(norm)) or any(
         token in _IMPERATIVES and (index == 0 or tokens[index - 1] not in _NEGATIONS)
         for index, token in enumerate(tokens)
     )

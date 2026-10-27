@@ -333,3 +333,10 @@ async def test_model_interrupt_without_a_stop_word_is_a_question(token: str, tex
         assert _events(rt, session, "classification")[-1].payload["mode"] == "append"
     finally:
         set_runtime(None)
+
+
+def test_name_it_with_a_quoted_title_is_a_rename_task() -> None:
+    assert classify_deterministic("назови проект 12 «Муравьи тест»").mode is MessageMode.task
+    assert classify_deterministic("назови модели картинок") is None or (
+        classify_deterministic("назови модели картинок").mode is not MessageMode.task
+    )
