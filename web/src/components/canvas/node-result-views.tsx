@@ -1377,11 +1377,14 @@ function ExcelGptResultView({
       {resolve.isLoading && !reply ? (
         <LoadingBlock />
       ) : reply ? (
-        <ScrollArea className="max-h-[55vh] rounded-lg border border-white/10 bg-black/20 p-3">
+        <div
+          tabIndex={0}
+          className="max-h-[520px] min-h-[140px] overflow-y-auto overflow-x-auto rounded-lg border border-white/10 bg-black/40 p-3.5 select-text outline-none focus:border-white/25 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent"
+        >
           <pre className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-foreground/90">
             {reply}
           </pre>
-        </ScrollArea>
+        </div>
       ) : (
         <p className="py-4 text-sm text-muted-foreground">
           Ответа GPT пока нет. Запустите ноду — после прогона здесь появится
@@ -1512,7 +1515,7 @@ function DefaultResultView({
         </div>
       )}
       {item.content && (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-black/30 p-3 text-xs">
+        <pre className="max-h-[480px] overflow-auto whitespace-pre-wrap rounded-lg bg-black/40 p-3.5 text-xs select-text [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb:hover]:bg-white/45 [&::-webkit-scrollbar-track]:bg-transparent">
           {item.content}
         </pre>
       )}

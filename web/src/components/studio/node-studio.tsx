@@ -919,7 +919,7 @@ export function NodeStudio({
             ) : null}
           </div>
         ) : inTab === "results" ? (
-          <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+          <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
             <div className="rounded-[10px] border border-white/[0.06] bg-black/35 p-3 text-[13px] text-white/85 [&_.rounded-xl]:!rounded-[10px] [&_.rounded-xl]:!border-white/[0.06] [&_.rounded-xl]:!bg-black/30">
               <div className="flex flex-col gap-4">
                   {inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0) ? (
