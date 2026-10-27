@@ -732,9 +732,15 @@ def node_label_ru(meta: dict | None, node_key: str) -> str:
         str(n["id"]): str((n.get("data") or {}).get("label") or bi._type_ru(str(n.get("type") or "")) or n["id"])
         for n in nodes
     }
-    label = labels.get(node_key, node_key)
     number = "".join(ch for ch in node_key if ch.isdigit())
-    if number and list(labels.values()).count(label) > 1:
+    if node_key in labels:
+        label = labels[node_key]
+        twin = list(labels.values()).count(label) > 1
+    else:
+        # Меты без схемы нод: тип из ключа «n_excel_gpt_2» → «Работа с GPT 2».
+        label = bi._type_ru(re.sub(r"^n_|_\d+$", "", node_key)) or node_key
+        twin = label != node_key
+    if number and twin:
         label += " " + number
     return label.strip()
 

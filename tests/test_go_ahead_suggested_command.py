@@ -23,3 +23,12 @@ def test_step_verbs_are_tasks():
     for text in ("разбей 26 на кадры", "озвучь проект 26", "смонтируй проект 12"):
         decided = q.classify_deterministic(q.canon_project_refs(text))
         assert decided is not None and decided.mode is MessageMode.task, text
+
+
+def test_spend_limit_means_task():
+    from app.orchestrator.contracts import MessageMode
+
+    decided = q.classify_deterministic(q.canon_project_refs("теперь промты картинок для 26, лимит $0.5"))
+    assert decided is not None and decided.mode is MessageMode.task
+    asked = q.classify_deterministic(q.canon_project_refs("какой лимит $5 стоит?"))
+    assert asked is None or asked.mode is not MessageMode.task

@@ -260,6 +260,9 @@ _GO_WORDS = frozenset(
 _QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
 
 
+_SPEND_LIMIT_RE = re.compile(r"(?<![а-я])(?:лимит\w*|потолок\w*)\s*(?:в\s+)?\$?\s*\d")
+
+
 def is_go_ahead(text: str) -> bool:
     words = _TOKEN_RE.findall((text or "").lower())
     return 0 < len(words) <= 4 and all(word in _GO_WORDS for word in words)
@@ -374,7 +377,8 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             deterministic=True,
             confidence=1.0,
         )
-    if has_imperative(norm):
+    # «Теперь промты картинок для 26, лимит $0.5»: потолок расхода — это просьба запустить, не вопрос.
+    if has_imperative(norm) or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?")):
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.task,

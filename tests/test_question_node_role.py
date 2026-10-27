@@ -85,3 +85,10 @@ def test_node_label_without_data_label_uses_type_name():
         {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {}},
     ]}}
     assert node_label_ru(meta, "n_excel_gpt_1") == "Работа с GPT 1"
+
+
+def test_node_label_without_graph_uses_key_type():
+    from app.services.action_layer.builtin_group import node_label_ru
+
+    assert node_label_ru({}, "n_excel_gpt_2") == "Работа с GPT 2"
+    assert node_label_ru(None, "n_split") == "Разбивка"
