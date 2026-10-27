@@ -90,7 +90,7 @@ import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
 import { GptTextPanel } from "@/components/studio/gpt-text-panel";
 import { shouldShowStopBar } from "@/lib/project-running";
 
-type StudioTab = "settings" | "prompts" | "results" | "excel" | "frame_prompts";
+type StudioTab = "settings" | "prompts" | "results" | "excel";
 
 function slotStepCode(slot: NodePromptSlot | null, nodeStepCode: string | undefined): string | undefined {
   return slot?.stepCode ?? nodeStepCode;
@@ -315,18 +315,11 @@ export function NodeStudio({
     }
   }, [open, nodeKey]);
 
-  const gptSlot = pipelineSlots.find((s) => s.kind === "gpt" && s.stepCode) ?? pipelineSlots.find((s) => s.kind === "gpt");
-  const frameSlot = pipelineSlots.find((s) => s.kind === "frame_prompts");
-  const hasFramePrompts = Boolean(frameSlot);
-  const hasGptSlot = Boolean(gptSlot);
-
   const activeSlot =
-    (tab === "frame_prompts" && frameSlot ? frameSlot : null) ??
-    (tab === "prompts" && gptSlot ? gptSlot : null) ??
     (activeSlotId === "gpt_text" ? gptTextSlotForNode(nodeType) : null) ??
     allSlots.find((s) => s.id === activeSlotId) ??
     (promptFocus?.kind === "text" ? promptFocus : null) ??
-    (gptSlot ?? pipelineSlots[0]) ??
+    pipelineSlots[0] ??
     null;
 
   const activeStepCode = slotStepCode(activeSlot, stepCode);
@@ -772,41 +765,14 @@ export function NodeStudio({
     (isExcelGptNode(nodeType) && !!projectId) ||
     !!showStepParams ||
     ((nodeType === "items" || nodeType === "hero" || nodeType === "script") && !!projectId);
-  const inTab0 = tab === "prompts" ? "prompts" : tab === "results" ? "results" : tab === "frame_prompts" ? "frame_prompts" : "settings";
+  const inTab0 = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
   const activeName = String(activeVariant || "default");
   const detailOpen = inTab0 === "prompts" && !!catalogDetail && catalogDetail.nodeKey === nodeKey && !!catalogDetail.item;
   const headPrompt =
     inTab0 === "prompts" && catalogDetail && catalogDetail.nodeKey === nodeKey && catalogDetail.item
       ? catalogDetail.item
       : { id: activeName, label: activeName };
-  const inTab: "settings" | "prompts" | "results" | "frame_prompts" =
-    tab === "prompts"
-      ? "prompts"
-      : tab === "frame_prompts"
-        ? "frame_prompts"
-        : tab === "results"
-          ? "results"
-          : "settings";
-
-  const tabsList =
-    hasFramePrompts && hasGptSlot
-      ? ([
-          ["prompts", "Каталог промтов"],
-          ["frame_prompts", "Промты кадров"],
-          ["settings", "Настройки"],
-          ["results", "Результат"],
-        ] as const)
-      : hasFramePrompts && !hasGptSlot
-        ? ([
-            ["frame_prompts", "Промты кадров"],
-            ["settings", "Настройки"],
-            ["results", "Результат"],
-          ] as const)
-        : ([
-            ["prompts", "Каталог промтов"],
-            ["settings", "Настройки"],
-            ["results", "Результат"],
-          ] as const);
+  const inTab: "settings" | "prompts" | "results" = tab === "prompts" ? "prompts" : tab === "results" ? "results" : "settings";
 
   return createPortal(
     <div
@@ -852,19 +818,18 @@ export function NodeStudio({
           </div>
         <div className="flex shrink-0 cursor-grab items-stretch gap-2 p-3 pb-0 active:cursor-grabbing" title="Перетащите за верхнюю панель">
           {detailOpen ? <div id={`vp-detail-actions-${nodeKey}`} className="flex flex-1" /> : (
-          <div className={cn("grid flex-1 border border-white/10", tabsList.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
-            {tabsList.map(([id, label]) => (
+          <div className="grid flex-1 grid-cols-3 border border-white/10">
+            {(
+              [
+                ["prompts", "Каталог промтов"],
+                ["settings", "Настройки"],
+                ["results", "Результат"],
+              ] as const
+            ).map(([id, label]) => (
               <button
                 key={id}
                 type="button"
-                onClick={() => {
-                  setTab(id as StudioTab);
-                  if (id === "frame_prompts" && frameSlot) {
-                    setActiveSlotId(frameSlot.id);
-                  } else if (id === "prompts" && gptSlot) {
-                    setActiveSlotId(gptSlot.id);
-                  }
-                }}
+                onClick={() => setTab(id)}
                 className={cn(
                   "flex h-12 items-center justify-center rounded-none px-3 py-3 text-[13px] font-medium uppercase leading-[1.25] tracking-[0.08em] transition-colors",
                   inTab === id ? "bg-white text-black" : "text-white/60 hover:bg-white/[0.05] hover:text-white",
@@ -1023,14 +988,6 @@ export function NodeStudio({
                 </div>
             </div>
           </div>
-        ) : inTab === "frame_prompts" && projectId != null ? (
-          <div className="nodrag flex min-h-0 flex-auto flex-col overflow-hidden p-3">
-            <FramePromptsPanel
-              key={`inline-frame-prompts-${projectId}-${nodeType}`}
-              projectId={projectId}
-              field={nodeType === "videos" ? "animation_prompt" : "image_prompt"}
-            />
-          </div>
         ) : (
           <div className="nodrag flex min-h-0 flex-auto flex-col overflow-hidden p-3">
             {showGptTextPanel && projectId != null && activeStepCode ? (
@@ -1038,6 +995,12 @@ export function NodeStudio({
                 key={`inline-gpt-${activeSlot?.id}-${activeStepCode}`}
                 projectId={projectId}
                 stepCode={activeStepCode}
+              />
+            ) : showFramePromptsPanel && projectId != null ? (
+              <FramePromptsPanel
+                key={`inline-frame-prompts-${projectId}-${nodeType}`}
+                projectId={projectId}
+                field={nodeType === "videos" ? "animation_prompt" : "image_prompt"}
               />
             ) : showFilesPanel && isCheckNode && projectId != null && nodeKey ? (
               <CheckNodePromptPanel
@@ -1059,12 +1022,6 @@ export function NodeStudio({
                 onActivateVariant={(variant) => activateVariant.mutate(variant)}
                 activating={activateVariant.isPending}
                 catalogPanel={{ nodeKey, embedded: true, onOpenSettings: () => setTab("settings"), onClose: () => requestClose() }}
-              />
-            ) : showFramePromptsPanel && projectId != null ? (
-              <FramePromptsPanel
-                key={`inline-frame-prompts-${projectId}-${nodeType}`}
-                projectId={projectId}
-                field={nodeType === "videos" ? "animation_prompt" : "image_prompt"}
               />
             ) : (
               <p className="p-4 text-[13px] text-white/50">У этой ноды нет каталога промтов.</p>
