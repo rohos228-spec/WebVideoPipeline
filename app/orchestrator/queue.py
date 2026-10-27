@@ -862,11 +862,15 @@ class MessageQueue:
                 # Число известно без модели (предел параллели): ответить им, а не ошибкой.
                 await self._reply(session_id, fallback, "fallback")
             return
-        from app.orchestrator.agents.summarizer import normalize_links
+        from app.orchestrator.agents.summarizer import normalize_links, strip_order_prefix
 
         parts = deltas or _token_pieces(response.text)
         # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
         answer = normalize_links(str(response.text or ""))
+        # «Проверьте журнал сервера…: да, …» — приказ-пересказ перед сутью ответа не показываем.
+        trimmed = strip_order_prefix(answer)
+        if trimmed != answer:
+            answer, parts = trimmed, _token_pieces(trimmed)
         if not answer.strip():
             # Пустую реплику не пишем и не показываем: пустой пузырь «оркестратор:» без слов.
             logger.warning("orch answer empty for session {}", session_id)

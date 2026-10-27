@@ -996,9 +996,11 @@ async def _diag_incidents(ctx: ActionContext, params: dict) -> dict:
     include_closed = params.get("status") == "all"
     row = await _project_row(pid)
     labels = _labels(row.meta if row is not None and isinstance(row.meta, dict) else {})
-    items, total = await _incidents(pid, include_closed=include_closed, limit=limit, labels=labels)
+    # Блокирующие — среди всех, а не только показанных: иначе «16 инцидентов, 5 блокирующих» при limit=5.
+    every, total = await _incidents(pid, include_closed=include_closed, limit=500, labels=labels)
+    items = every[:limit]
     feed = await _feed(pid, limit)
-    blocking = sum(1 for i in items if i["blocking"])
+    blocking = sum(1 for i in every if i["blocking"])
     lines = [
         f"Проект #{pid}: "
         + (f"инцидентов {total}" if total else "открытых инцидентов нет")

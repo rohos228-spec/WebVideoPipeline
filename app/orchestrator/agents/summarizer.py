@@ -1206,10 +1206,33 @@ def _echo_sentence(sentence: str, goal: str) -> bool:
     return bool(word) and word == asked and asked.endswith(("й", "и", "ь"))
 
 
+# «Проверь проект #12: он стоит на паузе…» — приказ-пересказ перед сутью: срезаем до двоеточия.
+_ORDER_PREFIX = re.compile(
+    r"^(?P<lead>[ \t*_>#•\-–—]*)(?:проверь|покажи|посмотри|глянь|найди|выведи|расскажи|дай)(?:те)?"
+    r"(?![а-яё])[^:\n.!?«»]{0,80}:\s*(?P<rest>\S.*)$",
+    re.IGNORECASE,
+)
+
+
+def strip_order_prefix(text: str) -> str:
+    """Убирает «Проверь…: », «Покажи…: » в начале строк, суть после двоеточия оставляет."""
+    out = []
+    for line in (text or "").splitlines():
+        m = _ORDER_PREFIX.match(line)
+        if m:
+            rest = m.group("rest")
+            named = re.search(r"проект\w*\s*#?(\d+)", line[: m.start("rest")], re.IGNORECASE)
+            if named and re.match(r"(?:он|она)\s", rest, re.IGNORECASE):
+                rest = f"проект #{named.group(1)}" + rest[rest.index(" ") :]
+            line = m.group("lead") + rest[:1].upper() + rest[1:]
+        out.append(line)
+    return "\n".join(out)
+
+
 def drop_echo(text: str, goal: str) -> str:
     """Убирает предложения, которые пересказывают просьбу как приказ; пусто — итога не осталось."""
     out: list[str] = []
-    for line in (text or "").splitlines():
+    for line in strip_order_prefix(text).splitlines():
         if _LINK_LINE.match(line) or line.lstrip().startswith("|") or "](" in line:
             out.append(line)
             continue
