@@ -60,7 +60,7 @@ export function AudioAlignPopover({
           : "Разбор аудио готов",
       );
       if (typeof dbErr === "string" && dbErr) {
-        toast.message("R15 записана; БД кадров занята — доска читает Excel");
+        toast.message("R15 записана; БД кадров занята — доска читает проект");
       }
       onFinished?.();
     } else if (st === "error") {

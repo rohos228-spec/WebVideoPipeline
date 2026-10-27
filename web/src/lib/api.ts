@@ -937,7 +937,7 @@ export const api = {
     projectId: number,
     message: string,
     history: { role: string; content: string }[],
-    opts?: { signal?: AbortSignal; fixBugs?: boolean },
+    opts?: { signal?: AbortSignal },
   ) =>
     http<{
       reply: string;
@@ -1000,7 +1000,6 @@ export const api = {
         body: JSON.stringify({
           message,
           history,
-          fix_bugs: Boolean(opts?.fixBugs),
         }),
         signal: opts?.signal,
       },

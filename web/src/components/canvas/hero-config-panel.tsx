@@ -7,8 +7,6 @@ import {
   Users,
   ChevronDown,
   ChevronRight,
-  Save,
-  FileSpreadsheet,
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -74,7 +72,7 @@ export function HeroConfigPanel({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["excel-hero", projectId] });
       qc.invalidateQueries({ queryKey: ["project", projectId] });
-      toast.success("Excel-персонажи отвязаны");
+      toast.success("Персонажи отвязаны — активно ручное описание");
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -141,6 +139,8 @@ export function HeroConfigPanel({
 
   const excelChars = excelQ.data?.characters ?? [];
   const excelLoaded = excelQ.data?.loaded ?? false;
+  const isScenarioLoaded = excelLoaded && excelChars.length > 0;
+  const isManualVisible = showManual || !isScenarioLoaded;
 
   return (
     <div
@@ -156,9 +156,9 @@ export function HeroConfigPanel({
         <span className="flex items-center gap-1.5">
           <Users className="h-3 w-3" />
           Персонажи
-          {excelLoaded ? (
+          {isScenarioLoaded ? (
             <span className="ml-1 text-emerald-300">
-              · Excel ({excelChars.length})
+              · из сценария ({excelChars.length})
             </span>
           ) : projectQ.data?.hero_count ? (
             <span className="ml-1 text-muted-foreground">
@@ -175,21 +175,21 @@ export function HeroConfigPanel({
 
       {open && (
         <div className="flex flex-col gap-2 px-3 pb-2.5">
-          {/* ── Excel-блок (приоритет) ──────────────────────────── */}
+          {/* ── Персонажи из сценария ──────────────────────────── */}
           <div className="flex flex-col gap-1.5 rounded-md border border-emerald-400/20 bg-emerald-500/[0.05] p-2">
             <div className="flex items-center justify-between gap-2">
               <span className="flex items-center gap-1 text-[10px] text-emerald-300">
-                <FileSpreadsheet className="h-3 w-3" />
-                Лист «Персонажи» в project.xlsx
+                <Users className="h-3 w-3" />
+                Персонажи из сценария
               </span>
-              {excelLoaded && (
+              {isScenarioLoaded && (
                 <span className="text-[9px] text-emerald-300/90">
                   ✓ {excelChars.length}
                 </span>
               )}
             </div>
 
-            {excelLoaded && excelChars.length > 0 && (
+            {isScenarioLoaded && (
               <ul className="max-h-[64px] overflow-y-auto text-[10px] leading-snug text-muted-foreground">
                 {excelChars.slice(0, 6).map((c) => (
                   <li key={c.id} className="truncate">
@@ -222,7 +222,7 @@ export function HeroConfigPanel({
                 ) : (
                   <RefreshCw className="mr-1 h-3 w-3" />
                 )}
-                {excelLoaded ? "Перечитать" : "Загрузить из Excel"}
+                {isScenarioLoaded ? "Обновить из сценария" : "Загрузить из сценария"}
               </Button>
               {excelLoaded && (
                 <Button
@@ -232,7 +232,7 @@ export function HeroConfigPanel({
                   className="h-6 text-[10px] text-muted-foreground hover:text-destructive"
                   disabled={clearExcel.isPending}
                   onClick={() => clearExcel.mutate()}
-                  title="Отвязать excel и пользоваться ручным описанием"
+                  title="Отвязать персонажей и перейти к ручному описанию"
                 >
                   Сброс
                 </Button>
@@ -240,24 +240,23 @@ export function HeroConfigPanel({
             </div>
           </div>
 
-          {/* ── Ручной блок (свернут, если есть Excel) ──────────── */}
-          <button
-            type="button"
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-amber-300"
-            onClick={() => setShowManual((v) => !v)}
-          >
-            {showManual ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-            Ввести описание
-            {!excelLoaded && projectQ.data?.hero_count ? (
-              <span className="text-amber-300/90">· {projectQ.data.hero_count}</span>
-            ) : null}
-          </button>
+          {/* ── Ручной блок ────────────────────────────────────── */}
+          {isScenarioLoaded ? (
+            <button
+              type="button"
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-amber-300"
+              onClick={() => setShowManual((v) => !v)}
+            >
+              {isManualVisible ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+              Своё описание персонажей
+            </button>
+          ) : null}
 
-          {showManual && (
+          {isManualVisible && (
             <div className="flex flex-col gap-2 rounded-md border border-amber-400/15 bg-amber-500/[0.03] p-2">
               <label className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                 <span>Сколько героев</span>

@@ -450,7 +450,7 @@ export function StudioWorkspace({
       },
       onRemovePrompt: async (nodeKey: string, nodeType: string, slot: NodePromptSlot) => {
         if (slot.kind === "excel" || slot.id === "excel") {
-          toast.error("Excel нельзя удалить — он обязателен первым в каждой ноде");
+          toast.error("Сценарий нельзя удалить — он обязателен первым в каждой ноде");
           return;
         }
         const meta = (project.data?.meta || {}) as {

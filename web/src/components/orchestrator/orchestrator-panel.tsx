@@ -10,11 +10,9 @@ import {
 import {
   AlertTriangle,
   Bot,
-  Bug,
   ChevronDown,
   ChevronUp,
   GitBranch,
-  KeyRound,
   Maximize2,
   Minimize2,
   Play,
@@ -24,7 +22,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
-import { readOrchToken, writeOrchToken } from "@/lib/orchestratorApi";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { cn } from "@/lib/utils";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
@@ -71,15 +68,6 @@ interface ChatMsg {
   confirm?: PendingConfirm;
 }
 
-/** Префикс к API (в чате пользователю не показываем). */
-const FIX_BUGS_PREFIX =
-  "Режим «Фикс багов» / поручение оператора ниже. " +
-  "Это НЕ вопрос «что не так» — нужно НАЙТИ и ПОЧИНИТЬ. " +
-  "Сначала действия: run_harness / run_step / repair_graph / hitl_decision; " +
-  "если баг в коде — edit_files + короткий run_tests + git_commit_push auto=false. " +
-  "Проекты/ноды Studio — через actions (delete_projects / create_project / add_node…), " +
-  "не через edit_files. Кратко по-русски: причина + что исправил.\n\nПОРУЧЕНИЕ:\n";
-
 export function OrchestratorPanel({ projectId }: Props) {
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
   const [expanded, setExpanded] = usePersistedState("vp-orchestrator-expanded", false);
@@ -87,26 +75,9 @@ export function OrchestratorPanel({ projectId }: Props) {
   const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
   const [chatInput, setChatInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [fixBugsMode, setFixBugsMode] = useState(false);
-  /** Ввод токена оркестратора: без него легаси-чат с `orchestrator_chat_auth_required` даст 401. */
-  const [tokenOpen, setTokenOpen] = useState(false);
-  const [tokenDraft, setTokenDraft] = useState("");
-  const [tokenSaved, setTokenSaved] = useState(false);
-  const [tokenError, setTokenError] = useState("");
-  /** Токен есть в localStorage — только для подсветки кнопки (не читаем при SSR). */
-  const [hasToken, setHasToken] = useState(false);
-  const fixBugsModeRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const userCancelRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    fixBugsModeRef.current = fixBugsMode;
-  }, [fixBugsMode]);
-
-  useEffect(() => {
-    setHasToken(Boolean(readOrchToken()));
-  }, []);
 
   useEffect(() => {
     try {
@@ -126,15 +97,9 @@ export function OrchestratorPanel({ projectId }: Props) {
   }, []);
 
   const sendMessage = useCallback(
-    async (msg: string, opts?: { fixBugs?: boolean }) => {
+    async (msg: string) => {
       if (projectId == null || !msg.trim() || busy || abortRef.current) return;
       const userText = msg.trim();
-      const asFix = Boolean(opts?.fixBugs || fixBugsModeRef.current || fixBugsMode);
-      const apiText = asFix ? `${FIX_BUGS_PREFIX}${userText}` : userText;
-      if (asFix) {
-        fixBugsModeRef.current = false;
-        setFixBugsMode(false);
-      }
 
       userCancelRef.current = false;
       const ac = new AbortController();
@@ -146,16 +111,16 @@ export function OrchestratorPanel({ projectId }: Props) {
       try {
         const r = await api.dbOrchestratorChat(
           projectId,
-          apiText,
+          userText,
           next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content })),
-          { signal: ac.signal, fixBugs: asFix },
+          { signal: ac.signal },
         );
         if (ac.signal.aborted) return;
         const notes: string[] = [];
         if (r.applied) {
           notes.push(
             `записано операций: ${r.applied.updated}${
-              r.applied.exported ? `, в Excel ячеек: ${r.applied.exported.cells}` : ""
+              r.applied.exported ? `, в проекте ячеек: ${r.applied.exported.cells}` : ""
             }`,
           );
         }
@@ -298,13 +263,12 @@ export function OrchestratorPanel({ projectId }: Props) {
           return;
         }
         const unauthorized = e instanceof ApiError && e.status === 401;
-        if (unauthorized) setTokenOpen(true);
         setChatLog([
           ...next,
           {
             role: "assistant",
             content: unauthorized
-              ? "Нужен токен оркестратора (ORCH_API_TOKEN) — нажми ключ в шапке панели и вставь его."
+              ? "Сессия истекла или требуется авторизация в студии."
               : `Ошибка: ${e instanceof Error ? e.message : e}`,
           },
         ]);
@@ -313,64 +277,15 @@ export function OrchestratorPanel({ projectId }: Props) {
         setBusy(false);
       }
     },
-    [projectId, busy, chatLog, fixBugsMode, setChatLog, setOpen],
+    [projectId, busy, chatLog, setChatLog, setOpen],
   );
 
   const sendChat = useCallback(async () => {
     if (!chatInput.trim()) return;
     const msg = chatInput.trim();
     setChatInput("");
-    await sendMessage(msg, { fixBugs: fixBugsMode });
-  }, [chatInput, sendMessage, fixBugsMode]);
-
-  /**
-   * Токен оркестратора для легаси-чата. Хранится в том же localStorage-ключе,
-   * что у нового чата (`vp-orch-api-token`), поэтому вводить дважды не нужно.
-   */
-  const saveToken = useCallback(() => {
-    const token = tokenDraft.trim();
-    setTokenError("");
-    setTokenSaved(false);
-    if (!token) {
-      setTokenError("пустой токен — ничего не сохранил");
-      return;
-    }
-    writeOrchToken(token);
-    setTokenDraft("");
-    setTokenSaved(true);
-    setHasToken(true);
-  }, [tokenDraft]);
-
-  const clearToken = useCallback(() => {
-    writeOrchToken("");
-    setTokenDraft("");
-    setTokenSaved(false);
-    setTokenError("");
-    setHasToken(false);
-  }, []);
-
-  /** Одна кнопка: 1-й клик — режим фикса, 2-й клик — выход. */
-  const onFixBugsToggle = useCallback(
-    (e: ReactMouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (fixBugsModeRef.current) {
-        fixBugsModeRef.current = false;
-        setFixBugsMode(false);
-        return;
-      }
-      abortRef.current?.abort();
-      abortRef.current = null;
-      setBusy(false);
-      fixBugsModeRef.current = true;
-      setFixBugsMode(true);
-      setOpen(true);
-      setExpanded(true);
-      setChatInput("");
-      window.setTimeout(() => inputRef.current?.focus(), 50);
-    },
-    [setOpen, setExpanded],
-  );
+    await sendMessage(msg);
+  }, [chatInput, sendMessage]);
 
   const onToggleOpen = useCallback(
     (e: ReactMouseEvent) => {
@@ -596,7 +511,6 @@ export function OrchestratorPanel({ projectId }: Props) {
           );
           return;
         }
-        if (status === 401) setTokenOpen(true);
         setChatLog((prev) => [
           ...prev,
           {
@@ -605,7 +519,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               status === 404
                 ? `План #${planId} не найден на сервере (устарел) — попроси оркестратор построить план заново.`
                 : status === 401
-                  ? "Нужен токен оркестратора (ORCH_API_TOKEN) — нажми ключ в шапке панели."
+                  ? "Сессия истекла или требуется авторизация в студии."
                   : `Ошибка запуска плана: ${e instanceof Error ? e.message : e}`,
           },
         ]);
@@ -636,9 +550,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               ? "открой проект"
               : busy
                 ? "думает… жми Отмена"
-                : fixBugsMode
-                  ? "режим фикса — опиши баг и Enter"
-                  : "ИИ-ассистент проекта"}
+                : "ИИ-ассистент проекта"}
           </span>
         </div>
 
@@ -665,50 +577,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             <Square className="h-3 w-3 fill-current" />
             Отмена
           </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className={cn(
-              "h-7 shrink-0 gap-1.5 text-[11px]",
-              fixBugsMode
-                ? "border-amber-300 bg-amber-500/35 text-amber-50 ring-1 ring-amber-300/40"
-                : "border-amber-400/40 bg-amber-500/10 text-amber-100 hover:bg-amber-500/20",
-            )}
-            disabled={projectId == null}
-            onClick={onFixBugsToggle}
-            aria-pressed={fixBugsMode}
-            title={
-              fixBugsMode
-                ? "Повторное нажатие — выйти из режима фикса"
-                : "Нажать — режим фикса; потом опиши баг. Ещё раз — выйти"
-            }
-          >
-            <Bug className="h-3.5 w-3.5" />
-            Фикс багов
-          </Button>
-        )}
-
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "h-7 w-7 shrink-0 p-0",
-            hasToken ? "text-emerald-400/80" : "text-white/50",
-          )}
-          onClick={(e) => {
-            e.stopPropagation();
-            setTokenOpen((v) => !v);
-            setTokenSaved(false);
-            setTokenError("");
-          }}
-          title="Токен оркестратора (ORCH_API_TOKEN)"
-          aria-pressed={tokenOpen}
-        >
-          <KeyRound className="h-3.5 w-3.5" />
-        </Button>
+        ) : null}
 
         <Button
           type="button"
@@ -737,52 +606,6 @@ export function OrchestratorPanel({ projectId }: Props) {
         </Button>
       </div>
 
-      {tokenOpen ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-white/[0.08] bg-white/[0.04] px-2 py-1.5 text-[11px]">
-          <KeyRound className="h-3.5 w-3.5 shrink-0 text-amber-300/80" />
-          <span className="shrink-0 text-white/60">ORCH_API_TOKEN</span>
-          <input
-            type="password"
-            value={tokenDraft}
-            data-testid="orch-legacy-token-input"
-            onChange={(e) => setTokenDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") saveToken();
-            }}
-            placeholder={
-              hasToken
-                ? "токен задан — вставь новый, чтобы заменить"
-                : "вставь токен из окружения бэкенда"
-            }
-            className="min-w-0 flex-1 rounded border border-white/[0.12] bg-black/40 px-2 py-1 text-[11px] text-white/85 placeholder:text-white/30 outline-none focus:border-primary/50"
-            aria-label="Токен оркестратора"
-          />
-          <Button
-            type="button"
-            size="sm"
-            className="h-7 text-[11px]"
-            data-testid="orch-legacy-token-save"
-            onClick={saveToken}
-          >
-            Сохранить
-          </Button>
-          {hasToken ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 text-[11px]"
-              onClick={clearToken}
-            >
-              Убрать
-            </Button>
-          ) : null}
-          {tokenSaved ? <span className="text-emerald-400/90">сохранён</span> : null}
-          {tokenError ? <span className="text-red-400/90">{tokenError}</span> : null}
-          <span className="text-white/35">нужен, когда у бэкенда включён флаг auth</span>
-        </div>
-      ) : null}
-
       {open ? (
         <div
           className={cn(
@@ -791,15 +614,9 @@ export function OrchestratorPanel({ projectId }: Props) {
           )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-            {fixBugsMode ? (
-              <div className="mb-2 rounded-md border border-amber-400/30 bg-amber-500/10 px-2.5 py-2 text-[11px] text-amber-100/90">
-                Режим фикса: оркестратор должен чинить (шаги/код), не только объяснить.
-                Напиши баг → Enter. Ещё раз «Фикс багов» — выход в обычный чат.
-              </div>
-            ) : null}
-            {chatLog.length === 0 && !fixBugsMode ? (
+            {chatLog.length === 0 ? (
               <div className="text-[11px] text-white/35 leading-relaxed">
-                Задайте вопрос по проекту, попросите изменить параметры или нажмите «Фикс багов» для решения проблемы.
+                Задайте вопрос по проекту или попросите оркестратор изменить параметры, шаги или связи.
               </div>
             ) : null}
             {chatLog.map((m, i) => (
@@ -1013,14 +830,9 @@ export function OrchestratorPanel({ projectId }: Props) {
                   ? "сначала открой проект"
                   : busy
                     ? "оркестратор думает… жми Отмена"
-                    : fixBugsMode
-                      ? "опиши баг для фикса…"
-                      : "сообщение оркестратору…"
+                    : "сообщение оркестратору…"
               }
-              className={cn(
-                "h-9 flex-1 rounded-md border bg-black/40 px-3 text-xs disabled:opacity-40",
-                fixBugsMode ? "border-amber-400/50" : "border-white/10",
-              )}
+              className="h-9 flex-1 rounded-md border border-white/10 bg-black/40 px-3 text-xs disabled:opacity-40"
             />
             <Button
               type="button"
