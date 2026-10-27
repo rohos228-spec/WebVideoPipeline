@@ -22,6 +22,7 @@ import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { Copy as CopyIcon, Play as PlayIcon, X as XIcon, Loader2 as SpinIcon, Maximize2 as OpenIcon } from "lucide-react";
 import { NodeModelPicker } from "@/components/canvas/node-model-picker";
+
 import { isTextNodeType } from "@/lib/node-model-catalog";
 import { getNodeSpec } from "@/lib/node-catalog";
 import { getNodeIcon } from "@/lib/node-icons";
@@ -450,8 +451,8 @@ export function NodeStudio({
           : "";
       toast.success(
         isExcelGptNode(nodeType) && name
-          ? `Excel подменён: ${name} (вход только этот файл)`
-          : "Excel загружен",
+          ? `Файл подменён: ${name} (вход только этот файл)`
+          : "Таблица загружена",
       );
       qc.invalidateQueries({ queryKey: ["xlsx-preview", projectId] });
       qc.invalidateQueries({ queryKey: ["xlsx-sheets", projectId] });
@@ -590,8 +591,8 @@ export function NodeStudio({
         ...resultSnapshot,
         hasResult: true,
         itemCount: 1,
-        summary: "Сценарий — лист «Общий план» в Excel",
-        items: [{ id: "xlsx_general", label: "Сценарий (Excel)", kind: "xlsx" as const }],
+        summary: "Сценарий проекта",
+        items: [{ id: "xlsx_general", label: "Сценарий", kind: "xlsx" as const }],
       };
     }
     return resultSnapshot;

@@ -120,7 +120,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         if (r.applied) {
           notes.push(
             `записано операций: ${r.applied.updated}${
-              r.applied.exported ? `, в Excel ячеек: ${r.applied.exported.cells}` : ""
+              r.applied.exported ? `, в проекте ячеек: ${r.applied.exported.cells}` : ""
             }`,
           );
         }
