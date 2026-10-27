@@ -732,10 +732,22 @@ async def _node_set_disabled(ctx: ActionContext, params: dict) -> dict:
         f"/projects/{params['project_id']}",
         json={"meta": {"disabled_nodes": result["disabled_nodes"], "meta_version": result["version"]}},
     )
+    try:
+        described = await ctx.call("GET", f"/projects/{params['project_id']}/nodes/{params['node_key']}/describe")
+        label = str((described or {}).get("label") or params["node_key"])
+    except Exception:
+        label = str(params["node_key"])
+    # Без text_ru чат отвечал полями «disabled nodes: …; rollback possible: да».
+    text = (
+        f"Нода «{label}» выключена: при запуске конвейера она будет пропущена."
+        if result["disabled"]
+        else f"Нода «{label}» снова включена."
+    )
     return {
         "node_key": result["node_key"],
         "disabled": result["disabled"],
         "disabled_nodes": result["disabled_nodes"],
+        "text_ru": text,
     }
 
 
