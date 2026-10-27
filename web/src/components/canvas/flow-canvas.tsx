@@ -138,7 +138,7 @@ export function FlowCanvas({
   /** Нода для «Создать Run» / сброса — по умолчанию selectedNodeKey. */
   runStepNodeKey?: string | null;
   onSelectNode: (key: string | null) => void;
-  onNodeActivate?: (nodeKey: string, nodeType: string) => void;
+  onNodeActivate?: (nodeKey: string, nodeType: string) => boolean | void;
   disabledNodes?: Set<string>;
   onCanvasZoom?: (zoom: number) => void;
 }) {
@@ -1162,21 +1162,24 @@ export function FlowCanvas({
           );
         }}
         onNodeClick={(ev, node) => {
-          const t = ev.target as HTMLElement;
+          const t = ev.target as HTMLElement | null;
           if (
-            t.closest(".node-v-trigger") ||
-            t.closest(".node-v-menu") ||
-            t.closest(".node-ai-review-trigger")
+            !t ||
+            ev.detail > 1 ||
+            t.closest?.(
+              "button, input, textarea, select, a, label, [role=switch], .react-flow__handle, .node-v-trigger, .node-v-menu, .node-ai-review-trigger"
+            )
           ) {
             return;
           }
           const d = node.data as PipelineNodeData;
           onSelectNode(d.nodeKey);
-          onNodeActivate?.(d.nodeKey, d.type);
-          if (
-            ev.detail > 1 ||
-            t.closest("button, input, textarea, select, a, label, [role=switch], .react-flow__handle, .node-ai-review-trigger")
-          ) {
+          const handled = onNodeActivate?.(d.nodeKey, d.type);
+          if (handled) {
+            if (inlineClickTimerRef.current) {
+              window.clearTimeout(inlineClickTimerRef.current);
+              inlineClickTimerRef.current = null;
+            }
             return;
           }
           if (inlineClickTimerRef.current) window.clearTimeout(inlineClickTimerRef.current);

@@ -61,6 +61,7 @@ export function NodeResultBadge({
         <button
           type="button"
           onClick={onClick}
+          onPointerDown={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           className={cn(
             "nodrag nopan absolute -bottom-[4.25rem] left-1/2 z-20 flex h-14 w-[min(280px,calc(100%+2rem))] -translate-x-1/2 overflow-hidden rounded-xl border-2 shadow-lg transition hover:scale-[1.02] hover:brightness-110",
@@ -113,6 +114,7 @@ export function NodeResultBadge({
       <button
         type="button"
         onClick={onClick}
+        onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         className={cn(
           "nodrag nopan absolute -bottom-12 left-1/2 z-20 flex h-7 w-7 -translate-x-1/2 items-center justify-center rounded-full border-2 shadow-md transition hover:scale-110 hover:brightness-110",
