@@ -16,6 +16,7 @@ from typing import Any
 from app.orchestrator.contracts import PlanStep
 
 SETTINGS_ACTIONS: frozenset[str] = frozenset({"project.patch_settings", "project.patch_settings_costly"})
+CREATE_ACTION = "project.create"
 SETTINGS_KEYS: tuple[str, ...] = (
     "title",
     "topic",
@@ -97,12 +98,19 @@ def named_keys(goal: str, params: dict[str, Any]) -> set[str]:
 
 def scope_settings(plan: list[PlanStep], goal: str) -> list[PlanStep]:
     """Шаги настроек проекта — только с названными ключами; остальное без изменений."""
-    steps = [step for step in plan if step.action in SETTINGS_ACTIONS]
+    steps = [step for step in plan if step.action in SETTINGS_ACTIONS or step.action == CREATE_ACTION]
     if not steps or not (goal or "").strip():
         return plan
-    many = len({step.params.get("project_id") for step in steps}) > 1
+    many = len({step.params.get("project_id") for step in steps if step.action != CREATE_ACTION}) > 1
     out: list[PlanStep] = []
     for step in plan:
+        if step.action == CREATE_ACTION:
+            # «Создай проект «X»»: модель дописывала формат 9:16 и героя, которых не называли,
+            # а без них Studio ставит свои: один и тот же запрос давал то 9:16, то 16:9.
+            keep = named_keys(goal, step.params) | {"title", "topic"}
+            params = {k: v for k, v in step.params.items() if k not in SETTINGS_KEYS or k in keep}
+            out.append(step if params == dict(step.params) else step.model_copy(update={"params": params}))
+            continue
         if step.action not in SETTINGS_ACTIONS:
             out.append(step)
             continue

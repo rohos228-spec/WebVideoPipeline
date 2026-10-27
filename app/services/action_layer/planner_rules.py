@@ -466,6 +466,7 @@ def named_hero_mode(text: str) -> str:
     return ""
 
 
+_RES_WORD_RE = re.compile(r"(?<![\w])(?:\d\s*k|\d\s*к|\d{3,4}\s*p|\d{3,4}\s*р|разрешени)")
 _ASPECT_NUM_RE = re.compile(r"(?<![\d.,:])(\d{1,2})\s*[:x×х]\s*(\d{1,2})(?![\d:])")
 _ASPECT_WORDS = ((re.compile(r"вертикальн"), "9:16"), (re.compile(r"горизонтальн"), "16:9"))
 
@@ -520,6 +521,16 @@ def apply_request_values(action_id: str, params: dict, text: str) -> dict:
         mode = named_hero_mode(text)
         if mode:
             out["hero_mode"] = mode
+    if action_id == "project.create":
+        # Модель дописывала «формат 9:16, герой автоматически», хотя их не называли, а без
+        # них Studio ставит свои значения: формат одного и того же «создай проект» скакал.
+        if "aspect_ratio" in out and not named_aspect(text):
+            out.pop("aspect_ratio")
+        if "hero_mode" in out and not named_hero_mode(text):
+            out.pop("hero_mode")
+        for key in ("image_resolution", "video_resolution"):
+            if key in out and not _RES_WORD_RE.search(_norm(text)):
+                out.pop(key)
     if action_id == "project.create" and "aspect_ratio" not in out:
         aspect = named_aspect(text)
         if aspect:

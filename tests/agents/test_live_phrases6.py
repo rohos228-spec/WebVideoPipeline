@@ -401,3 +401,15 @@ async def test_ambiguous_gpt_model_answers_question_without_card(token: str) -> 
         assert "Какую модель поменять на GPT?" in texts, texts
     finally:
         set_runtime(None)
+
+
+def test_create_project_keeps_only_named_settings() -> None:
+    from app.orchestrator.agents.settings_scope import scope_settings
+    from app.orchestrator.contracts import PlanStep
+
+    step = PlanStep(action="project.create", params={"title": "тест", "topic": "тест", "aspect_ratio": "9:16",
+                                                     "hero_mode": "auto", "image_resolution": "2k"})
+    plain = scope_settings([step], "создай новый проект с темой «тест»")[0].params
+    assert plain == {"title": "тест", "topic": "тест"}
+    named = scope_settings([step], "создай вертикальный проект «тест» с героем в 2k")[0].params
+    assert {"aspect_ratio", "hero_mode", "image_resolution"} <= set(named)
