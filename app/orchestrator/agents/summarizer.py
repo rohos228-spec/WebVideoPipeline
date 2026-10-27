@@ -138,7 +138,7 @@ def missing_action_text(reason: str, goal: str = "") -> str:
     return f"{NOT_SUPPORTED} {why}" if why else NOT_SUPPORTED
 
 
-_DEV_ADVICE = re.compile(r"добавить\s+(?:его|е[её]|такое|действи)|уточнить\s+доступн")
+_DEV_ADVICE = re.compile(r"добавить\s+(?:\w+\s+)?(?:его|е[её]|это|такое|действи)|уточнить\s+доступн")
 
 
 def _other_reasons(reason: str) -> str:

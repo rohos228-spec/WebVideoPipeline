@@ -52,3 +52,10 @@ def test_board_text_shows_which_frames_have_images():
     )
     assert "кадр 1 [есть картинка]" in text and "кадр 2 [без картинки]" in text
     assert "Картинки есть у 1 из 2" in text
+
+
+def test_missing_action_drops_add_this_action_advice():
+    from app.orchestrator.agents.summarizer import NOT_SUPPORTED, missing_action_text
+
+    reason = "В каталоге нет действия для шага; нужно добавить это действие, чтобы запустить шаг с лимитом."
+    assert missing_action_text(reason) == NOT_SUPPORTED
