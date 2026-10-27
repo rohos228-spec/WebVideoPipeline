@@ -56,9 +56,18 @@ def test_gpt_step_without_node_takes_first_chain_head(monkeypatch: pytest.Monkey
     async def meta_of(_pid: int) -> dict:
         return meta
 
+    done: set[str] = set()
+
+    async def done_of(_pid: int) -> set[str]:
+        return done
+
     monkeypatch.setattr(project_nodes, "_meta_from_db", meta_of)
+    monkeypatch.setattr(executor, "_done_nodes", done_of)
     out = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt"}))
     assert out["node_key"] == "n_excel_gpt_1"
+    done.add("n_excel_gpt_1")
+    nxt = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt"}))
+    assert nxt["node_key"] == "n_excel_gpt_2"
     same = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt", "node_key": "n_excel_gpt_2"}))
     assert same["node_key"] == "n_excel_gpt_2"
     other = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "images"}))

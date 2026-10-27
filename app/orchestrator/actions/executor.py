@@ -724,8 +724,8 @@ async def _fill_node_key(params: dict) -> dict:
 async def _fill_gpt_head(params: dict) -> dict:
     """«Запусти работу с gpt, лимит $0.5»: без ноды шаг не стартовал («укажите node_key»).
 
-    Берём первую по схеме голову цепочки «Работа с GPT» (до неё не доходит другая такая нода);
-    какая нода пойдёт, человек видит на карточке до подтверждения.
+    Берём первую по схеме ещё не готовую голову цепочки «Работа с GPT» (до неё не доходит другая
+    такая нода): готовую повторно не гоняем. Какая нода пойдёт, человек видит на карточке.
     """
     pid = params.get("project_id")
     if params.get("step_code") != "excel_gpt" or params.get("node_key") or not isinstance(pid, int):
@@ -741,8 +741,21 @@ async def _fill_gpt_head(params: dict) -> dict:
         reached = {k for key in keys for k in gpt_chain(meta, key)[1:]}
     except Exception:
         return params
-    heads = [key for key in keys if key not in reached]
+    done = await _done_nodes(pid)
+    heads = [key for key in keys if key not in reached and key not in done]
     return {**params, "node_key": heads[0]} if heads else params
+
+
+async def _done_nodes(project_id: int) -> set[str]:
+    from app.models import NodeRun, NodeRunStatus, WorkflowRun
+
+    async with store.sessions()() as session:
+        rows = await session.execute(
+            select(NodeRun.node_key)
+            .join(WorkflowRun, WorkflowRun.id == NodeRun.workflow_run_id)
+            .where(WorkflowRun.project_id == project_id, NodeRun.status == NodeRunStatus.done)
+        )
+        return {str(key) for key in rows.scalars()}
 
 
 async def plan_resolve(name: str, params: dict | None) -> dict:
