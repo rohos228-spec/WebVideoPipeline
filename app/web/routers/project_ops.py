@@ -2628,5 +2628,21 @@ async def upload_node_background(
         raise HTTPException(status_code=400, detail="пустой файл")
     target.write_bytes(content)
 
+    if settings.s3_configured:
+        try:
+            import json
+            import mimetypes
+
+            from app.services.storage import get_storage, tenant_key
+
+            mime = mimetypes.guess_type(target.name)[0] or "image/png"
+            storage = get_storage()
+            key = tenant_key(p.tenant_id, f"projects/{project_id}/node_backgrounds/{target.name}")
+            await storage.put_file(key, target, content_type=mime)
+            sidecar = target.with_suffix(".json")
+            sidecar.write_text(json.dumps({"storage_key": key, "mime": mime}, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            logger.warning("хранилище: сбой загрузки фона ноды {} в S3", target.name, exc_info=True)
+
     preview_url = f"/api/files?path={quote(str(target.resolve()))}"
     return {"ok": True, "preview_url": preview_url}
