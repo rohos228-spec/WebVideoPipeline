@@ -403,7 +403,14 @@ async def _node_get_config(ctx: ActionContext, params: dict) -> dict:
     return out
 
 
-_PROVIDER_RU = {"kie": "Kie", "vibecode": "Vibecode", "pay52": "52pay", "unknown": "неизвестно"}
+_PROVIDER_RU = {
+    "kie": "Kie",
+    "vibecode": "Vibecode",
+    "pay52": "52pay",
+    "outsee": "Outsee",
+    "minimax": "MiniMax",
+    "unknown": "неизвестно",
+}
 
 
 def _text_provider(model_id: str | None) -> str:
@@ -424,16 +431,30 @@ async def _node_get_llm_route(ctx: ActionContext, params: dict) -> dict:
     model = described.get("model") or {}
     forced = bool(model.get("forced_vibecode")) or _forced_vibecode(params["node_key"])
     # «Через какого провайдера идёт нода»: без провайдера чат отвечал «в данных не указано».
-    provider = "vibecode" if forced else _text_provider(model.get("model_id"))
+    kind = str(model.get("kind") or "")
+    if kind in ("image", "video"):
+        # Картинки и видео идут через поставщика медиа, а не через провайдера текстовых запросов.
+        from app.settings import settings
+
+        provider = str(getattr(settings, f"{kind}_provider", "") or "unknown").strip().lower()
+    else:
+        provider = "vibecode" if forced else _text_provider(model.get("model_id"))
     provider_ru = _PROVIDER_RU.get(provider, provider)
+    text = (
+        f"Модель {model.get('model_label') or model.get('model_id') or 'не задана'}, "
+        f"запросы идут через провайдера {provider_ru}."
+    )
+    if model.get("from_project"):
+        text += " Модель взята из настроек проекта: своя на ноде не выбрана."
+        if model.get("known") is False:
+            text += " Такого генератора нет в каталоге студии, шаг с ним не пойдёт."
     return {
         "node_key": params["node_key"],
         "forced_vibecode": forced,
         "model_id": model.get("model_id"),
         "model_label": model.get("model_label"),
         "provider": provider,
-        "text_ru": f"Модель {model.get('model_label') or model.get('model_id') or 'не задана'}, "
-        f"запросы идут через провайдера {provider_ru}.",
+        "text_ru": text,
         "is_default": model.get("is_default"),
         "applies": model.get("applies"),
         "note": (

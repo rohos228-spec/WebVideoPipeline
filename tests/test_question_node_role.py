@@ -49,3 +49,29 @@ def test_numbered_gpt_node():
     ctx._one = one
     asyncio.run(ctx.gather("зачем нужна работа с gpt 2", 12))
     assert [p["node_key"] for a, p in seen if a == "node.describe"] == ["n_excel_gpt_2"]
+
+
+def test_route_question_reads_llm_route():
+    ctx = qc.QuestionContext(nodes=_Nodes())
+    seen = []
+
+    async def one(action, params, app):
+        seen.append((action, params))
+        return qc.Fact(action, action, "ok")
+
+    ctx._one = one
+    asyncio.run(ctx.gather("сценарий в 12 через какой сервис ходит?", 12))
+    assert ("node.get_llm_route", {"project_id": 12, "node_key": "n_plan"}) in seen
+
+
+def test_model_options_question_reads_list_models():
+    ctx = qc.QuestionContext(nodes=_Nodes())
+    seen = []
+
+    async def one(action, params, app):
+        seen.append((action, params))
+        return qc.Fact(action, action, "ok")
+
+    ctx._one = one
+    asyncio.run(ctx.gather("а для сценария какие еще модели есть, что можно поставить?", 12))
+    assert ("node.list_models", {"project_id": 12, "node_key": "n_plan"}) in seen

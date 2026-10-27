@@ -195,7 +195,7 @@ def _same(a: str, b: str) -> bool:
     return min(len(a), len(b)) >= 5 and (a.startswith(b) or b.startswith(a))
 
 
-def roster(meta: Any) -> list[dict[str, Any]]:
+def roster(meta: Any, image_generator: str | None = None) -> list[dict[str, Any]]:
     from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
     from app.services import node_edit as ne
     from app.services.action_layer import builtin_insight as bi
@@ -214,6 +214,8 @@ def roster(meta: Any) -> list[dict[str, Any]]:
             model = bi._model_for(meta, key, node, raw, eff)
         except Exception:
             model = ""
+        if typ in bi._IMAGE_TYPES and image_generator and not _own_model(node):
+            model = _project_image_model(image_generator)
         rows.append(
             {
                 "key": key,
@@ -426,6 +428,33 @@ def model_options_text(meta: Any, key: str) -> str:
             mark = "прежняя модель этой ноды, " + mark
         lines.append(f"- {option['id']} ({option['label']}): {mark}, {option['price_ru']}; {action}")
     return "\n".join(lines)
+
+
+def _own_model(node: Any) -> bool:
+    from app.services.vibecode_catalog import read_node_model_fields
+
+    mid, _channel = read_node_model_fields(node)
+    return bool(mid)
+
+
+def _project_image_model(gid: str) -> str:
+    """Нода картинок без своей модели идёт на генераторе проекта (как считает шаг картинок)."""
+    from app.generation_options import IMAGE_GENERATORS_BY_ID
+
+    gen = IMAGE_GENERATORS_BY_ID.get(gid)
+    if gen is None:
+        return f"{gid} из настроек проекта; такого генератора нет в каталоге студии, шаг с ним не пойдёт"
+    return f"{gen.label} из настроек проекта"
+
+
+async def load_image_generator(project_id: int) -> str | None:
+    from app.models import Project
+    from app.services.action_layer.builtin_insight import _sessions
+
+    async with _sessions()() as session:
+        row = await session.get(Project, project_id)
+        gid = getattr(row, "image_generator", None) if row is not None else None
+        return str(gid).strip() or None if gid else None
 
 
 async def _meta_from_db(project_id: int) -> Any:
@@ -802,7 +831,11 @@ class ProjectNodes:
 
     async def rows(self, project_id: int) -> list[dict[str, Any]]:
         try:
-            return roster(await self._meta(project_id))
+            try:
+                gid = await load_image_generator(int(project_id))
+            except Exception:
+                gid = None
+            return roster(await self._meta(project_id), gid)
         except Exception:
             logger.exception("orch project nodes failed for project {}", project_id)
             return []

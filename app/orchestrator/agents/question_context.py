@@ -100,6 +100,10 @@ _PROJECTS = ("проекты", "проектов", "все проект", "сп�
 _NODES = ("нод", "модел", "агент", "script", "закадров", "текст озвуч", "для озвуч")
 # «Что вообще делает разбивка?»: роль ноды без слова «нода» — список нод и описание ноды.
 _ROLE = ("делает", "отвечает за", "отвечает", "зачем нужн", "для чего")
+# «Сценарий через какой сервис ходит?»: провайдер ноды — маршрут модели, без слова «нода».
+_ROUTE = ("провайдер", "поставщик", "сервис", "через кого", "через как")
+# «На какие модели можно поменять картинки?»: список моделей ноды, иначе чат знал только текущую.
+_OPTIONS = ("какие модел", "какую модел", "каких модел", "можно постав", "на что помен", "список модел", "другие модел", "доступн модел")
 _BLOCKED = ("блокир", "заблокир", "неизвестн", "исход")
 # «сколько потрачено на #10»: номер с решёткой - проект и без слова «проект».
 _HASH_NUMBER_RE = re.compile(r"(?<![\w#])#(\d{1,5})(?!\d)")
@@ -158,6 +162,7 @@ ANSWER_RULES = (
 )
 
 _TITLES = {
+    "node.list_models": "Модели, которые можно поставить на ноду",
     "project.status": "Статус проекта",
     "diag.incidents": "Инциденты и ошибки",
     "logs.tail": "Логи",
@@ -560,7 +565,7 @@ class QuestionContext:
 
     async def _roster(self, text: str, project_id: int | None) -> list[dict[str, Any]]:
         norm = _norm(text)
-        if self._nodes is None or project_id is None or not (_has(norm, _NODES) or _has(norm, _ROLE)):
+        if self._nodes is None or project_id is None or not (_has(norm, _NODES) or _has(norm, _ROLE) or _has(norm, _ROUTE)):
             return []
         try:
             return list(await asyncio.wait_for(self._nodes.rows(int(project_id)), self.timeout_s))
@@ -611,8 +616,14 @@ class QuestionContext:
 
             numbered = named_node(text)
             keys = [numbered] if numbered in {str(row["key"]) for row in rows} else match_nodes(rows, text)
+            route = _has(_norm(text), _ROUTE)
+            options = _has(_norm(text), _OPTIONS)
             for key in keys[:2]:
-                if role:
+                if options:
+                    reads.append(("node.list_models", {"project_id": int(project_id), "node_key": key}))
+                elif route:
+                    reads.append(("node.get_llm_route", {"project_id": int(project_id), "node_key": key}))
+                elif role:
                     reads.append(("node.describe", {"project_id": int(project_id), "node_key": key}))
                 elif key not in known:
                     reads.append(("node.output", {"project_id": int(project_id), "node_key": key}))

@@ -416,8 +416,8 @@ def model_state(meta: dict | None, node_key: str) -> dict:
     }
 
 
-def model_options(meta: dict | None, node_key: str) -> dict:
-    state = model_state(meta, node_key)
+def model_options(meta: dict | None, node_key: str, image_generator: str | None = None) -> dict:
+    state = project_image_model({"image_generator": image_generator}, model_state(meta, node_key))
     current = find_catalog_model(state["model_id"])
     options = []
     for m in allowed_models(state["kind"]) if state["kind"] else []:
@@ -1355,18 +1355,54 @@ def restore_params(
     return new_meta, {"node_key": node_key, "node_label": node_label(node), "items": items}
 
 
+def project_image_model(state: dict, ms: dict) -> dict:
+    """Нода картинок без своей модели идёт на генераторе из настроек проекта, а не на модели каталога.
+
+    Так считает шаг (``vibecode_catalog.resolve_image_generator_id``): без этого описание
+    показывало «Nano Banana 2 (по умолчанию)», а проект шёл на ``image_generator`` проекта.
+    """
+    gid = str(state.get("image_generator") or "").strip()
+    if ms.get("kind") != KIND_IMAGE or not ms.get("is_default") or not gid:
+        return ms
+    from app.generation_options import IMAGE_GENERATORS_BY_ID
+
+    gen = IMAGE_GENERATORS_BY_ID.get(gid)
+    model = next((m for m in allowed_models(KIND_IMAGE) if m.get("image_generator") == gid), None)
+    return {
+        **ms,
+        "model_id": (model or {}).get("id") or gid,
+        "model_label": model_title(model) if model else (gen.label if gen else gid),
+        "price_ru": price_ru(model) if model else "",
+        "is_default": False,
+        "from_project": True,
+        "known": gen is not None,
+        "applies_note": "своя модель на ноде не выбрана, шаг берёт генератор из настроек проекта",
+    }
+
+
 def describe_node(state: dict, node_key: str) -> dict:
     meta = state.get("meta") or {}
     node = require_node(meta, node_key)
     typ = node_type(node)
     label = node_label(node)
     lines = [f"Нода «{label}» ({TYPE_RU.get(typ, typ)})."]
-    ms = model_state(meta, node_key)
+    ms = project_image_model(state, model_state(meta, node_key))
     if ms["kind"]:
         if ms["forced_vibecode"]:
             lines.append(
                 "Модель: всегда GPT 5.6 Sol через Vibecode (группа «Кадры»), выбор на ноде не учитывается."
             )
+        elif ms.get("from_project"):
+            lines.append(
+                f"Модель: {ms['model_label']} — из настроек проекта, своя модель на ноде не выбрана"
+                + (f", {ms['price_ru']}" if ms["price_ru"] else "")
+                + "."
+            )
+            if not ms["known"]:
+                lines.append(
+                    "Важно: такого генератора картинок нет в каталоге студии, шаг картинок с ним не пойдёт. "
+                    "Поставьте модель на ноде «Картинки» или смените генератор в настройках проекта."
+                )
         else:
             lines.append(
                 f"Модель: {ms['model_label']}"
@@ -1464,6 +1500,7 @@ def project_state_of(project: Any) -> dict:
     return {
         "id": getattr(project, "id", None),
         "meta": project.meta if isinstance(project.meta, dict) else {},
+        "image_generator": getattr(project, "image_generator", None),
         "prompt_overrides": project.prompt_overrides
         if isinstance(getattr(project, "prompt_overrides", None), dict)
         else {},

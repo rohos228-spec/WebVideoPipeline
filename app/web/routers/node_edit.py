@@ -166,7 +166,7 @@ async def model_options(project_id: int, node_key: str, session: AsyncSession = 
     p = await _project(session, project_id)
     effective, _source = await _effective_state(session, p)
     try:
-        return ne.model_options(effective["meta"], node_key)
+        return ne.model_options(effective["meta"], node_key, effective.get("image_generator"))
     except ne.NodeEditError as exc:
         raise _http(exc) from None
 
