@@ -504,3 +504,10 @@ async def test_plain_undo_after_parallel_change_sets_previous_number() -> None:
     plan = await chat_undo.resolve("верни как было", None, snapshots_of=none, steps_of=steps,
                                    meta_of=_meta, current_of=_always)
     assert plan is not None and plan.steps == [] and "не сохранялось" in plan.reason
+
+
+def test_interjection_is_not_undo_target():
+    from app.services.action_layer.chat_undo import _free_words
+
+    for text in ("не, верни обратно", "нет, откати", "блин верни", "ну верни лучше как было"):
+        assert _free_words(text) == []

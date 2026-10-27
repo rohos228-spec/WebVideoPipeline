@@ -59,6 +59,19 @@ def _task_project(task_id: Any) -> int | None:
 
 
 # «Во всех проектах», «каждому проекту», «в нескольких проектах»: планировщику нужны настоящие id.
+# «почему проект 12 стоит» при открытом #25: в запросе явно назван другой проект.
+_NAMED_ONE_RE = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d{1,6})(?![\d\s]*(?:,|и\s+\d|-|–))|(?<![\w#])#(\d{1,6})(?!\d)")
+
+
+def named_other_project(text: str, project_id: int) -> int | None:
+    """Единственный номер проекта во фразе, если он не открытый; иначе None."""
+    found = {int(a or b) for a, b in _NAMED_ONE_RE.findall((text or "").lower())}
+    if len(found) == 1:
+        (pid,) = found
+        return pid if pid != project_id else None
+    return None
+
+
 _MASS_RE = re.compile(r"(?<![a-zа-я])(?:вс(?:е|ех|ем|еми)|кажд\w*|нескольк\w*)\s+(?:\w+\s+)?проект")
 _MASS_LIMIT = 60
 
@@ -351,7 +364,14 @@ class ActionCatalog:
         ]
         project_id = self._project_of(task_id)
         if project_id is not None:
-            lines.append(f"Проект задачи: project_id={project_id}. Подставляй его в params.project_id.")
+            other = named_other_project(text, project_id)
+            if other is not None:
+                lines.append(
+                    f"В запросе назван проект #{other}: project_id={other}. Подставляй его в params.project_id "
+                    f"(в Студии открыт #{project_id}, но спрашивают про #{other})."
+                )
+            else:
+                lines.append(f"Проект задачи: project_id={project_id}. Подставляй его в params.project_id.")
         lines.extend(_hints(rows))
         if wants_mass(text) and any(
             str(row.get("id") or "").startswith("project.patch_settings") for row in rows

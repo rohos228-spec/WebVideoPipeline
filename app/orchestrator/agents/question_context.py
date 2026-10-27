@@ -102,7 +102,11 @@ _BLOCKED = ("блокир", "заблокир", "неизвестн", "исхо�
 # «сколько потрачено на #10»: номер с решёткой - проект и без слова «проект».
 _HASH_NUMBER_RE = re.compile(r"(?<![\w#])#(\d{1,5})(?!\d)")
 # В режиме «Проект» другой проект берём только по явному номеру, не по совпадению слов названия.
-_OTHER_NUMBER_RE = re.compile(r"проект\w*\s+(?:№\s*)?#?\d|(?<![\w#])#\d")
+_OTHER_NUMBER_RE = re.compile(
+    r"проект\w*\s+(?:№\s*)?#?\d|(?<![\w#])#\d|(?<![\w#])(?:на|по|у|в)\s+\d{1,5}\s*[?.!]*$"
+)
+# «сколько ушло денег на 12», «что в 12?»: голый номер в конце фразы — проект, если такой есть.
+_TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в)\s+(\d{1,5})\s*[?.!]*$")
 # Образец команды в правиле ответа: тест сверяет, что чат принимает её как задачу.
 EXAMPLE_COMMAND = "запусти промты картинок в проекте 6"
 # «Что ты сделал / менял сегодня»: свои шаги чата за день, иначе ответ «я ничего не делал».
@@ -242,6 +246,22 @@ _FRAMES = ("кадр", "шот")
 _PROJECT_NO = re.compile(r"проект\w*\s+(?:№\s*|#\s*)?(\d{1,6})")
 
 
+# «Какие проекты на паузе»: фильтр по статусу, иначе в 15 последних не попадали старые проекты.
+_OVERVIEW_FILTERS = (
+    (("пауз",), "paused"),
+    (("упал", "ошибк", "сломал", "внимани"), "attention"),
+    (("в очеред", "очередь"), "queue"),
+    (("идут", "работают", "в работе", "запущен", "генерир"), "running"),
+)
+
+
+def _overview(norm: str) -> dict[str, Any]:
+    for words, status in _OVERVIEW_FILTERS:
+        if any(word in norm for word in words):
+            return {"status": status, "limit": 50}
+    return {"limit": 15}
+
+
 def _has(norm: str, words: tuple[str, ...]) -> bool:
     for word in words:
         if not word[:1].isalnum():
@@ -315,13 +335,13 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             # Вопрос о перезаписи полей — ответ текстом, без html и xlsx на диске (kind md файлов не пишет).
             reads.append(("report.nodes", {"project_id": pid, "kind": "md"}))
         if _has(norm, _PROJECTS):
-            reads.append(("projects.overview", {"limit": 15}))
+            reads.append(("projects.overview", _overview(norm)))
         if _has(norm, _BLOCKED):
             reads.append(("media.list_unknown_outcomes", {"project_id": pid}))
         if cost_q:
             reads.append(("step.get_run_cost_basis", {"project_id": pid, "step_code": _cost_step(norm)}))
         return _allowed(reads)
-    reads.append(("projects.overview", {"limit": 15}))
+    reads.append(("projects.overview", _overview(norm)))
     data_report = report_params(text, None)
     if data_report is not None:
         reads.append(("report.gpt_data", data_report))
@@ -597,6 +617,9 @@ class QuestionContext:
         if not numbered:
             known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
             numbered = list(dict.fromkeys(int(n) for n in _HASH_NUMBER_RE.findall(text) if int(n) in known))
+            if not numbered:
+                tail = _TAIL_NUMBER_RE.search(_norm(text))
+                numbered = [int(tail.group(1))] if tail and int(tail.group(1)) in known else []
         return numbered[0] if len(numbered) == 1 else None
 
     async def messages(

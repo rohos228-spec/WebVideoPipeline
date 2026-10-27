@@ -225,6 +225,21 @@ def _names_project(text: str) -> bool:
     return bool(_PROJECT_NAMED_RE.search((text or "").lower()))
 
 
+# «че с 12м проектом», «в 12-м проекте», «пачему праект 12»: номер до слова и опечатка «праект».
+# Без этого номер не находился, и чат читал открытый проект. «3 проекта» / «5 проектов» не трогаем.
+_PROJECT_TYPO_RE = re.compile(r"(?<![а-яё])пра([еэ])кт", re.IGNORECASE)
+_NUMBER_FIRST_RE = re.compile(
+    r"(?<![\d#№\w])(\d{1,5})(?:\s*-?\s*(?:м|й|ом|ым|ый|ой|го|ого|ем))?\s+(проект(?:е|ом|у)?)(?![а-яё])",
+    re.IGNORECASE,
+)
+
+
+def canon_project_refs(text: str) -> str:
+    """Номер проекта в обычном виде «проект N» для разбора; сама реплика в истории остаётся как была."""
+    out = _PROJECT_TYPO_RE.sub(lambda m: "прое" + m.group(0)[4:], text or "")
+    return _NUMBER_FIRST_RE.sub(lambda m: f"{m.group(2)} {m.group(1)}", out)
+
+
 def _has_stop_word(text: str) -> bool:
     """Есть ли во фразе слово остановки: без него «прервать задачу» модели не верим."""
     low = (text or "").lower()
@@ -431,7 +446,7 @@ class MessageQueue:
         job = asyncio.create_task(
             self._classify(
                 session_id,
-                text,
+                canon_project_refs(text),
                 run_id,
                 mode,
                 project_id,
