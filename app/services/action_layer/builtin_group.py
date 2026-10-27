@@ -403,15 +403,37 @@ async def _node_get_config(ctx: ActionContext, params: dict) -> dict:
     return out
 
 
+_PROVIDER_RU = {"kie": "Kie", "vibecode": "Vibecode", "pay52": "52pay", "unknown": "неизвестно"}
+
+
+def _text_provider(model_id: str | None) -> str:
+    """Провайдер текстовых вызовов ноды: модели Claude — Vibecode, иначе выбор студии (kie / pay52 / vibecode)."""
+    try:
+        from app.services.gpt_api import is_anthropic_model
+        from app.settings import settings
+
+        if is_anthropic_model(model_id):
+            return "vibecode"
+        return str(settings.resolved_text_llm_provider() or "unknown")
+    except Exception:
+        return "unknown"
+
+
 async def _node_get_llm_route(ctx: ActionContext, params: dict) -> dict:
     described = await ctx.call("GET", f"/projects/{params['project_id']}/nodes/{params['node_key']}/describe")
     model = described.get("model") or {}
     forced = bool(model.get("forced_vibecode")) or _forced_vibecode(params["node_key"])
+    # «Через какого провайдера идёт нода»: без провайдера чат отвечал «в данных не указано».
+    provider = "vibecode" if forced else _text_provider(model.get("model_id"))
+    provider_ru = _PROVIDER_RU.get(provider, provider)
     return {
         "node_key": params["node_key"],
         "forced_vibecode": forced,
         "model_id": model.get("model_id"),
         "model_label": model.get("model_label"),
+        "provider": provider,
+        "text_ru": f"Модель {model.get('model_label') or model.get('model_id') or 'не задана'}, "
+        f"запросы идут через провайдера {provider_ru}.",
         "is_default": model.get("is_default"),
         "applies": model.get("applies"),
         "note": (
