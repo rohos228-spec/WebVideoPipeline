@@ -409,7 +409,7 @@ _PROVIDER_RU = {"kie": "Kie", "vibecode": "Vibecode", "pay52": "52pay", "unknown
 def _text_provider(model_id: str | None) -> str:
     """Провайдер текстовых вызовов ноды: модели Claude — Vibecode, иначе выбор студии (kie / pay52 / vibecode)."""
     try:
-        from app.services.gpt_api import is_anthropic_model
+        from app.services.anthropic_messages import is_anthropic_model
         from app.settings import settings
 
         if is_anthropic_model(model_id):
