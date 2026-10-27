@@ -190,6 +190,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         meta = dict(project.meta or {})
         meta["items_skipped_empty"] = True
         project.meta = meta
+        flag_modified(project, "meta")
         logger.info(
             "[#{}] items: item_descriptions пуст — items_ready без работы (items_skipped_empty)",
             project.id,

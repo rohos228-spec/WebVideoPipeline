@@ -235,7 +235,7 @@ export function resolveNodeResult(
   nodeStatus?: NodeRunStatus,
   nodeKey?: string | null,
 ): NodeResultSnapshot {
-  const snapshot = computeNodeResult(nodeType, ctx, nodeKey);
+  const snapshot = computeNodeResult(nodeType, ctx, nodeKey, nodeStatus);
   return gateNodeResultVisibility(snapshot, nodeType, nodeStatus);
 }
 
@@ -243,6 +243,7 @@ function computeNodeResult(
   nodeType: string,
   ctx: NodeResultContext,
   nodeKey?: string | null,
+  nodeStatus?: NodeRunStatus,
 ): NodeResultSnapshot {
   const empty = (
     summary: string,
@@ -420,6 +421,25 @@ function computeNodeResult(
           "assets",
         );
       }
+      const isDoneHero =
+        nodeStatus === "done" ||
+        Boolean((project?.meta as Record<string, unknown> | undefined)?.hero_skipped_empty);
+      if (isDoneHero) {
+        return ready(
+          [
+            {
+              id: "hero_empty",
+              label: "Персонажи не требуются",
+              kind: "text" as const,
+              content:
+                "В сценарии этого ролика нет персонажей (hero). Шаг успешно завершён — для создания видео персонаж не требуется.",
+            },
+          ],
+          "0 персонажей (не требуются для ролика)",
+          "assets",
+          "default",
+        );
+      }
       return empty("Персонажи ещё не сгенерированы", "assets");
     }
 
@@ -467,6 +487,25 @@ function computeNodeResult(
           })),
           "Описания предметов без картинок",
           "assets",
+        );
+      }
+      const isDoneItems =
+        nodeStatus === "done" ||
+        Boolean((project?.meta as Record<string, unknown> | undefined)?.items_skipped_empty);
+      if (isDoneItems) {
+        return ready(
+          [
+            {
+              id: "items_empty",
+              label: "Предметы не требуются",
+              kind: "text" as const,
+              content:
+                "В сценарии этого ролика нет ключевых предметов (реквизита). Шаг успешно завершён — для создания видео предметы не требуются.\n\nЕсли хотите сгенерировать реквизит, добавьте описания предметов в свойствах ноды «Предметы» и запустите шаг снова.",
+            },
+          ],
+          "0 предметов (не требуются для ролика)",
+          "assets",
+          "default",
         );
       }
       return empty("Предметы ещё не сгенерированы", "assets");

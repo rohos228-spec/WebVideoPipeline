@@ -1230,6 +1230,7 @@ function PosterTile({
             type="button"
             title="Открыть полный просмотр результата"
             className="nodrag nopan flex h-7 shrink-0 items-center gap-1 rounded border border-white/15 px-2 text-[12px] text-white/80 hover:border-white/60"
+            onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();

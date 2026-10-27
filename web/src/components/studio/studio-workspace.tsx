@@ -134,6 +134,9 @@ export function StudioWorkspace({
       nodeData?: Record<string, any> | null,
     ) => {
       suppressStudioOpenUntil.current = 0;
+      setResultPanel(null);
+      setHitlModalOpen(false);
+      setHitlModalId(null);
         const resolvedTab =
         slot?.kind === "excel" && isExcelGptNode(nodeType)
           ? "settings"
@@ -189,6 +192,9 @@ export function StudioWorkspace({
     const onOpen = (ev: Event) => {
       const d = (ev as CustomEvent<{ hitlId: number }>).detail;
       if (d?.hitlId == null) return;
+      suppressStudioOpenUntil.current = Date.now() + 1000;
+      setResultPanel(null);
+      onStudioOpenChange(false);
       setHitlModalId(d.hitlId);
       setHitlModalOpen(true);
     };
@@ -231,6 +237,12 @@ export function StudioWorkspace({
     const onOpenPrompts = (ev: Event) => {
       if (!projectId) {
         toast.error("Сначала выберите проект");
+        return;
+      }
+      if (Date.now() < suppressStudioOpenUntil.current) {
+        return;
+      }
+      if (hitlModalOpen || resultPanel != null) {
         return;
       }
       const d = (ev as CustomEvent<{
@@ -534,12 +546,18 @@ export function StudioWorkspace({
           .sort((a, b) => b.id - a.id);
         const pending = rows.find((h) => h.decision === "pending");
         if (pending) {
+          suppressStudioOpenUntil.current = Date.now() + 1000;
+          setResultPanel(null);
+          onStudioOpenChange(false);
           setHitlModalId(pending.id);
           setHitlModalOpen(true);
           return;
         }
         const latest = rows[0];
         if (latest) {
+          suppressStudioOpenUntil.current = Date.now() + 1000;
+          setResultPanel(null);
+          onStudioOpenChange(false);
           setHitlModalId(latest.id);
           setHitlModalOpen(true);
           if (latest.decision !== "pending") {
@@ -559,10 +577,17 @@ export function StudioWorkspace({
         setAiReview({ nodeKey, nodeType });
       },
       onOpenHitlById: (hitlId: number) => {
+        suppressStudioOpenUntil.current = Date.now() + 1000;
+        setResultPanel(null);
+        onStudioOpenChange(false);
         setHitlModalId(hitlId);
         setHitlModalOpen(true);
       },
       onOpenNodeResult: (nodeKey: string, nodeType: string) => {
+        suppressStudioOpenUntil.current = Date.now() + 1000;
+        setHitlModalOpen(false);
+        setHitlModalId(null);
+        onStudioOpenChange(false);
         setResultPanel({ nodeKey, nodeType });
       },
       montageBoardOpen,
@@ -654,19 +679,21 @@ export function StudioWorkspace({
           }}
           onCanvasZoom={setCanvasZoom}
           onNodeActivate={(nodeKey, nodeType) => {
-            if (Date.now() < suppressStudioOpenUntil.current) return;
+            if (Date.now() < suppressStudioOpenUntil.current) return true;
             if (nodeType === "topic") {
               onSelectNode(nodeKey);
-              return;
+              return false;
             }
             if (nodeType === "shot_menu") {
               onSelectNode(nodeKey);
+              suppressStudioOpenUntil.current = Date.now() + 1000;
               setShotMenuOpen(true);
-              return;
+              return true;
             }
             if (isHitlNodeType(nodeType)) {
+              suppressStudioOpenUntil.current = Date.now() + 1000;
               canvasActions.onOpenHitlReview(nodeKey, nodeType);
-              return;
+              return true;
             }
             const kind = hitlKindForNodeType(nodeType);
             if (kind) {
@@ -674,12 +701,14 @@ export function StudioWorkspace({
                 (h) => h.kind === kind && h.decision === "pending",
               );
               if (pending) {
+                suppressStudioOpenUntil.current = Date.now() + 1000;
                 canvasActions.onOpenHitlReview(nodeKey, nodeType);
-                return;
+                return true;
               }
             }
             // Old side-sheet auto-open on select removed; single click expands inline.
             onSelectNode(nodeKey);
+            return false;
           }}
           disabledNodes={disabledNodes}
           runStepNodeKey={effectiveNodeKey}
@@ -762,7 +791,10 @@ export function StudioWorkspace({
           open={hitlModalOpen}
           onOpenChange={(o) => {
             setHitlModalOpen(o);
-            if (!o) setHitlModalId(null);
+            if (!o) {
+              setHitlModalId(null);
+              suppressStudioOpenUntil.current = Date.now() + 500;
+            }
           }}
         />
       )}
@@ -790,7 +822,10 @@ export function StudioWorkspace({
         <NodeResultPanel
           open
           onOpenChange={(o) => {
-            if (!o) setResultPanel(null);
+            if (!o) {
+              setResultPanel(null);
+              suppressStudioOpenUntil.current = Date.now() + 500;
+            }
           }}
           projectId={projectId}
           nodeKey={resultPanel.nodeKey}
