@@ -258,13 +258,32 @@ async def _project_paused(ctx, params):
 
 
 async def _pause(ctx, params):
-    data = await ctx.call("POST", f"/projects/{params['project_id']}/pause")
-    return {"status": (data or {}).get("status")}
+    pid = params["project_id"]
+    data = await ctx.call("POST", f"/projects/{pid}/pause")
+    status = (data or {}).get("status")
+    # Ответ чата был «статус: paused» и «вернуть можно только повторной правкой».
+    text = (
+        f"Проект #{pid} на паузе. Снять паузу можно просьбой «сними паузу с проекта {pid}»."
+        if status == "paused"
+        else f"Проект #{pid}: статус «{_status_label(status)}»."
+    )
+    return {"status": status, "text_ru": text}
 
 
 async def _resume(ctx, params):
-    data = await ctx.call("POST", f"/projects/{params['project_id']}/resume")
-    return {"status": (data or {}).get("status"), "resumed": True}
+    pid = params["project_id"]
+    data = await ctx.call("POST", f"/projects/{pid}/resume")
+    status = (data or {}).get("status")
+    return {"status": status, "resumed": True, "text_ru": f"Пауза с проекта #{pid} снята, статус «{_status_label(status)}»."}
+
+
+def _status_label(status) -> str:
+    from app.services.action_layer.builtin_insight import _status_ru
+
+    try:
+        return _status_ru(str(status or ""))
+    except Exception:
+        return str(status or "неизвестно")
 
 
 async def _continue(ctx, params):
@@ -878,7 +897,7 @@ def _specs() -> list[ActionSpec]:
             estimator=_unknown_start_cost,
             destructive_effects=lambda p: (
                 "Проект вернётся в статус до паузы; если это был "
-                "running-шаг, воркер перезапустит его и может "
+                "выполнявшийся шаг, воркер перезапустит его и может "
                 "перезаписать результаты."
             ),
             preconditions=(

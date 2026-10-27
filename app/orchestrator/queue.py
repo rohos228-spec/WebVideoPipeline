@@ -218,6 +218,13 @@ def _undo_request(text: str) -> bool:
 _STOP_STEMS = ("останов", "прекрат", "прерв", "отмен", "хватит", "пауз", "приостанов")
 
 
+_PROJECT_NAMED_RE = re.compile(r"проект\w*\s*(?:№|#)?\s*\d{1,6}(?!\d)|(?<![\w#])#\d{1,6}(?!\d)")
+
+
+def _names_project(text: str) -> bool:
+    return bool(_PROJECT_NAMED_RE.search((text or "").lower()))
+
+
 def _has_stop_word(text: str) -> bool:
     """Есть ли во фразе слово остановки: без него «прервать задачу» модели не верим."""
     low = (text or "").lower()
@@ -543,6 +550,14 @@ class MessageQueue:
                         decided = decided.model_copy(
                             update={"mode": MessageMode.append} if question else {"mode": MessageMode.task, "tier": "strong"}
                         )
+                    if (
+                        decided.mode is MessageMode.interrupt
+                        and task_id is None
+                        and not decided.kill_switch
+                        and _names_project(text)
+                    ):
+                        # «Приостанови проект 21»: задач в чате нет, просьба — пауза проекта, а не стоп чата.
+                        decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})
                     if decided.mode is MessageMode.steer and task_id is None:
                         # Уточнять нечего: прошлая задача закончена — это новая просьба.
                         decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})

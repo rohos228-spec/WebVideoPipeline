@@ -340,3 +340,14 @@ def test_name_it_with_a_quoted_title_is_a_rename_task() -> None:
     assert classify_deterministic("назови модели картинок") is None or (
         classify_deterministic("назови модели картинок").mode is not MessageMode.task
     )
+
+
+def test_project_named_pause_is_not_chat_stop() -> None:
+    """«Приостанови проект 21» без задачи в чате — пауза проекта, а не «нечего останавливать»."""
+    from app.orchestrator.queue import _names_project
+
+    assert _names_project("приостанови проект 21")
+    assert _names_project("проект 22: пауза")
+    assert _names_project("пауза #7")
+    assert not _names_project("пауза")
+    assert not _names_project("приостанови всё")
