@@ -59,3 +59,9 @@ async def test_project_scope_question_about_another_numbered_project_reads_that_
     seen.clear()
     await ctx.messages("что с проектом 99?", 14)
     assert ("project.status", 14) in seen
+
+
+def test_frame_count_question_reads_the_board() -> None:
+    assert ("montage.get_board", {"project_id": 4}) in plan_reads("сколько кадров в проекте 4?", 4)
+    assert ("montage.get_board", {"project_id": 4}) in plan_reads("сколько шотов в проекте 4", 4)
+    assert all(a != "montage.get_board" for a, _ in plan_reads("какой статус проекта 4?", 4))

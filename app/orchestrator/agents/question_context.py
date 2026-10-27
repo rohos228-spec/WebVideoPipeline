@@ -237,6 +237,7 @@ def _norm(text: str) -> str:
 _MONTAGE = ("доск", "очередь правок", "очереди правок", "очередь монтаж", "очереди монтаж")
 _REF_KIND = {"character": "персонаж", "item": "предмет", "manual": "загруженный"}
 _REF_TO_FRAME = ("привяз", "прилож", "кадр", "доск")
+_FRAMES = ("кадр", "шот")
 _PROJECT_NO = re.compile(r"проект\w*\s+(?:№\s*|#\s*)?(\d{1,6})")
 
 
@@ -293,6 +294,9 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         reads.append(("project.status", {"project_id": pid}))
         reads.append(("diag.incidents", {"project_id": pid, "limit": 5}))
         reads.extend(("node.output", {"project_id": pid, "node_key": key}) for key in nodes)
+        if _has(norm, _FRAMES):
+            # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
+            reads.append(("montage.get_board", {"project_id": pid}))
         if logs:
             reads.append(("logs.tail", {"project_id": pid, "kind": "errors", "limit": 20}))
         if _has(norm, _SPEND):
