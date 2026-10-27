@@ -316,3 +316,20 @@ def test_asked_approval_reason_gives_one_instruction() -> None:
 
     shown = deterministic_text(TaskFacts(goal="x", status="cancelled", error="empty_plan", detail=_ASKED_APPROVAL))
     assert "Причина:" not in shown and shown.count("например") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["проект 12 на каком шаге стоит?", "сколько стоит шаг видео в проекте 4?"])
+async def test_model_interrupt_without_a_stop_word_is_a_question(token: str, text: str) -> None:
+    del token
+    router = ScriptedRouter()
+    # Модель-классификатор читала «стоит» как «стоп».
+    router.mode = MessageMode.interrupt
+    rt = _runtime(router)
+    session = "talk-stoit-" + str(abs(hash(text)))
+    try:
+        await rt.queue.accept(session, text)
+        await rt.queue.drain(timeout=5)
+        assert _events(rt, session, "classification")[-1].payload["mode"] == "append"
+    finally:
+        set_runtime(None)

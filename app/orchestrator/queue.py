@@ -210,6 +210,18 @@ def _undo_request(text: str) -> bool:
     return undo_phrase(text)
 
 
+_STOP_STEMS = ("останов", "прекрат", "прерв", "отмен", "хватит", "пауз", "приостанов")
+
+
+def _has_stop_word(text: str) -> bool:
+    """Есть ли во фразе слово остановки: без него «прервать задачу» модели не верим."""
+    low = (text or "").lower()
+    tokens = _TOKEN_RE.findall(low)
+    return any(token in _STOP_TOKENS or token.startswith(_STOP_STEMS) for token in tokens) or any(
+        phrase in low for phrase in _KILL_PHRASES
+    )
+
+
 def cancel_or_undo(text: str) -> bool:
     """«Отмени последнее» при живой задаче: остановить её или вернуть правку — решает классификатор."""
     norm = " ".join((text or "").lower().split())
@@ -519,6 +531,13 @@ class MessageQueue:
                         task_id=None if task_id is None else str(task_id),
                     )
                     decided = decided.model_copy(update={"deterministic": False})
+                    if decided.mode is MessageMode.interrupt and not _has_stop_word(text):
+                        # «Проект 12 на каком шаге стоит?»: модель читала «стоит» как «стоп» и отвечала
+                        # «нечего останавливать». Без стоп-слова это вопрос или просьба.
+                        question = is_status_question(text) or is_plain_question(text)
+                        decided = decided.model_copy(
+                            update={"mode": MessageMode.append} if question else {"mode": MessageMode.task, "tier": "strong"}
+                        )
                     if decided.mode is MessageMode.steer and task_id is None:
                         # Уточнять нечего: прошлая задача закончена — это новая просьба.
                         decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})
