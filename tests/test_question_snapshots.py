@@ -22,3 +22,11 @@ def test_snapshots_text_empty():
 def test_schema_pieces_are_groups():
     for text in ("а есть какие-то готовые куски схемы, чтобы вставить?", "какие заготовки нод можно вставить"):
         assert plan_reads(text, 12) == [("group.list", {})]
+
+
+def test_past_edits_question_reads_snapshots():
+    from app.orchestrator.agents import question_context as qc
+
+    for text in ("что менялось в настройках проекта, какие правки были?", "что поменяли в проекте 12?"):
+        assert "history.list_snapshots" in [a for a, _ in qc.plan_reads(text, 12)]
+    assert "history.list_snapshots" not in [a for a, _ in qc.plan_reads("что поменять чтобы было дешевле", 12)]
