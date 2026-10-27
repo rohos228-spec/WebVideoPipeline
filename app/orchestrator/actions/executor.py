@@ -694,11 +694,40 @@ async def _fill_ref_file(params: dict) -> dict:
     return out
 
 
+async def _fill_node_key(params: dict) -> dict:
+    """«Нода 'script' не найдена»: модель писала тип или подпись ноды вместо ключа n_script.
+
+    Тип, код шага или подпись, однозначно указывающие на одну ноду проекта, заменяются её ключом.
+    """
+    from app.orchestrator.contracts import NODE_KEY_RE
+
+    want = str(params.get("node_key") or "").strip()
+    pid = params.get("project_id")
+    if not want or NODE_KEY_RE.match(want) or not isinstance(pid, int) or isinstance(pid, bool):
+        return params
+    from app.orchestrator.agents.project_nodes import _meta_from_db, roster
+
+    try:
+        rows = roster(await _meta_from_db(pid))
+    except Exception:
+        return params
+    low = want.lower()
+    for field in ("type", "step_code", "label", "type_ru"):
+        hit = [row for row in rows if str(row.get(field) or "").lower() == low]
+        if len(hit) == 1:
+            return {**params, "node_key": str(hit[0]["key"])}
+        if hit:
+            return params
+    return params
+
+
 async def plan_resolve(name: str, params: dict | None) -> dict:
     """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы.
 
     Правка настроек проекта: без ключей, значение которых в проекте уже такое же."""
     params = dict(params or {})
+    if "node_key" in params:
+        params = await _fill_node_key(params)
     if str(name) == "montage.link_ref":
         return await _fill_ref_file(params)
     if str(name) in _SHOT_FILL:
