@@ -2772,6 +2772,21 @@ class Supervisor:
             if plan is None:
                 return None
 
+    def _last_diag_project(self, session_id: str) -> int | None:
+        # «А можешь найти саму причину?» без номера — тот же проект, что в прошлом разборе сбоя.
+        try:
+            steps = self.tasks.session_steps(session_id, "diag.node_failure")
+        except Exception:
+            return None
+        for row in reversed(steps):
+            try:
+                pid = json.loads(row.get("params_json") or "{}").get("project_id")
+            except (TypeError, ValueError):
+                continue
+            if isinstance(pid, int) and pid > 0:
+                return pid
+        return None
+
     async def _make_plan(
         self,
         task_id: int,
@@ -2810,7 +2825,7 @@ class Supervisor:
         # «Музыка для проекта 4 — файл C:\...\bgm.wav»: путь из просьбы, если шаг загрузки без файла.
         drafted = upload_source_from_goal(drafted, goal)
         # «Найди причину ошибки в ИИ-редакторе сцен»: разбор сбоя ноды, а не одно чтение доски.
-        drafted = failure_reads(drafted, goal, None)
+        drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []

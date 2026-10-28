@@ -305,3 +305,10 @@ def test_failure_goal_adds_node_failure_read():
     assert failure_reads([], "в 26 проекте найди причину, почему нода падала", None)[0].params["project_id"] == 26
     fix = [PlanStep(action="node.set_model", params={"project_id": 26}, expected="м", mutating=True)]
     assert failure_reads(fix, "найди причину ошибки в проекте 26", None) == fix
+
+
+def test_failure_followup_uses_previous_project():
+    from app.orchestrator.agents.failure_scope import failure_reads
+
+    out = failure_reads([], "а можешь найти саму причину почему это случилось", None, 26)
+    assert out and out[0].params == {"project_id": 26}

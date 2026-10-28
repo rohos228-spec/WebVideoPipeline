@@ -16,9 +16,12 @@ _FAILURE = re.compile(r"ошиб|упал|слома|сбо[йя]|не рабо�
 _PROJECT = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d+)|(\d+)\s*-?\w*\s+проект")
 
 
-def failure_reads(plan: list[PlanStep], goal: str, project_id: int | None) -> list[PlanStep]:
+def failure_reads(
+    plan: list[PlanStep], goal: str, project_id: int | None, fallback_project: int | None = None
+) -> list[PlanStep]:
     text = str(goal or "").lower()
-    if not (_CAUSE.search(text) and _FAILURE.search(text)):
+    # Без слов про сбой «найди причину» — продолжение прошлого разбора в этом чате.
+    if not (_CAUSE.search(text) and (_FAILURE.search(text) or fallback_project)):
         return plan
     if any(step.mutating or step.paid for step in plan):
         return plan
@@ -31,6 +34,8 @@ def failure_reads(plan: list[PlanStep], goal: str, project_id: int | None) -> li
     found = _PROJECT.search(text) if pid is None else None
     if found:
         pid = int(found.group(1) or found.group(2))
+    if pid is None:
+        pid = fallback_project
     if pid is None:
         return plan
     first = PlanStep(
