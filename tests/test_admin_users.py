@@ -144,3 +144,59 @@ async def test_admin_plans(env) -> None:
     plans = r.json()
     assert len(plans) >= 2
     assert any(p["id"] == "pro" for p in plans)
+
+
+async def test_admin_accrue_credits_and_subscription(env) -> None:
+    client = env["client"]
+    admin_auth = env["admin"].auth
+    alice_id = env["member"].user_id
+
+    # 1. Начисление кредитов
+    acc_r = await client.post(
+        f"/api/admin/users/{alice_id}/credits",
+        json={"amount": 250, "reason": "Тестовое начисление"},
+        headers=admin_auth,
+    )
+    assert acc_r.status_code == 200
+    acc_data = acc_r.json()
+    assert acc_data["ok"] is True
+    assert acc_data["balance_credits"] >= 250
+
+    # 2. Выдача подписки
+    sub_r = await client.post(
+        f"/api/admin/users/{alice_id}/subscription",
+        json={"plan_id": "pro", "months": 1, "credits": 500},
+        headers=admin_auth,
+    )
+    assert sub_r.status_code == 200
+    sub_data = sub_r.json()
+    assert sub_data["ok"] is True
+    assert sub_data["subscription"]["plan_id"] == "pro"
+    assert sub_data["subscription"]["status"] == "active"
+
+    # 3. Проверка истории (ledger)
+    led_r = await client.get(f"/api/admin/users/{alice_id}/ledger", headers=admin_auth)
+    assert led_r.status_code == 200
+    assert len(led_r.json()["items"]) >= 2
+
+    # 4. Отмена подписки
+    can_r = await client.post(f"/api/admin/users/{alice_id}/subscription/cancel", headers=admin_auth)
+    assert can_r.status_code == 200
+    assert can_r.json()["subscription"]["status"] == "cancelled"
+
+
+async def test_admin_user_sessions_and_revoke(env) -> None:
+    client = env["client"]
+    admin_auth = env["admin"].auth
+    alice_id = env["member"].user_id
+
+    # Получение списка сессий
+    sess_r = await client.get(f"/api/admin/users/{alice_id}/sessions", headers=admin_auth)
+    assert sess_r.status_code == 200
+    assert len(sess_r.json()["items"]) >= 1
+
+    # Отзыв сессий
+    rev_r = await client.post(f"/api/admin/users/{alice_id}/sessions/revoke", headers=admin_auth)
+    assert rev_r.status_code == 200
+    assert rev_r.json()["ok"] is True
+

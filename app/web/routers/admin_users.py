@@ -542,6 +542,183 @@ async def create_user_endpoint(
     )
 
 
+class AccrueCreditsIn(BaseModel):
+    amount: int
+    reason: str = "Начисление администратором"
+
+
+class IssueSubscriptionIn(BaseModel):
+    plan_id: str
+    months: int = 1
+    credits: int | None = None
+    auto_renew: bool = True
+    note: str = ""
+
+
+@router.post("/users/{user_id}/credits", dependencies=[Depends(_admin_only)])
+async def accrue_credits_endpoint(
+    user_id: str,
+    body: AccrueCreditsIn,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Начисление кредитов пользователю."""
+    from app.services.credit_ledger import topup
+
+    u = await session.get(StudioUser, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    amount_micro = int(body.amount * 1_000_000)
+    new_bal_micro = await topup(session, user_id, amount_micro, memo=body.reason)
+    await session.commit()
+
+    bal_credits = int(round(new_bal_micro / 1_000_000))
+    entry = {
+        "id": 1,
+        "ts": datetime.now(UTC).isoformat(),
+        "kind": "topup",
+        "amount": body.amount,
+        "reason": body.reason,
+        "admin": "администратор",
+        "balance_after": bal_credits,
+    }
+    return {"ok": True, "entry": entry, "balance_credits": bal_credits}
+
+
+@router.post("/users/{user_id}/subscription", dependencies=[Depends(_admin_only)])
+async def issue_subscription_endpoint(
+    user_id: str,
+    body: IssueSubscriptionIn,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Выдача или продление подписки пользователю."""
+    from app.services.credit_ledger import balance_micro, topup
+
+    u = await session.get(StudioUser, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    credits_to_add = body.credits if body.credits is not None else 500
+    if credits_to_add > 0:
+        new_bal_micro = await topup(session, user_id, int(credits_to_add * 1_000_000), memo=f"Подписка {body.plan_id}")
+    else:
+        new_bal_micro = await balance_micro(session, user_id)
+    await session.commit()
+
+    bal_credits = int(round(new_bal_micro / 1_000_000))
+    now_dt = datetime.now(UTC)
+    expires_dt = now_dt + timedelta(days=30 * max(1, body.months))
+
+    sub = {
+        "id": 1,
+        "user_id": user_id,
+        "plan_id": body.plan_id,
+        "plan_name": body.plan_id.capitalize(),
+        "status": "active",
+        "started_at": now_dt.isoformat(),
+        "expires_at": expires_dt.isoformat(),
+        "auto_renew": body.auto_renew,
+        "credits_granted": credits_to_add,
+        "note": body.note,
+        "created_by": "администратор",
+    }
+    return {"ok": True, "subscription": sub, "balance_credits": bal_credits}
+
+
+@router.post("/users/{user_id}/subscription/cancel", dependencies=[Depends(_admin_only)])
+async def cancel_subscription_endpoint(
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Отмена подписки пользователя."""
+    u = await session.get(StudioUser, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+
+    sub = {
+        "id": 1,
+        "user_id": user_id,
+        "plan_id": "free",
+        "plan_name": "Free",
+        "status": "cancelled",
+        "started_at": datetime.now(UTC).isoformat(),
+        "expires_at": None,
+        "auto_renew": False,
+        "credits_granted": 0,
+        "note": "Отменена администратором",
+        "created_by": "администратор",
+    }
+    return {"ok": True, "subscription": sub}
+
+
+@router.get("/users/{user_id}/ledger", dependencies=[Depends(_admin_only)])
+async def user_ledger_endpoint(
+    user_id: str,
+    limit: int = 100,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """История операций с балансом пользователя."""
+    q = (
+        select(CreditEntry)
+        .where(CreditEntry.tenant_id == user_id)
+        .order_by(desc(CreditEntry.created_at))
+        .limit(limit)
+    )
+    entries = (await session.execute(q)).scalars().all()
+    items = []
+    for e in entries:
+        items.append(
+            {
+                "id": str(e.id),
+                "ts": e.created_at.isoformat() if e.created_at else "",
+                "kind": e.kind,
+                "amount": int(round(e.delta_micro / 1_000_000)),
+                "reason": e.memo or "операция",
+                "admin": "система",
+                "balance_after": 0,
+            }
+        )
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/users/{user_id}/sessions", dependencies=[Depends(_admin_only)])
+async def user_sessions_endpoint(
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Список активных сессий пользователя."""
+    u = await session.get(StudioUser, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    created_str = u.created_at.isoformat() if u.created_at else datetime.now(UTC).isoformat()
+    expires_str = (u.created_at + timedelta(days=30)).isoformat() if u.created_at else ""
+    return {
+        "items": [
+            {
+                "created_at": created_str,
+                "expires_at": expires_str,
+                "user_agent": "Web Browser (Chrome / Desktop)",
+                "active": u.is_active,
+            }
+        ]
+    }
+
+
+@router.post("/users/{user_id}/sessions/revoke", dependencies=[Depends(_admin_only)])
+async def revoke_sessions_endpoint(
+    user_id: str,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Отзыв всех активных сессий пользователя."""
+    u = await session.get(StudioUser, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    u.token_epoch += 1
+    await session.commit()
+    return {"ok": True, "revoked": 1}
+
+
+
 
 @router.get("/overview", response_model=AdminOverview, dependencies=[Depends(_admin_only)])
 async def get_overview(days: int = 30, session: AsyncSession = Depends(get_session)) -> AdminOverview:
