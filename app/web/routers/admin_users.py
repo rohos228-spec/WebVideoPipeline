@@ -648,3 +648,28 @@ async def list_plans() -> list[AdminPlan]:
         AdminPlan(id="pro", name="Pro", price_rub=1990, credits=500, limits={"videos_per_day": 50}),
         AdminPlan(id="enterprise", name="Enterprise", price_rub=9990, credits=5000, limits={"videos_per_day": 500}),
     ]
+
+
+class ReconcileRequest(BaseModel):
+    project_id: int | None = None
+    dry_run: bool = False
+    generate_thumbnails: bool = True
+
+
+@router.post("/reconcile", dependencies=[Depends(_admin_only)])
+async def trigger_reconcile(
+    body: ReconcileRequest | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """Запуск сверки и восстановления артефактов диска и записей БД."""
+    from app.services.artifact_reconciler import reconcile_all
+
+    req = body or ReconcileRequest()
+    stats = await reconcile_all(
+        session,
+        project_id=req.project_id,
+        generate_thumbs=req.generate_thumbnails,
+        dry_run=req.dry_run,
+    )
+    return stats.to_dict()
+
