@@ -137,6 +137,7 @@ export function NodeStudio({
   /** false = весь лист (дефолт); true = узкий ключевой фрагмент по типу ноды */
   const [xlsxFocusKeyRows, setXlsxFocusKeyRows] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
 
   const qc = useQueryClient();
   const project = useQuery({
@@ -794,7 +795,14 @@ export function NodeStudio({
   return createPortal(
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm"
-      onClick={requestClose}
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          requestClose();
+        }
+      }}
     >
       <aside
         className="vp-menu nowheel nopan relative isolate flex max-h-[88vh] h-[720px] w-[min(880px,96vw)] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl"
@@ -935,7 +943,7 @@ export function NodeStudio({
           <div className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3 [scrollbar-gutter:stable] [scrollbar-width:thin] [scrollbar-color:hsl(0_0%_55%_/_0.55)_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-thumb:hover]:bg-white/40 [&::-webkit-scrollbar-track]:bg-transparent">
             <div className="rounded-[10px] border border-white/[0.06] bg-black/35 p-3 text-[13px] text-white/85 [&_.rounded-xl]:!rounded-[10px] [&_.rounded-xl]:!border-white/[0.06] [&_.rounded-xl]:!bg-black/30">
               <div className="flex flex-col gap-4">
-                  {inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0) ? (
+                  {inlineResult && (inlineResult.hasResult || inlineResult.items.length > 0 || inlineResult.viewMode === "voiceover_wide" || inlineResult.viewMode === "topic_edit") ? (
                     <NodeResultViewBody
                       projectId={projectId!}
                       nodeKey={nodeKey}

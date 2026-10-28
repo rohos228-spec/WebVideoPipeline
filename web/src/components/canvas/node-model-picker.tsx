@@ -369,8 +369,8 @@ function ModelNodeMenu({
           className="relative h-[60px] shrink-0 overflow-hidden bg-cover"
           style={{ backgroundImage: `url(${bg})`, backgroundPosition: "center top" }}
         >
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
-          <div className="absolute inset-0 flex items-center px-4 pr-14 text-[17px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]">
+          <div className="pointer-events-none absolute inset-0 bg-black/80 backdrop-blur-[2px]" />
+          <div className="relative z-[1] flex h-full items-center px-4 pr-14 text-[17px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.8)]">
             <span className="truncate">
               Модель: {(selectedModel?.label || selectedId || "").replace(/-vip$/i, "").replace(/^gpt-image-2$/i, "GPT Image 2")}
             </span>
@@ -540,7 +540,8 @@ function ModelRow({
     <div
       data-vp-model-row={model.id}
       className={cn(
-        "relative shrink-0 overflow-hidden rounded-[10px] border transition-colors",
+        "relative shrink-0 rounded-[10px] border transition-colors",
+        expanded ? "z-20 overflow-visible" : "z-0 overflow-hidden",
         selected ? "border-[#2fd5b5]/60 bg-[#2fd5b5]/[0.12]" : "border-white/[0.07] bg-white/[0.035] hover:bg-white/[0.07]",
       )}
     >
@@ -620,6 +621,14 @@ function MiniMenu({
   onChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [open]);
+
   if (!options.length) return null;
   return (
     <div className="relative min-w-0 flex-1">
@@ -639,7 +648,7 @@ function MiniMenu({
         <ChevronDown className={cn("h-3 w-3 shrink-0 text-white/40", open && "rotate-180")} />
       </button>
       {open ? (
-        <div className="absolute left-0 right-0 top-full z-30 mt-1 max-h-40 overflow-y-auto rounded-lg border border-white/12 bg-[#1c1c1f] p-1 shadow-xl">
+        <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-white/15 bg-[#1c1c1f] p-1 shadow-2xl">
           {options.map((o) => (
             <button
               key={o.id}

@@ -590,4 +590,9 @@ async def start_step(
     project.status = running_status
     project.updated_at = datetime.utcnow()
     await session.flush()
+    try:
+        from app.services.pipeline_worker import wake_worker
+        wake_worker()
+    except Exception:
+        pass
     return project.status

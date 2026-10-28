@@ -7,6 +7,22 @@ import asyncio
 from loguru import logger
 
 _worker_task: asyncio.Task | None = None
+_worker_wake_event: asyncio.Event | None = None
+
+
+def get_worker_wake_event() -> asyncio.Event:
+    global _worker_wake_event
+    if _worker_wake_event is None:
+        _worker_wake_event = asyncio.Event()
+    return _worker_wake_event
+
+
+def wake_worker() -> None:
+    """Wake the background worker loop immediately without waiting for sleep timeout."""
+    try:
+        get_worker_wake_event().set()
+    except Exception:
+        pass
 
 
 def ensure_pipeline_worker_started(bot) -> asyncio.Task:

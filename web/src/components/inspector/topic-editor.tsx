@@ -33,10 +33,15 @@ export function TopicEditor({
   }, [seed, projectId]);
 
   const save = useMutation({
-    mutationFn: () => api.patchProject(projectId, { topic: topic.trim() }),
-    onSuccess: () => {
+    mutationFn: (newTopic?: string) => {
+      const val = (newTopic !== undefined ? newTopic : topic).trim();
+      return api.patchProject(projectId, { topic: val });
+    },
+    onSuccess: (updated) => {
       toast.success("Тема ролика сохранена");
+      qc.setQueryData(["project", projectId], updated);
       qc.invalidateQueries({ queryKey: ["project", projectId] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -55,6 +60,11 @@ export function TopicEditor({
       <textarea
         value={topic}
         onChange={(e) => setTopic(e.target.value)}
+        onBlur={() => {
+          if (topic.trim() && topic.trim() !== seed) {
+            save.mutate(topic.trim());
+          }
+        }}
         rows={6}
         placeholder="Например: Полет в космос"
         className="topic-input-glow flex w-full rounded-xl bg-zinc-950/80 p-3 text-sm text-zinc-100 placeholder:text-zinc-500 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
@@ -65,7 +75,7 @@ export function TopicEditor({
         size="sm"
         className="w-full h-9 gap-1.5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/25 rounded-xl transition-all duration-150 disabled:opacity-50"
         disabled={!topic.trim() || save.isPending}
-        onClick={() => save.mutate()}
+        onClick={() => save.mutate(topic.trim())}
       >
         {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
         Сохранить тему

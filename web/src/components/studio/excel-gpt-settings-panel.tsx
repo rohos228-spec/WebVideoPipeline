@@ -3,17 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle,
-  CheckCircle2,
   CheckSquare,
   ChevronDown,
   Eye,
-  Film,
   Loader2,
   RefreshCw,
   SlidersHorizontal,
   Upload,
-  Users,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -24,7 +20,6 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { ExcelGptNodeConfig } from "@/lib/excel-gpt-config";
-import { withSlotVariant } from "@/lib/prompt-slot-storage";
 import {
   EMIT_OPTIONS,
   OUTPUT_OPTIONS,
@@ -97,89 +92,6 @@ export function ExcelGptSettingsPanel({
     queryFn: () => api.getProject(projectId),
     enabled: Boolean(projectId),
   });
-
-  const metaRecord = useMemo(
-    () => ((project.data?.meta || {}) as Record<string, unknown>),
-    [project.data?.meta],
-  );
-
-  const currentPromptVariant = useMemo(() => {
-    const slotVariants = metaRecord.prompt_slot_variants as
-      | Record<string, Record<string, string>>
-      | undefined;
-    const fromSlot = slotVariants?.[nodeKey]?.["main"];
-    if (fromSlot) return fromSlot;
-    const overrides = project.data?.prompt_overrides as Record<string, string> | undefined;
-    return overrides?.["excel_gpt"] || "default";
-  }, [metaRecord.prompt_slot_variants, nodeKey, project.data?.prompt_overrides]);
-
-  const activePreset: "characters" | "scenes" | "audit" | "custom" = useMemo(() => {
-    if (checkMode) return "audit";
-    const lower = currentPromptVariant.toLowerCase();
-    if (lower.includes("персонаж") || lower.includes("character")) return "characters";
-    if (lower.includes("scene") || lower.includes("grammar")) return "scenes";
-    return "custom";
-  }, [checkMode, currentPromptVariant]);
-
-  const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
-
-  const handleApplyPreset = async (preset: "characters" | "scenes" | "audit") => {
-    setApplyingPreset(preset);
-    try {
-      if (preset === "characters") {
-        await patch.mutateAsync({
-          role: "assist",
-          checkMode: false,
-          outputMode: "project_file",
-          emitKinds: ["result", "reply_txt"],
-          transport: "api",
-        });
-        const nextMeta = withSlotVariant(
-          metaRecord,
-          nodeKey,
-          "main",
-          "агент по созданию персонажей 02.08.txt",
-        );
-        await api.patchProject(projectId, { meta: nextMeta });
-        await qc.invalidateQueries({ queryKey: ["project", projectId] });
-        await qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
-        toast.success("Режим «Разметка персонажей» установлен");
-      } else if (preset === "scenes") {
-        await patch.mutateAsync({
-          role: "assist",
-          checkMode: false,
-          outputMode: "project_file",
-          emitKinds: ["result", "reply_txt"],
-          transport: "api",
-        });
-        const nextMeta = withSlotVariant(
-          metaRecord,
-          nodeKey,
-          "main",
-          "scene_grammar_unified_agent_v1",
-        );
-        await api.patchProject(projectId, { meta: nextMeta });
-        await qc.invalidateQueries({ queryKey: ["project", projectId] });
-        await qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
-        toast.success("Режим «Режиссура сцен» установлен");
-      } else if (preset === "audit") {
-        await patch.mutateAsync({
-          role: "review",
-          checkMode: true,
-          checkFix: true,
-          outputMode: "text",
-          emitKinds: ["inputs", "reply_txt"],
-          transport: "api",
-        });
-        await qc.invalidateQueries({ queryKey: ["gpt-operator-resolve", projectId, nodeKey] });
-        toast.success("Режим «Проверка качества (Аудит)» включён");
-      }
-    } catch (err) {
-      toast.error(errorMessageFromUnknown(err));
-    } finally {
-      setApplyingPreset(null);
-    }
-  };
 
   const [formatDraft, setFormatDraft] = useState("");
   const [formatDirty, setFormatDirty] = useState(false);
@@ -267,132 +179,6 @@ export function ExcelGptSettingsPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 1. Quick Task Presets */}
-      <section className="rounded-xl border border-cyan-500/25 bg-cyan-500/[0.04] p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-foreground">
-              Целевая задача ноды (Быстрый выбор)
-            </h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Выберите задачу — промпт и технические параметры выставятся автоматически в один клик.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-3.5 grid gap-3 sm:grid-cols-3">
-          {/* Preset 1: Characters */}
-          <button
-            type="button"
-            disabled={applyingPreset !== null}
-            onClick={() => handleApplyPreset("characters")}
-            className={cn(
-              "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
-              activePreset === "characters"
-                ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
-                : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
-            )}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <Users
-                className={cn(
-                  "h-4 w-4",
-                  activePreset === "characters" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
-                )}
-              />
-              <span className="font-semibold text-xs text-foreground">Разметка персонажей</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Распределяет героев (c01, c02, c03) по кадрам перед генерацией референсов.
-            </p>
-            {activePreset === "characters" && (
-              <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
-                <CheckCircle2 className="h-3 w-3" /> Активно
-              </span>
-            )}
-          </button>
-
-          {/* Preset 2: Scenes */}
-          <button
-            type="button"
-            disabled={applyingPreset !== null}
-            onClick={() => handleApplyPreset("scenes")}
-            className={cn(
-              "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
-              activePreset === "scenes"
-                ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
-                : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
-            )}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <Film
-                className={cn(
-                  "h-4 w-4",
-                  activePreset === "scenes" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
-                )}
-              />
-              <span className="font-semibold text-xs text-foreground">Режиссура сцен</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Обогащает кадры светом, планами камеры, окружением и атмосферой.
-            </p>
-            {activePreset === "scenes" && (
-              <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
-                <CheckCircle2 className="h-3 w-3" /> Активно
-              </span>
-            )}
-          </button>
-
-          {/* Preset 3: Audit */}
-          <button
-            type="button"
-            disabled={applyingPreset !== null}
-            onClick={() => handleApplyPreset("audit")}
-            className={cn(
-              "flex flex-col text-left p-3.5 rounded-xl border transition-all relative group",
-              activePreset === "audit"
-                ? "border-cyan-400 bg-cyan-950/40 text-cyan-200 ring-1 ring-cyan-400/60 shadow-sm"
-                : "border-white/10 bg-zinc-900/40 text-zinc-300 hover:border-cyan-500/40 hover:bg-zinc-900/80",
-            )}
-          >
-            <div className="flex items-center gap-2 mb-1.5">
-              <CheckSquare
-                className={cn(
-                  "h-4 w-4",
-                  activePreset === "audit" ? "text-cyan-300" : "text-zinc-400 group-hover:text-cyan-400",
-                )}
-              />
-              <span className="font-semibold text-xs text-foreground">Проверка качества</span>
-            </div>
-            <p className="text-[11px] leading-relaxed text-muted-foreground">
-              Аудит сценария: проверяет данные по чек-листу и формирует check_report.txt.
-            </p>
-            {activePreset === "audit" && (
-              <span className="mt-2.5 inline-flex items-center gap-1 text-[10px] font-medium text-cyan-300 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/20 w-fit">
-                <CheckCircle2 className="h-3 w-3" /> Активно
-              </span>
-            )}
-          </button>
-        </div>
-
-        {/* Current Prompt Indicator Banner */}
-        <div className="mt-3.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-xs">
-          <div className="flex items-center gap-2 min-w-0">
-            <span className="text-muted-foreground shrink-0">Активный файл промпта:</span>
-            <span className="font-mono text-cyan-200 truncate">{currentPromptVariant}</span>
-          </div>
-          {currentPromptVariant === "default" || currentPromptVariant.includes("default") ? (
-            <span className="inline-flex items-center gap-1 text-[11px] text-amber-300 shrink-0">
-              <AlertTriangle className="h-3.5 w-3.5" /> Рекомендуется выбрать задачу выше
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 shrink-0">
-              <CheckCircle2 className="h-3.5 w-3.5" /> Готов к запуску
-            </span>
-          )}
-        </div>
-      </section>
-
       {/* 3. Check Mode Section (Only when checkMode is active) */}
       {checkMode && (
         <section className="rounded-xl border border-cyan-500/25 bg-cyan-950/20 p-4">

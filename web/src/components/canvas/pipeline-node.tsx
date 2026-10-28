@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { computeNodeActiveVariant } from "@/lib/node-active-prompt";
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
@@ -200,6 +200,7 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const spec = getNodeSpec(d.type);
   const Icon = getNodeIcon(spec.iconKey);
   const actions = useCanvasActionsOptional();
+  const qc = useQueryClient();
   const disabled = actions?.disabledNodes.has(d.nodeKey) ?? false;
 
   const statusConfig = STATUS_CONFIG[d.status];
@@ -465,11 +466,21 @@ export function PipelineNode({ data, selected }: NodeProps) {
               onRun={actions ? () => actions.onRunNode(d.nodeKey, d.type) : undefined}
               onStop={
                 actions?.projectId
-                  ? () => {
-                      void api
-                        .stopProject(actions.projectId as number)
-                        .then((r) => toast.success(r.message || "Остановлено"))
-                        .catch((e) => toast.error(errorMessageFromUnknown(e)));
+                  ? async () => {
+                      const pid = actions.projectId as number;
+                      try {
+                        const r = await api.stopProject(pid);
+                        toast.success(r.message || "Остановлено");
+                        qc.invalidateQueries({ queryKey: ["project-run", pid] });
+                        qc.invalidateQueries({ queryKey: ["project", pid] });
+                        qc.invalidateQueries({ queryKey: ["runs"] });
+                        await Promise.all([
+                          qc.refetchQueries({ queryKey: ["project", pid] }),
+                          qc.refetchQueries({ queryKey: ["project-run", pid] }),
+                        ]);
+                      } catch (e) {
+                        toast.error(errorMessageFromUnknown(e));
+                      }
                     }
                   : undefined
               }
