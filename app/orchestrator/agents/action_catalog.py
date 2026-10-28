@@ -287,16 +287,26 @@ def _montage_notes(rows: list[dict[str, Any]]) -> list[str]:
 _FRAME_PARAM = re.compile(r"\b(?:after_|left_|right_)?frame_ids?\b")
 
 
+_SHOT_PARAM = re.compile(r"(?<![a-z_])(?:a_|b_|from_|to_)?shot(?![a-z_])")
+
+
 def _frame_hints(rows: list[dict[str, Any]]) -> list[str]:
-    if not any(_FRAME_PARAM.search(str(row.get("p") or "")) for row in rows):
-        return []
-    return [
-        "frame_id, after_frame_id, left_frame_id, right_frame_id и frame_ids в действиях монтажа — "
-        "номер кадра на доске из слов человека: «кадр 9» — 9, «после кадра 12» — after_frame_id=12. "
-        "Сервер сам найдёт кадр по номеру; не спрашивай id кадра и не читай доску ради него.",
-        "Шот (shot, a_shot, b_shot, from_shot, to_shot) не назван — опусти это поле и не спрашивай: "
-        "сервер возьмёт шот, где есть файл, и сам спросит, если файлы в обоих шотах.",
-    ]
+    params = [str(row.get("p") or "") for row in rows]
+    out = []
+    if any(_FRAME_PARAM.search(p) for p in params):
+        out.append(
+            "frame_id, after_frame_id, left_frame_id, right_frame_id и frame_ids в действиях монтажа — "
+            "номер кадра на доске из слов человека: «кадр 9» — 9, «после кадра 12» — after_frame_id=12. "
+            "Сервер сам найдёт кадр по номеру; не спрашивай id кадра и не читай доску ради него."
+        )
+    # У queue_ops шот внутри ops: без этой подсказки чат спрашивал «шот 1, шот 2 или оба»
+    # у кадра, где второго шота нет.
+    if any(_SHOT_PARAM.search(p) for p in params):
+        out.append(
+            "Шот (shot, a_shot, b_shot, from_shot, to_shot, shot в ops) не назван — опусти это поле и не "
+            "спрашивай: сервер возьмёт шот, где есть файл, и сам спросит, если файлы в обоих шотах."
+        )
+    return out
 
 
 def _step_hints(rows: list[dict[str, Any]]) -> list[str]:

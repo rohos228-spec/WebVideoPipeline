@@ -201,9 +201,36 @@ async def _prepare_card(name: str, params: dict | None, ctx: dict | None) -> dic
         card["preview_failed"] = True
         return card
     card.update(card_from_preview(preview, labels))
+    over = over_goal_limit(card.get("cost_estimate"), ctx.get("goal"))
+    if over:
+        card["warnings"] = [*(card.get("warnings") or []), over]
     if plan_id:
         card["plan_id"] = plan_id
     return card
+
+
+# «…, лимит $0.2»: лимит из просьбы. Карточка с оценкой $0.94 шла без предупреждения.
+_GOAL_LIMIT_RE = re.compile(
+    r"(?<![а-я])(?:лимит\w*|потолок\w*)\s*(?:в\s+)?(\$)?\s*(\d+(?:[.,]\d+)?)\s*(\$|долл\w*)?",
+    re.IGNORECASE,
+)
+
+
+def goal_limit(goal: Any) -> float | None:
+    found = _GOAL_LIMIT_RE.search(str(goal or ""))
+    if not found or not (found.group(1) or found.group(3)):
+        return None
+    return float(found.group(2).replace(",", "."))
+
+
+def over_goal_limit(estimate: Any, goal: Any) -> str:
+    limit = goal_limit(goal)
+    if limit is None or not isinstance(estimate, (int, float)) or estimate <= limit:
+        return ""
+    return (
+        f"Оценка ${float(estimate):.2f} выше лимита ${limit:.2f} из вашей просьбы: "
+        "подтверждайте, только если согласны."
+    )
 
 
 # Кадр в чате — номер на доске («кадр 9»): карты id планировщик чата не видит. Действия монтажа
@@ -513,9 +540,22 @@ async def _outcome(plan_id: str, spec) -> dict:
     }
 
 
-def _summary(spec, outcome: dict) -> str:
+def _frame_note(params: dict) -> str:
+    """«Готово: Сгенерировать картинки сцены (кадр 1)»: номер кадра из просьбы, не id."""
+    one = params.get("frame_number")
+    many = params.get("frame_numbers")
+    numbers = [one] if isinstance(one, int) else many if isinstance(many, list) else []
+    numbers = [v for v in numbers if isinstance(v, int)]
+    if not numbers:
+        return ""
+    if len(numbers) == 1:
+        return f" (кадр {numbers[0]})"
+    return " (кадры " + ", ".join(str(v) for v in numbers[:10]) + ("…" if len(numbers) > 10 else "") + ")"
+
+
+def _summary(spec, outcome: dict, where: str = "") -> str:
     if outcome.get("status") == "ok":
-        text = f"Готово: {spec.title_ru}."
+        text = f"Готово: {spec.title_ru}{where}."
         if spec.spends_money and outcome.get("cost"):
             word = "потрачено" if outcome.get("cost_source") == "actual" else "по оценке до"
             text += f" {word.capitalize()} ${float(outcome['cost']):.2f}."
@@ -525,7 +565,7 @@ def _summary(spec, outcome: dict) -> str:
     return f"Не получилось: {spec.title_ru}. {outcome.get('error') or ''}".strip()
 
 
-async def _announce(ctx: dict, spec, outcome: dict) -> None:
+async def _announce(ctx: dict, spec, outcome: dict, where: str = "") -> None:
     await _publish(
         ctx,
         PROGRESS_EVENT,
@@ -542,7 +582,7 @@ async def _announce(ctx: dict, spec, outcome: dict) -> None:
     await _publish(
         ctx,
         RESULT_EVENT,
-        {"role": "assistant", "kind": "action_result", "action": spec.id, "text": _summary(spec, outcome)},
+        {"role": "assistant", "kind": "action_result", "action": spec.id, "text": _summary(spec, outcome, where)},
     )
 
 
@@ -554,6 +594,7 @@ async def run_bridged(spec, params: dict, ctx: dict, core_approval: dict | None)
     ctx = ctx if isinstance(ctx, dict) else {}
     app = ctx.get("app")
     task_id = ctx.get("task_id")
+    where = _frame_note(dict(params or {})) if str(spec.id).startswith("montage.") else ""
     try:
         params = await frame_numbers_to_ids(spec.id, dict(params or {}))
     except Exception as exc:
@@ -588,7 +629,7 @@ async def run_bridged(spec, params: dict, ctx: dict, core_approval: dict | None)
     task = executor.launch(app, plan_id, operator)
     await _follow(task, plan_id, spec, ctx, operator)
     outcome = await _outcome(plan_id, spec)
-    await _announce(ctx, spec, outcome)
+    await _announce(ctx, spec, outcome, where)
     return outcome
 
 
