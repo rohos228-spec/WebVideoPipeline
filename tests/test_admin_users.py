@@ -136,6 +136,10 @@ async def test_admin_overview_metrics(env) -> None:
     assert "generations" in overview
     assert overview["generations"]["images"] >= 1
     assert "top_users" in overview
+    assert "series" in overview
+    assert len(overview["series"]) == 30
+    assert any(s["generations"] > 0 for s in overview["series"])
+    assert any(s["requests"] > 0 for s in overview["series"])
 
 
 async def test_admin_plans(env) -> None:

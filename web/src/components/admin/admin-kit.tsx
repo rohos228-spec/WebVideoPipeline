@@ -21,25 +21,66 @@ export const fmtUsd = (n: number | null | undefined, digits = 2) =>
 export const fmtRub = (n: number | null | undefined) =>
   `${fmtNum(n)} ₽`;
 
-export const fmtDate = (s?: string | null) => {
-  if (!s) return "—";
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return String(s).slice(0, 10);
-  return d.toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: "numeric" });
+/**
+ * Парсер даты из бэкенда в UTC.
+ * Бэкенд возвращает UTC-время (в PostgreSQL/SQLite как 'YYYY-MM-DDTHH:mm:ss' без Z,
+ * либо с Z/таймзоной, либо unix-секунды/мс).
+ * Добавляем Z, чтобы браузер не интерпретировал время как локальное,
+ * и отображаем строго по московскому времени (MSK, UTC+3).
+ */
+export const parseUtcDate = (s?: string | number | null): Date | null => {
+  if (s == null) return null;
+  if (typeof s === "number") {
+    const ms = s > 1e11 ? s : s * 1000;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  let str = String(s).trim();
+  if (!str) return null;
+  if (/^\d+$/.test(str)) {
+    const num = Number(str);
+    const ms = num > 1e11 ? num : num * 1000;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  if (str.includes(" ") && !str.includes("T")) {
+    str = str.replace(" ", "T");
+  }
+  if (str.includes("T") && !/(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(str)) {
+    str += "Z";
+  }
+  const d = new Date(str);
+  return Number.isNaN(d.getTime()) ? null : d;
 };
 
-export const fmtDateTime = (s?: string | null) => {
-  if (!s) return "—";
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return String(s).replace("T", " ").slice(0, 16);
-  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+export const fmtDate = (s?: string | number | null) => {
+  const d = parseUtcDate(s);
+  if (!d) return s ? String(s).slice(0, 10) : "—";
+  return d.toLocaleDateString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 };
 
-export const timeAgo = (s?: string | null) => {
-  if (!s) return "—";
-  const d = new Date(s).getTime();
-  if (Number.isNaN(d)) return "—";
-  const diff = Date.now() - d;
+export const fmtDateTime = (s?: string | number | null) => {
+  const d = parseUtcDate(s);
+  if (!d) return s ? String(s).replace("T", " ").slice(0, 16) : "—";
+  return d.toLocaleString("ru-RU", {
+    timeZone: "Europe/Moscow",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+export const timeAgo = (s?: string | number | null) => {
+  const d = parseUtcDate(s);
+  if (!d) return "—";
+  const diff = Date.now() - d.getTime();
+  if (diff < 0 && diff > -60_000) return "только что";
   if (diff < 60_000) return "только что";
   const min = Math.floor(diff / 60_000);
   if (min < 60) return `${min} мин назад`;
