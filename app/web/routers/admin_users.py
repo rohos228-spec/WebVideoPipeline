@@ -41,6 +41,30 @@ def _admin_only() -> None:
         raise HTTPException(status_code=404, detail="ручка недоступна")
 
 
+def _format_ledger_entries(entries: list[CreditEntry], limit: int = 100) -> list[dict[str, Any]]:
+    """Форматирование проводок с динамическим вычислением накопленного баланса (balance_after)."""
+    sorted_asc = sorted(entries, key=lambda e: (e.created_at or datetime.min.replace(tzinfo=UTC), str(e.id)))
+    running_micro = 0
+    calculated: list[dict[str, Any]] = []
+    for e in sorted_asc:
+        running_micro += (e.delta_micro or 0)
+        bal_credits = int(round(running_micro / 1_000_000))
+        delta_credits = int(round((e.delta_micro or 0) / 1_000_000))
+        calculated.append(
+            {
+                "id": str(e.id),
+                "ts": e.created_at.isoformat() if e.created_at else "",
+                "kind": e.kind,
+                "amount": delta_credits,
+                "reason": e.memo or e.ref_table or "операция",
+                "admin": "администратор" if e.kind == "topup" else "система",
+                "balance_after": bal_credits,
+            }
+        )
+    calculated.reverse()
+    return calculated[:limit]
+
+
 # ── Схемы DTO ─────────────────────────────────────────────────────────────────
 
 
@@ -426,21 +450,10 @@ async def get_user_detail(user_id: str, session: AsyncSession = Depends(get_sess
         entries_q = (
             select(CreditEntry)
             .where(CreditEntry.tenant_id == u.id)
-            .order_by(desc(CreditEntry.created_at))
-            .limit(50)
+            .order_by(CreditEntry.created_at.asc())
         )
-        for ce in (await session.execute(entries_q)).scalars().all():
-            ledger_entries.append(
-                {
-                    "id": str(ce.id),
-                    "ts": ce.created_at.isoformat() if ce.created_at else "",
-                    "kind": ce.kind,
-                    "amount": int(round(ce.delta_micro / 1_000_000)),
-                    "reason": ce.ref_table or "операция",
-                    "admin": "система",
-                    "balance_after": 0,
-                }
-            )
+        all_ce = (await session.execute(entries_q)).scalars().all()
+        ledger_entries = _format_ledger_entries(list(all_ce), limit=50)
 
     return AdminUserDetail(
         id=str(u.id) if u else "owner",
@@ -726,24 +739,11 @@ async def user_ledger_endpoint(
     q = (
         select(CreditEntry)
         .where(CreditEntry.tenant_id == user_id)
-        .order_by(desc(CreditEntry.created_at))
-        .limit(limit)
+        .order_by(CreditEntry.created_at.asc())
     )
     entries = (await session.execute(q)).scalars().all()
-    items = []
-    for e in entries:
-        items.append(
-            {
-                "id": str(e.id),
-                "ts": e.created_at.isoformat() if e.created_at else "",
-                "kind": e.kind,
-                "amount": int(round(e.delta_micro / 1_000_000)),
-                "reason": e.memo or "операция",
-                "admin": "система",
-                "balance_after": 0,
-            }
-        )
-    return {"items": items, "total": len(items)}
+    items = _format_ledger_entries(list(entries), limit=limit)
+    return {"items": items, "total": len(entries)}
 
 
 @router.get("/users/{user_id}/sessions", dependencies=[Depends(_admin_only)])

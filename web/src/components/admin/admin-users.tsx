@@ -401,18 +401,27 @@ function UserDrawer({
     <button
       type="button"
       onClick={() => setIsFullWidth((prev) => !prev)}
-      aria-label={isFullWidth ? "Свернуть в панель" : "Развернуть во всю ширину"}
-      title={isFullWidth ? "Свернуть в боковую панель" : "Развернуть во всю ширину страницы"}
-      className="flex h-8 w-8 items-center justify-center rounded-[8px] text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+      className="flex items-center gap-1.5 rounded-[8px] border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[12px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white"
+      title={isFullWidth ? "Свернуть в боковую панель" : "Развернуть во всю ширину экрана"}
     >
-      {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+      {isFullWidth ? (
+        <>
+          <Minimize2 className="h-3.5 w-3.5 text-zinc-400" />
+          <span>Свернуть</span>
+        </>
+      ) : (
+        <>
+          <Maximize2 className="h-3.5 w-3.5 text-[#2dd4bf]" />
+          <span>Во весь экран</span>
+        </>
+      )}
     </button>
   );
 
   return (
     <Drawer
       open
-      width={isFullWidth ? "100%" : DRAWER_WIDTH}
+      width={isFullWidth ? "100vw" : DRAWER_WIDTH}
       title={u ? u.name || u.username || `#${u.id}` : `Пользователь #${userId}`}
       subtitle={u ? `@${u.username || "—"} · ${u.email || "—"}` : "загрузка…"}
       onClose={onClose}

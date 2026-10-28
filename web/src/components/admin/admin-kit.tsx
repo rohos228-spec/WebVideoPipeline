@@ -345,7 +345,7 @@ export function Drawer({
     <div className="fixed inset-0 z-[80] flex justify-end" style={FONT}>
       <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
       <aside
-        className="relative flex h-full max-w-full flex-col overflow-hidden border-l border-white/10 bg-[#141518] shadow-2xl transition-[width] duration-200"
+        className={`relative flex h-full ${width === "100vw" || width === "100%" ? "w-screen" : "max-w-full"} flex-col overflow-hidden border-l border-white/10 bg-[#141518] shadow-2xl transition-[width] duration-200`}
         style={{ width, animation: "vpDrawerIn .22s ease both" }}
       >
         <style>{`@keyframes vpDrawerIn{from{transform:translateX(24px);opacity:.5}to{transform:none;opacity:1}}`}</style>
