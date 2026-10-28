@@ -450,9 +450,8 @@ async def get_user_detail(user_id: str, session: AsyncSession = Depends(get_sess
         p_arts = int(
             (await session.execute(select(func.count(Artifact.id)).where(Artifact.project_id == p.id))).scalar() or 0
         )
-        created_str = (
-            _iso_utc(p.created_at) if hasattr(p, "created_at") and p.created_at else datetime.now(UTC).isoformat()
-        )
+        p_created = p.created_at if hasattr(p, "created_at") else None
+        created_str = _iso_utc(p_created) or datetime.now(UTC).isoformat()
         project_list.append(
             AdminUserProject(
                 id=p.id,
