@@ -709,7 +709,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         wake_event = get_worker_wake_event()
         try:
             await asyncio.wait_for(wake_event.wait(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             pass
         finally:
             wake_event.clear()
