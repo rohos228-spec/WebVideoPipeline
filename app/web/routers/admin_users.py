@@ -493,6 +493,58 @@ async def delete_user(user_id: str, session: AsyncSession = Depends(get_session)
     return {"ok": True, "deleted_id": user_id}
 
 
+class AdminCreateUserRequest(BaseModel):
+    email: str
+    username: str = ""
+    name: str = ""
+    password: str
+    role: str = "member"
+    plan: str | None = None
+
+
+@router.post("/users", response_model=AdminUserRow, dependencies=[Depends(_admin_only)])
+async def create_user_endpoint(
+    body: AdminCreateUserRequest,
+    session: AsyncSession = Depends(get_session),
+) -> AdminUserRow:
+    """Создание нового пользователя через админ-панель."""
+    from app.services.studio_users import UserError, create_user
+
+    try:
+        user = await create_user(
+            session,
+            email=body.email,
+            password=body.password,
+            role=body.role or "member",
+            display_name=body.name or body.username or body.email,
+        )
+        await session.commit()
+    except UserError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    created_str = user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else ""
+    return AdminUserRow(
+        id=user.id,
+        email=user.email,
+        username=body.username or user.email.split("@")[0],
+        name=user.display_name or user.email,
+        role=user.role,
+        status="active" if user.is_active else "blocked",
+        plan=body.plan or "Free",
+        balance_credits=0,
+        balance_rub=0,
+        generations_count=0,
+        projects_count=0,
+        requests_count=0,
+        cost_usd=0.0,
+        cost_rub=0.0,
+        last_activity=created_str,
+        created_at=created_str,
+        email_verified=user.email_verified,
+    )
+
+
+
 @router.get("/overview", response_model=AdminOverview, dependencies=[Depends(_admin_only)])
 async def get_overview(days: int = 30, session: AsyncSession = Depends(get_session)) -> AdminOverview:
     """Сводный отчёт по системе: пользователи, проекты, генерации, траты."""
