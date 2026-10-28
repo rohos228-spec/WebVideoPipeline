@@ -230,6 +230,13 @@ def _normalize_values(action_id: str, out: dict, notes: list[str]) -> None:
     elif action_id == "montage.set_coverage":
         if out.get("type") != "coverage_kind":
             out.pop("parent_number", None)
+        elif isinstance(out.get("value"), str):
+            # Сервер знает роль только как parent|child: «дочерний» уходил как есть и правка падала.
+            role = _norm(out["value"])
+            if role.startswith(("дочер", "child", "шот")):
+                out["value"] = "child"
+            elif role.startswith(("родит", "parent", "главн", "самостоят")):
+                out["value"] = "parent"
         choices = _COVERAGE_CHOICES.get(out.get("type"))
         value = out.get("value")
         if choices and isinstance(value, str):
@@ -1244,7 +1251,9 @@ ACTION_NOTES: dict[str, str] = {
     "montage.set_coverage": "Крупность/ракурс/движение/свет/стык кадра БЕЗ слов «меню съёмки» - это действие "
     "(крупность = type coverage_plan); с «меню съёмки» - shot.edit_field. plan ОБЩИЙ|ДАЛЬНИЙ|СРЕДНИЙ|КРУПНЫЙ|ДЕТАЛЬ; angle фронт|3/4|с плеча|сверху|снизу|макро; "
     "move статика|наезд|отъезд|панорама|следование|ручная; light дневной|ночной|закат|"
-    "рассвет|контровой|холодный верхний|туман. parent_number только для coverage_kind. «Сними/вид/ракурс сверху или снизу» = angle сверху|снизу через set_coverage, не queue_ops: перерисовка картинки (image_ai_change) только если прямо просят перерисовать/изменить картинку.",
+    "рассвет|контровой|холодный верхний|туман. Роль кадра: «сделай кадр N дочерним кадра M» = type coverage_kind, "
+    "value child, parent_number=M; «сделай кадр родителем / самостоятельным» = coverage_kind value parent. "
+    "parent_number только для coverage_kind. «Сними/вид/ракурс сверху или снизу» = angle сверху|снизу через set_coverage, не queue_ops: перерисовка картинки (image_ai_change) только если прямо просят перерисовать/изменить картинку.",
     "project.resume": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай.",
     "project.continue_pipeline": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай. «Пусть дальше идёт само/автоматически» без «продолжи/запусти» - project.set_auto_mode.",
     "publish.send": "caption сервер подставит. platforms только названные (yt_shorts = ютуб/шортс; ig_reels = инстаграм/рилс; vk_clips = вк/клипы); не названы - опусти.",

@@ -670,8 +670,13 @@ def _coverage_text(body: dict[str, Any]) -> str:
         return ""
     what = _COVERAGE_RU.get(str(body.get("type") or ""), "покрытие")
     value = body.get("value")
+    if body.get("type") == "coverage_kind":
+        value = _ROLE_RU.get(str(value or "").lower(), value)
     tail = f" — {value}" if value not in (None, "") else " изменено"
     return f"Кадр {body.get('frame_number')}: {what}{tail}."
+
+
+_ROLE_RU = {"child": "дочерний", "parent": "родитель"}
 
 
 def _insert_frame_text(body: dict[str, Any]) -> str:

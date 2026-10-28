@@ -33,3 +33,21 @@ def test_shot_hint_for_queue_ops_without_frame_id():
     rows = [{"p": "project_id*:int,ops*:[{type*:{video_regen},frame_number*:int,shot:{1|2}}]"}]
     assert any("шот" in line.lower() for line in _frame_hints(rows))
     assert _frame_hints([{"p": "project_id*:int,screenshot:str"}]) == []
+
+
+def test_coverage_role_in_russian_becomes_child_or_parent():
+    from app.services.action_layer.planner_rules import _normalize_values
+
+    out = {"type": "coverage_kind", "value": "дочерний", "parent_number": 1}
+    _normalize_values("montage.set_coverage", out, [])
+    assert out == {"type": "coverage_kind", "value": "child", "parent_number": 1}
+    out = {"type": "coverage_kind", "value": "Родитель"}
+    _normalize_values("montage.set_coverage", out, [])
+    assert out["value"] == "parent"
+
+
+def test_coverage_role_text_is_russian():
+    from app.orchestrator.agents.summarizer import _coverage_text
+
+    body = {"ok": True, "type": "coverage_kind", "value": "child", "frame_number": 2}
+    assert _coverage_text(body) == "Кадр 2: тип кадра — дочерний."
