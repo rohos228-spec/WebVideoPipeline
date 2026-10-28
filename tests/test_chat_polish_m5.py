@@ -130,3 +130,12 @@ def test_frame_field_value_without_verb_is_task():
     for q in ("какой свет у кадра 8", "покажи действие кадра 3"):
         r = c(q)
         assert r is None or r.mode.value != "task", q
+
+
+def test_media_file_path_without_verb_is_task():
+    from app.orchestrator.queue import classify_deterministic as c
+
+    r = c(r"музыка для проекта 4 — файл C:\data\uploads\music.wav")
+    assert r is not None and r.mode.value == "task"
+    r = c(r"что за файл C:\data\uploads\music.wav")
+    assert r is None or r.mode.value != "task"

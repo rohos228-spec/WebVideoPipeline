@@ -260,6 +260,7 @@ _GO_WORDS = frozenset(
 _QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
 
 
+_MEDIA_PATH_RE = re.compile(r"[\\/][^\\/\s]+\.(?:wav|mp3|m4a|ogg|flac|aac|png|jpe?g|webp|mp4|mov|webm)\b")
 _SHOW_WORDS = frozenset({"покажи", "скажи", "расскажи", "напомни", "проверь", "посмотри"})
 _FIELD_WORDS = r"освещени|свет|стык|движени|ракурс|крупн|план|действи|якор|закадр"
 _FRAME_FIELD_RE = re.compile(
@@ -415,7 +416,11 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     field_value = bool(_FRAME_FIELD_RE.search(norm)) and not (
         tokens and (tokens[0] in _QUESTION_STARTS or tokens[0] in _SHOW_WORDS)
     )
-    sets_field = bool(_FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value) and not (
+    # «Музыка для проекта 4 — файл C:\...gm.wav» — путь к медиафайлу без вопроса: это загрузка.
+    media_file = bool(_MEDIA_PATH_RE.search(norm)) and not (tokens and tokens[0] in _QUESTION_STARTS)
+    sets_field = bool(
+        _FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value or media_file
+    ) and not (
         norm.rstrip().endswith("?")
     )
     if has_imperative(norm) or sets_field or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?")):
