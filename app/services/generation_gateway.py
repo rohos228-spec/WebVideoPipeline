@@ -268,7 +268,7 @@ class GenerationGateway:
                         await generate_kie_image(
                             prompt=prompt,
                             out_path=dest_file,
-                            model=model,
+                            model_slug=model,
                             aspect_ratio=aspect,
                         )
                     elif prov == "outsee":
@@ -281,12 +281,12 @@ class GenerationGateway:
                             aspect=aspect,
                         )
                     elif prov == "vibecode":
-                        from app.bots.vibecode_images import generate_image_vibecode
+                        from app.bots.vibecode_images import generate_image as generate_vibecode_img
 
-                        await generate_image_vibecode(
+                        await generate_vibecode_img(
                             prompt=prompt,
                             out_path=dest_file,
-                            model=model,
+                            model_slug=model,
                         )
                     else:
                         raise ValueError(f"Неизвестный провайдер картинок: {prov}")

@@ -342,7 +342,8 @@ async def reconcile_project(
             .where(MediaCall.project_id == project.id, MediaCall.tenant_id.is_(None))
             .values(tenant_id=tenant_id)
         )
-        stats.media_calls_repaired += int(mc_res.rowcount or 0)
+        mc_count = getattr(mc_res, "rowcount", 0) or 0
+        stats.media_calls_repaired += int(mc_count)
 
         # LlmCall
         llm_res = await session.execute(
@@ -350,7 +351,8 @@ async def reconcile_project(
             .where(LlmCall.project_id == project.id, LlmCall.tenant_id.is_(None))
             .values(tenant_id=tenant_id)
         )
-        stats.llm_calls_repaired += int(llm_res.rowcount or 0)
+        llm_count = getattr(llm_res, "rowcount", 0) or 0
+        stats.llm_calls_repaired += int(llm_count)
 
     if not dry_run:
         await session.flush()

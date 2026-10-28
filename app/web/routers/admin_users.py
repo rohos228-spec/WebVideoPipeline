@@ -522,7 +522,7 @@ async def create_user_endpoint(
     except UserError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    created_str = user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else ""
+    created_ts = int(user.created_at.timestamp()) if user.created_at else int(datetime.now(UTC).timestamp())
     return AdminUserRow(
         id=user.id,
         email=user.email,
@@ -532,14 +532,12 @@ async def create_user_endpoint(
         status="active" if user.is_active else "blocked",
         plan=body.plan or "Free",
         balance_credits=0,
-        balance_rub=0,
-        generations_count=0,
-        projects_count=0,
-        requests_count=0,
+        generations=0,
+        projects=0,
+        requests=0,
         cost_usd=0.0,
-        cost_rub=0.0,
-        last_activity=created_str,
-        created_at=created_str,
+        last_activity=user.created_at.strftime("%Y-%m-%d %H:%M:%S") if user.created_at else None,
+        created_at=created_ts,
         email_verified=user.email_verified,
     )
 
@@ -607,25 +605,33 @@ async def get_overview(days: int = 30, session: AsyncSession = Depends(get_sessi
         )
     ).first()
 
-    total_calls = int(m_res[0] or 0) + int(l_res[0] or 0)
-    total_cost_usd = round(float(m_res[1] or 0.0) + float(l_res[1] or 0.0), 2)
-    total_errors = int(m_res[2] or 0) + int(l_res[2] or 0)
+    m_calls = int(m_res[0]) if m_res and m_res[0] else 0
+    m_cost = float(m_res[1]) if m_res and m_res[1] else 0.0
+    m_errors = int(m_res[2]) if m_res and m_res[2] else 0
+
+    l_calls = int(l_res[0]) if l_res and l_res[0] else 0
+    l_cost = float(l_res[1]) if l_res and l_res[1] else 0.0
+    l_errors = int(l_res[2]) if l_res and l_res[2] else 0
+
+    total_calls = m_calls + l_calls
+    total_cost_usd = round(m_cost + l_cost, 2)
+    total_errors = m_errors + l_errors
 
     # Топ пользователи
     users = (await session.execute(select(StudioUser).limit(5))).scalars().all()
     top_users: list[dict[str, Any]] = []
     for u in users:
-        st = await _aggregate_user_stats(session, u.id)
+        user_stat = await _aggregate_user_stats(session, u.id)
         top_users.append(
             {
                 "user_id": str(u.id),
                 "username": u.email.split("@")[0],
                 "name": u.display_name or u.email.split("@")[0],
-                "generations": st["generations"],
-                "requests": st["requests"],
-                "cost_usd": st["cost_usd"],
-                "credits_spent": st["spent_credits"],
-                "balance_credits": st["balance_credits"],
+                "generations": user_stat["generations"],
+                "requests": user_stat["requests"],
+                "cost_usd": user_stat["cost_usd"],
+                "credits_spent": user_stat["spent_credits"],
+                "balance_credits": user_stat["balance_credits"],
             }
         )
     top_users.sort(key=lambda x: x["generations"], reverse=True)
