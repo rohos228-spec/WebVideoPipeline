@@ -61,6 +61,9 @@ from app.web.routers import (
     gen_assistant as gen_assistant_router,
 )
 from app.web.routers import (
+    generation as generation_router,
+)
+from app.web.routers import (
     generation_options as generation_options_router,
 )
 from app.web.routers import (
@@ -479,6 +482,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
+    app.include_router(generation_router.router, prefix=API_PREFIX)
     app.include_router(config_presets_router.router, prefix=API_PREFIX)
     app.include_router(outsee_create_router.router, prefix=API_PREFIX)
     app.include_router(outsee_http_router.router, prefix=API_PREFIX)
