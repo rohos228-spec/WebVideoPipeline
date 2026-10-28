@@ -51,3 +51,52 @@ def test_coverage_role_text_is_russian():
 
     body = {"ok": True, "type": "coverage_kind", "value": "child", "frame_number": 2}
     assert _coverage_text(body) == "Кадр 2: тип кадра — дочерний."
+
+
+def test_delete_request_gets_a_clear_refusal():
+    from app.orchestrator.agents.summarizer import DELETE_REFUSED, delete_refusal_text
+
+    for q in ("удали кадр 5 в проекте 12", "в проекте 12 убери кадр 6 совсем", "сотри кадр 7 из проекта 12"):
+        assert delete_refusal_text(q) == DELETE_REFUSED, q
+    for q in ("убери реф с кадра 1", "сделай кадр 2 дочерним", "убери все правки из очереди"):
+        assert delete_refusal_text(q) == "", q
+
+
+def test_light_words_normalized_to_catalog():
+    from app.services.action_layer.planner_rules import _normalize_values
+
+    for raw, want in (("ночное", "ночной"), ("закатный", "закат"), ("рассветный", "рассвет")):
+        out = {"type": "coverage_light", "value": raw}
+        _normalize_values("montage.set_coverage", out, [])
+        assert out["value"] == want
+
+
+def _queue_step(text):
+    from app.orchestrator.contracts import PlanStep
+
+    ops = [{"type": "image_regen_correction", "frame_number": 8, "correction": text}]
+    return [PlanStep(action="montage.queue_ops", params={"project_id": 12, "ops": ops}, mutating=True)]
+
+
+def test_light_phrase_is_coverage_not_redraw():
+    from app.orchestrator.agents.light_scope import light_as_coverage
+
+    plan = light_as_coverage(_queue_step("ночное освещение"), "проект 12, кадр 8: ночное освещение")
+    assert [(s.action, s.params["type"], s.params["value"], s.params["frame_number"]) for s in plan] == [
+        ("montage.set_coverage", "coverage_light", "ночной", 8)
+    ]
+
+
+def test_redraw_request_stays_in_queue():
+    from app.orchestrator.agents.light_scope import light_as_coverage
+
+    plan = light_as_coverage(_queue_step("ночное освещение"), "перерисуй картинку кадра 8 с ночным освещением")
+    assert plan[0].action == "montage.queue_ops"
+
+
+def test_frame_value_in_quotes_is_a_task():
+    from app.orchestrator.queue import classify_deterministic
+
+    for q in ("в проекте 12 у кадра 14 действие: «сова поворачивает голову»", "кадр 15: опиши действие «птенец открывает клюв»"):
+        assert classify_deterministic(q).mode.value == "task", q
+    assert classify_deterministic("какой закадр у кадра 3 «тест»?").mode.value != "task"

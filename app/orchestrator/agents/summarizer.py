@@ -126,6 +126,20 @@ SPLIT_SCENE_HINT = (
 )
 
 
+# «Удали кадр 5 в проекте 12»: план пустой, и человек получал «Не понял, что сделать».
+_DELETE_VERB = re.compile(r"(?<![а-я])(?:удал|сотр|стер)|(?<![а-я])убер\w*.{0,30}совсем")
+_BOARD_THING = re.compile(r"кадр|сцен|шот|картин|видео")
+DELETE_REFUSED = (
+    "Удалять через чат нельзя, так задумано. Кадры, картинки и видео удаляются вручную "
+    "на доске монтажа."
+)
+
+
+def delete_refusal_text(goal: str) -> str:
+    text = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    return DELETE_REFUSED if _DELETE_VERB.search(text) and _BOARD_THING.search(text) else ""
+
+
 def missing_action_text(reason: str, goal: str = "") -> str:
     """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
     if _NO_FRAME_DELETE.search(reason or ""):

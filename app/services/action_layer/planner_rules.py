@@ -218,6 +218,7 @@ _COVERAGE_CHOICES = {
     "coverage_plan": ("ОБЩИЙ", "ДАЛЬНИЙ", "СРЕДНИЙ", "КРУПНЫЙ", "ДЕТАЛЬ"),
     "coverage_angle": ("фронт", "3/4", "с плеча", "сверху", "снизу", "макро"),
     "coverage_move": ("статика", "наезд", "отъезд", "панорама", "следование", "ручная"),
+    "coverage_light": ("дневной", "ночной", "закат", "рассвет", "контровой", "холодный верхний", "туман"),
 }
 
 
@@ -242,7 +243,9 @@ def _normalize_values(action_id: str, out: dict, notes: list[str]) -> None:
         if choices and isinstance(value, str):
             low = _norm(value)
             for c in choices:
-                if low == _norm(c) or _norm(c) in low.split() or low.startswith(_norm(c)):
+                # «ночное» — ночной, «закатный» — закат: у света слово меняет окончание.
+                same_stem = out.get("type") == "coverage_light" and low[:4] == _norm(c)[:4]
+                if low == _norm(c) or _norm(c) in low.split() or low.startswith(_norm(c)) or same_stem:
                     out["value"] = c
                     break
 
@@ -1251,7 +1254,8 @@ ACTION_NOTES: dict[str, str] = {
     "montage.set_coverage": "Крупность/ракурс/движение/свет/стык кадра БЕЗ слов «меню съёмки» - это действие "
     "(крупность = type coverage_plan); с «меню съёмки» - shot.edit_field. plan ОБЩИЙ|ДАЛЬНИЙ|СРЕДНИЙ|КРУПНЫЙ|ДЕТАЛЬ; angle фронт|3/4|с плеча|сверху|снизу|макро; "
     "move статика|наезд|отъезд|панорама|следование|ручная; light дневной|ночной|закат|"
-    "рассвет|контровой|холодный верхний|туман. Роль кадра: «сделай кадр N дочерним кадра M» = type coverage_kind, "
+    "рассвет|контровой|холодный верхний|туман; «ночное / дневное / закатное освещение кадра» — тоже light через "
+    "set_coverage, не queue_ops. Роль кадра: «сделай кадр N дочерним кадра M» = type coverage_kind, "
     "value child, parent_number=M; «сделай кадр родителем / самостоятельным» = coverage_kind value parent. "
     "parent_number только для coverage_kind. «Сними/вид/ракурс сверху или снизу» = angle сверху|снизу через set_coverage, не queue_ops: перерисовка картинки (image_ai_change) только если прямо просят перерисовать/изменить картинку.",
     "project.resume": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай.",

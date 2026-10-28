@@ -260,6 +260,7 @@ _GO_WORDS = frozenset(
 _QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
 
 
+_FRAME_VALUE_RE = re.compile(r"(?<![а-я])кадр\w*\s*\d+[^«\"?]{0,60}[«\"][^»\"]{2,}")
 _SPEND_LIMIT_RE = re.compile(r"(?<![а-я])(?:лимит\w*|потолок\w*)\s*(?:в\s+)?\$?\s*\d")
 
 
@@ -396,7 +397,9 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             confidence=1.0,
         )
     # «Теперь промты картинок для 26, лимит $0.5»: потолок расхода — это просьба запустить, не вопрос.
-    if has_imperative(norm) or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?")):
+    # «Кадр 14: действие «сова поворачивает голову»» — новое значение поля кадра в кавычках.
+    sets_field = bool(_FRAME_VALUE_RE.search(norm)) and not norm.rstrip().endswith("?")
+    if has_imperative(norm) or sets_field or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?")):
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.task,

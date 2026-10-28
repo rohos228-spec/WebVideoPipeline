@@ -66,6 +66,7 @@ from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
+from app.orchestrator.agents.light_scope import light_as_coverage
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
     ActionBackedExecutor,
@@ -2802,6 +2803,8 @@ class Supervisor:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
         drafted = scope_settings(list(drafted), goal)
+        # «Кадр 8: ночное освещение» — свет на доске, а не платная перерисовка картинки.
+        drafted = light_as_coverage(drafted, goal)
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []
@@ -3170,6 +3173,11 @@ class Supervisor:
         )
         if unknown:
             self._fail_detail[task_id] = unknown
+            self._code_answers.add(task_id)
+            return
+        refused = task_summary.delete_refusal_text(goal)
+        if refused:
+            self._fail_detail[task_id] = refused
             self._code_answers.add(task_id)
             return
         # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.
