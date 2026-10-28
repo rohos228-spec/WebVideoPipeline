@@ -137,6 +137,7 @@ export function NodeStudio({
   /** false = весь лист (дефолт); true = узкий ключевой фрагмент по типу ноды */
   const [xlsxFocusKeyRows, setXlsxFocusKeyRows] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const backdropMouseDownRef = useRef<EventTarget | null>(null);
 
   const qc = useQueryClient();
   const project = useQuery({
@@ -794,7 +795,14 @@ export function NodeStudio({
   return createPortal(
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm"
-      onClick={requestClose}
+      onMouseDown={(e) => {
+        backdropMouseDownRef.current = e.target;
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget && backdropMouseDownRef.current === e.currentTarget) {
+          requestClose();
+        }
+      }}
     >
       <aside
         className="vp-menu nowheel nopan relative isolate flex max-h-[88vh] h-[720px] w-[min(880px,96vw)] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl"

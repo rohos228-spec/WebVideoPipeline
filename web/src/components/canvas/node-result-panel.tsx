@@ -49,6 +49,13 @@ export function NodeResultPanel({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        onPointerDownOutside={(e) => {
+          // Предотвратить закрытие диалога при протяжке выделения текста за границы окна
+          e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          e.preventDefault();
+        }}
         className={cn(
           "flex flex-col overflow-hidden",
           wide
