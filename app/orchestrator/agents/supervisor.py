@@ -67,6 +67,7 @@ from app.orchestrator.agents.executor import effective_risk, run_many, step_is_p
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.light_scope import light_as_coverage
+from app.orchestrator.agents.upload_scope import upload_source_from_goal
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
     ActionBackedExecutor,
@@ -2805,6 +2806,8 @@ class Supervisor:
         drafted = scope_settings(list(drafted), goal)
         # «Кадр 8: ночное освещение» — свет на доске, а не платная перерисовка картинки.
         drafted = light_as_coverage(drafted, goal)
+        # «Музыка для проекта 4 — файл C:\...\bgm.wav»: путь из просьбы, если шаг загрузки без файла.
+        drafted = upload_source_from_goal(drafted, goal)
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []

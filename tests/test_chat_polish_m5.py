@@ -135,7 +135,19 @@ def test_frame_field_value_without_verb_is_task():
 def test_media_file_path_without_verb_is_task():
     from app.orchestrator.queue import classify_deterministic as c
 
-    r = c(r"музыка для проекта 4 — файл C:\data\uploads\music.wav")
+    r = c(r"музыка для проекта 4 — файл C:/data/uploads/music.wav")
     assert r is not None and r.mode.value == "task"
-    r = c(r"что за файл C:\data\uploads\music.wav")
+    r = c(r"что за файл C:/data/uploads/music.wav")
     assert r is None or r.mode.value != "task"
+
+
+def test_upload_step_takes_path_from_goal():
+    from app.orchestrator.agents.upload_scope import upload_source_from_goal
+    from app.orchestrator.contracts import PlanStep
+
+    goal = "музыка для проекта 4 — файл C:/data/uploads/music.wav"
+    step = PlanStep(action="montage.upload_music", params={"project_id": 4}, expected="музыка")
+    out = upload_source_from_goal([step], goal)
+    assert out[0].params["source_path"] == "C:/data/uploads/music.wav"
+    kept = PlanStep(action="montage.upload_music", params={"project_id": 4, "source_path": "C:/x.wav"}, expected="м")
+    assert upload_source_from_goal([kept], goal)[0].params["source_path"] == "C:/x.wav"
