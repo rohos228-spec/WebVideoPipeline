@@ -84,7 +84,8 @@ export function NodeResultPanel({
         ) : (
           <div
             className={cn(
-              snapshot.viewMode === "html_report" && "flex min-h-0 flex-1 flex-col bg-black",
+              "flex min-h-0 flex-1 flex-col overflow-hidden",
+              snapshot.viewMode === "html_report" && "bg-black",
             )}
           >
             <NodeResultViewBody

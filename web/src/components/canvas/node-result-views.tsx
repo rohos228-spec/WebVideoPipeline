@@ -1001,7 +1001,7 @@ function FrameImagesView({
   });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
       <div className="flex flex-wrap items-center gap-2">
         {isHero && (
           <>
@@ -1193,7 +1193,7 @@ function FrameVideosView({ items }: { items: NodeResultItem[] }) {
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1 pb-4">
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={goFullscreen} disabled={!current?.previewUrl}>
           <Maximize2 className="h-3.5 w-3.5" />
@@ -1261,7 +1261,7 @@ function SceneImagesGalleryView({ projectId }: { projectId: number }) {
   const items = (media.data ?? []).filter((f) => f.preview_url);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-4">
       <MediaFrameGallery
         projectId={projectId}
         kind="images"
@@ -1284,7 +1284,7 @@ function SceneVideosGalleryView({ projectId }: { projectId: number }) {
   const items = (media.data ?? []).filter((f) => f.preview_url);
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto pr-1 pb-4">
       <MediaFrameGallery
         projectId={projectId}
         kind="videos"
@@ -1303,7 +1303,7 @@ function TopicEditView({
   snapshot: NodeResultSnapshot;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 pb-4">
       <TopicEditor
         projectId={projectId}
         initialTopic={snapshot.items[0]?.content ?? ""}
@@ -1365,7 +1365,7 @@ function ExcelGptResultView({
   const xlsxItem = snapshot.items.find((i) => i.kind === "xlsx");
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
       <XlsxUploadBar
         projectId={projectId}
         nodeKey={nodeKey}
@@ -1427,7 +1427,7 @@ function DefaultResultView({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 overflow-y-auto pr-1 pb-4">
       {item.kind === "xlsx" && (
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => fileRef.current?.click()} className="h-8 gap-1.5 text-xs text-zinc-300 hover:text-white border-white/10 hover:bg-zinc-800">
@@ -1591,7 +1591,7 @@ function SfxPlanView({
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 pb-4">
       {/* Сводная карточка */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-amber-500/5 via-violet-500/5 to-transparent p-4">
         <div className="flex items-center gap-3">
@@ -1848,7 +1848,7 @@ function SfxGenView({
     : "Локальный синтез";
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 pb-4">
       {/* Сводная карточка */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-emerald-500/5 via-violet-500/5 to-transparent p-4">
         <div className="flex items-center gap-3">
