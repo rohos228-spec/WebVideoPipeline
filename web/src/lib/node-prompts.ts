@@ -33,6 +33,10 @@ const NO_EXCEL_NODE_TYPES = new Set([
 export const NO_PROMPTS_NODE_TYPES = new Set([
   "images",
   "videos",
+  "audio",
+  "sfx_plan",
+  "sfx_gen",
+  "sfx",
   "assemble",
   "publish",
   "topic",
@@ -93,13 +97,19 @@ const BASE: Record<string, NodePromptSlot[]> = {
     { id: "main", title: "Промт анимации", kind: "gpt", stepCode: "anim_pr" },
   ],
   videos: [],
-  audio: [
-    { id: "tts", title: "ElevenLabs TTS", kind: "gpt" },
-  ],
+  audio: [],
   music: [
-    { id: "voiceover", title: "voiceover.txt", kind: "text", stepCode: "music" },
-    { id: "gpt_text", title: "Текст для GPT (Suno)", kind: "text", stepCode: "music" },
+    {
+      id: "main",
+      title: "Промт музыки",
+      kind: "gpt",
+      stepCode: "music",
+      description: "prompts/10_music — инструкция для GPT по созданию промпта Suno",
+    },
   ],
+  sfx_plan: [],
+  sfx_gen: [],
+  sfx: [],
   assemble: [],
   publish: [],
 };
@@ -119,7 +129,7 @@ export function sceneAgentFromNodeKey(nodeKey?: string | null): string | undefin
 export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
   if (isHitlNodeType(nodeType) || nodeType === "shot_menu" || NO_PROMPTS_NODE_TYPES.has(nodeType)) return [];
   const base = BASE[nodeType];
-  if (base?.length) return base;
+  if (base) return base;
   if (nodeTypeRequiresExcel(nodeType)) {
     return [excelSlotForNodeType(nodeType), { id: "main", title: "Настройки ноды", kind: "gpt" }];
   }

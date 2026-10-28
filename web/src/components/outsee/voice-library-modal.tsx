@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Mic, Pause, Play, Search, Volume2, X } from "lucide-react";
 import RU_VOICES_DATA from "@/lib/ru-voices.json";
 
@@ -119,22 +120,24 @@ export function VoiceLibraryModal({
 
   const femaleCount = useMemo(() => ALL_VOICES.filter((v) => v.gender === "female").length, []);
   const maleCount = useMemo(() => ALL_VOICES.filter((v) => v.gender === "male").length, []);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  if (!open) return null;
+  if (!open || !mounted) return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-200"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 p-4 sm:p-6 backdrop-blur-md animate-in fade-in duration-200"
       onClick={() => onOpenChange(false)}
     >
       <div
-        className="relative flex h-[88vh] max-h-[860px] w-full max-w-4xl flex-col rounded-2xl border border-white/10 bg-[#0f1015] text-white shadow-2xl shadow-black/80"
+        className="relative flex h-[85vh] max-h-[820px] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f1015] text-white shadow-2xl shadow-black/90"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#22d3ee]/10 text-[#22d3ee] ring-1 ring-[#22d3ee]/25">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#22d3ee]/10 text-[#22d3ee] ring-1 ring-[#22d3ee]/25">
               <Mic className="h-5 w-5" />
             </div>
             <div>
@@ -161,7 +164,7 @@ export function VoiceLibraryModal({
         </div>
 
         {/* Filter bar: Search + Gender Tabs */}
-        <div className="flex flex-col gap-3 border-b border-white/10 bg-white/[0.02] px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex shrink-0 flex-col gap-3 border-b border-white/10 bg-white/[0.02] px-6 py-3 sm:flex-row sm:items-center sm:justify-between">
           {/* Search Input */}
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
@@ -333,6 +336,7 @@ export function VoiceLibraryModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
