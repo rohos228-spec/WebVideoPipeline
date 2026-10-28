@@ -354,11 +354,13 @@ export function PromptFilesPanel({
   });
   const catalogItems: CatalogPanelItem[] = (catalogPanel ? fileList : []).map((f, i) => {
     const body = fileContents[i]?.data?.content ?? "";
+    const isShared = f.is_shared ?? (f.is_default || f.name.includes("default") || f.name.includes("cinematic"));
+    const category = isShared ? "Общие промты" : "Мои промты";
     return {
       id: f.name,
       label: f.title || f.name,
       kind: "text" as const,
-      category: f.is_default ? "По умолчанию" : activeVariant === f.name ? "Активный" : "Варианты",
+      category,
       description: f.description || ((body.split(/\n/).map((l) => l.replace(/^[#>*\-\s]+/, "").replace(/[*`_]/g, "").trim()).find((l) => l.length >= 20) ?? "").split(/(?<=[.!?])\s/)[0] ?? "").slice(0, 220),
       content: body || "Загрузка…",
       previewUrl: null,

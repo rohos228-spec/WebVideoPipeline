@@ -10,10 +10,13 @@
  */
 
 import type React from "react";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Copy, Download, ExternalLink, ImageOff, Search, Upload, Wand2, X } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { ChevronDown, Copy, Download, ExternalLink, ImageOff, Plus, Search, Upload, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
+import { errorMessageFromUnknown } from "@/lib/error-message";
 import { StarRating } from "@/components/ui/star-rating";
 import type { NodeResultItem as BaseItem } from "@/lib/node-result-resolver";
 import { MetaPromptDialog } from "@/components/studio/meta-prompt-dialog";
@@ -267,6 +270,147 @@ function PosterCover({ id, label, nodeKey }: { id: string; label: string; nodeKe
 
 export type CatalogPanelItem = NodeResultItem & { sizeLabel?: string };
 
+export function CreatePromptModal({
+  stepCode,
+  projectId,
+  onClose,
+  onCreated,
+}: {
+  stepCode: string;
+  projectId?: number;
+  onClose: () => void;
+  onCreated: (name: string) => void;
+}) {
+  const qc = useQueryClient();
+  const [name, setName] = useState("");
+  const [content, setContent] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setContent(text);
+      if (!name) {
+        setName(file.name.replace(/\.(md|txt)$/i, ""));
+      }
+    } catch {
+      toast.error("Не удалось прочитать файл");
+    }
+  };
+
+  const handleSave = async () => {
+    const cleanName = name.trim().replace(/\s+/g, "_").replace(/\.(md|txt)$/i, "");
+    if (!cleanName) {
+      toast.error("Укажите имя файла промта");
+      return;
+    }
+    setSaving(true);
+    try {
+      const fileName = `${cleanName}.md`;
+      await api.savePromptFile(stepCode, fileName, content);
+      toast.success(`Промт «${cleanName}» создан`);
+      await qc.invalidateQueries({ queryKey: ["prompt-files"] });
+      await qc.invalidateQueries({ queryKey: ["prompt-file"] });
+      await qc.invalidateQueries({ queryKey: ["prompt-variants", stepCode] });
+      onCreated(cleanName);
+      onClose();
+    } catch (e) {
+      toast.error(errorMessageFromUnknown(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <div
+        className="absolute inset-0 bg-black/75 backdrop-blur-[3px] animate-in fade-in duration-200"
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex max-h-[92vh] w-[min(94vw,680px)] flex-col overflow-hidden rounded-xl border border-white/15 bg-[#121216] shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/10 px-4">
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs font-semibold text-emerald-400">
+              Новый промт
+            </span>
+            <span className="text-sm font-medium text-white">{stepCode}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-white/10 hover:text-white"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3.5 p-4 overflow-y-auto">
+          <div>
+            <label className="text-xs font-medium text-zinc-300">Имя файла промта:</label>
+            <div className="mt-1 flex items-center gap-2">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="my_custom_prompt"
+                className="flex-1 rounded-lg border border-white/15 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-zinc-600 outline-none focus:border-emerald-500/50"
+              />
+              <span className="text-xs text-zinc-500 font-mono">.md</span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-2 text-xs font-medium text-zinc-300 hover:bg-white/10 hover:text-white"
+              >
+                <Upload className="h-3.5 w-3.5" /> Загрузить .md
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.txt"
+                className="hidden"
+                onChange={handleFileChange}
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 flex flex-col min-h-[220px]">
+            <label className="text-xs font-medium text-zinc-300 mb-1">Текст промта:</label>
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Введите текст системного промта или инструкции..."
+              className="flex-1 min-h-[220px] rounded-lg border border-white/15 bg-black/40 p-3 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-emerald-500/50 resize-y"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-white/10 bg-[#16161b] px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-400 hover:bg-white/5 hover:text-white"
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            disabled={saving || !name.trim()}
+            onClick={handleSave}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-1.5 text-xs font-medium text-white shadow-md hover:bg-emerald-500 disabled:opacity-50"
+          >
+            {saving ? "Сохранение…" : "Сохранить и выбрать"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Боковая панель «Каталог промтов ноды» — крепится к ноде на канвасе линией.
  * Клик — выбрать и активировать, двойной клик — просмотр промта.
@@ -298,6 +442,7 @@ export function NodeCatalogPanel({
 }) {
   const resolvedStepCode = stepCode || stepCodeForNodeKey(nodeKey);
   const [detail, setDetail] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("Все");
@@ -424,6 +569,17 @@ export function NodeCatalogPanel({
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
           {resolvedStepCode ? (
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              title="Создать новый промпт или загрузить .md файл"
+              className="flex h-9 items-center gap-1.5 bg-[#141417] px-3 text-[13px] font-semibold text-emerald-400 hover:bg-[#1b1b1f] hover:text-emerald-300 transition-colors select-none cursor-pointer"
+            >
+              <Plus className="h-3.5 w-3.5 text-emerald-400" />
+              <span>+ Промпт</span>
+            </button>
+          ) : null}
+          {resolvedStepCode ? (
             <MetaPromptDialog
               stepCode={resolvedStepCode}
               projectId={projectId}
@@ -464,6 +620,23 @@ export function NodeCatalogPanel({
               ))}
             </div>
           ) : null}
+        </div>
+        <div className="flex items-center gap-1.5 border-b border-white/10 bg-[#101013] px-3 py-1.5 text-xs overflow-x-auto [scrollbar-width:none]">
+          {cats.map(([c, n]) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setCat(c)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors shrink-0",
+                cat === c
+                  ? "bg-white text-black shadow-sm"
+                  : "bg-white/[0.05] text-zinc-400 hover:bg-white/10 hover:text-white",
+              )}
+            >
+              {c} <span className="opacity-60 ml-0.5">({n})</span>
+            </button>
+          ))}
         </div>
         <div className="min-h-0 flex-auto overflow-y-auto">
           {shown.length === 0 ? (
@@ -611,6 +784,14 @@ export function NodeCatalogPanel({
         ) : (
           catalogBody
         )}
+        {createOpen && resolvedStepCode ? (
+          <CreatePromptModal
+            stepCode={resolvedStepCode}
+            projectId={projectId}
+            onClose={() => setCreateOpen(false)}
+            onCreated={(name) => onActivate(name)}
+          />
+        ) : null}
       </div>
     );
   }
@@ -685,6 +866,14 @@ export function NodeCatalogPanel({
           stepCode={resolvedStepCode}
           projectId={projectId}
           onActivate={onActivate}
+        />
+      ) : null}
+      {createOpen && resolvedStepCode ? (
+        <CreatePromptModal
+          stepCode={resolvedStepCode}
+          projectId={projectId}
+          onClose={() => setCreateOpen(false)}
+          onCreated={(name) => onActivate(name)}
         />
       ) : null}
     </>,
