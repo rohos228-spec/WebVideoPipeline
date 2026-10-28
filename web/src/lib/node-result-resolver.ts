@@ -346,7 +346,15 @@ function computeNodeResult(
           textField: "script_text",
         };
       }
-      return empty("Закадровый текст ещё не готов", "text", "voiceover_wide");
+      return {
+        hasResult: true,
+        itemCount: 0,
+        summary: "Закадровый текст ещё не задан",
+        items: [{ id: "script_text", label: "Закадровый текст", kind: "text", content: "" }],
+        replaceMode: "text",
+        viewMode: "voiceover_wide",
+        textField: "script_text",
+      };
     }
 
     case "split": {
