@@ -13,6 +13,8 @@ import {
   CreditCard,
   ExternalLink,
   History,
+  Maximize2,
+  Minimize2,
   Monitor,
   RefreshCw,
   ScrollText,
@@ -363,6 +365,7 @@ function UserDrawer({
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const [isFullWidth, setIsFullWidth] = useState(true);
   const detail = useQuery({
     queryKey: ["admin", "user", userId],
     queryFn: () => adminApi.user(userId!),
@@ -394,16 +397,29 @@ function UserDrawer({
   const meId = access.data?.user?.id ?? null;
   const adminsCount = overview.data?.users.admins ?? null;
 
+  const extraHeader = (
+    <button
+      type="button"
+      onClick={() => setIsFullWidth((prev) => !prev)}
+      aria-label={isFullWidth ? "Свернуть в панель" : "Развернуть во всю ширину"}
+      title={isFullWidth ? "Свернуть в боковую панель" : "Развернуть во всю ширину страницы"}
+      className="flex h-8 w-8 items-center justify-center rounded-[8px] text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white"
+    >
+      {isFullWidth ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+    </button>
+  );
+
   return (
     <Drawer
       open
-      width={DRAWER_WIDTH}
+      width={isFullWidth ? "100%" : DRAWER_WIDTH}
       title={u ? u.name || u.username || `#${u.id}` : `Пользователь #${userId}`}
       subtitle={u ? `@${u.username || "—"} · ${u.email || "—"}` : "загрузка…"}
       onClose={onClose}
+      extraHeader={extraHeader}
     >
       {detail.isLoading ? (
-        <div className="flex flex-col gap-3">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3">
           <Skel h={96} />
           <Skel h={92} />
           <Skel h={150} />
@@ -414,7 +430,7 @@ function UserDrawer({
       ) : !u ? (
         <Empty text="Не удалось загрузить пользователя" action={<Btn onClick={() => void detail.refetch()}>Повторить</Btn>} />
       ) : (
-        <div className="flex flex-col gap-3">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-3">
           <div className="flex items-center justify-end">
             <Btn onClick={onChanged} title="Обновить карточку">
               <RefreshCw className="h-4 w-4" />
@@ -494,7 +510,7 @@ function IdentityBlock({ u }: { u: AdminUserDetail }) {
 
 function StatsBlock({ u }: { u: AdminUserDetail }) {
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
       <Stat
         label="Баланс кредитов"
         value={fmtNum(u.balance_credits)}

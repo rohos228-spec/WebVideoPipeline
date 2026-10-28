@@ -330,20 +330,22 @@ export function Drawer({
   onClose,
   children,
   width = 560,
+  extraHeader,
 }: {
   open: boolean;
   title: ReactNode;
   subtitle?: ReactNode;
   onClose: () => void;
   children: ReactNode;
-  width?: number;
+  width?: number | string;
+  extraHeader?: ReactNode;
 }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[80] flex justify-end" style={FONT}>
       <button type="button" aria-label="Закрыть" className="absolute inset-0 bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
       <aside
-        className="relative flex h-full max-w-full flex-col overflow-hidden border-l border-white/10 bg-[#141518] shadow-2xl"
+        className="relative flex h-full max-w-full flex-col overflow-hidden border-l border-white/10 bg-[#141518] shadow-2xl transition-[width] duration-200"
         style={{ width, animation: "vpDrawerIn .22s ease both" }}
       >
         <style>{`@keyframes vpDrawerIn{from{transform:translateX(24px);opacity:.5}to{transform:none;opacity:1}}`}</style>
@@ -352,6 +354,7 @@ export function Drawer({
             <div className="truncate text-[17px] font-medium text-white">{title}</div>
             {subtitle ? <div className="mt-0.5 truncate text-[13px] text-zinc-500">{subtitle}</div> : null}
           </div>
+          {extraHeader}
           <button type="button" onClick={onClose} aria-label="Закрыть" className="flex h-8 w-8 items-center justify-center rounded-[8px] text-zinc-500 transition-colors hover:bg-white/[0.06] hover:text-white">
             <X className="h-4 w-4" />
           </button>
