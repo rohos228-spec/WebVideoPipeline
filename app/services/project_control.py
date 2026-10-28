@@ -17,7 +17,7 @@ from app.services.mass_factory import (
     mass_parent_id,
 )
 from app.services.project_state import is_running_status
-from app.services.step_cancel import clear_stop, is_generation_active, request_stop
+from app.services.step_cancel import clear_stop, is_advance_active, is_generation_active, request_stop
 from app.services.xlsx_flow_locks import clear_xlsx_flow_locks
 
 MASS_FAMILY_HALTED_KEY = "mass_family_halted"
@@ -282,7 +282,8 @@ async def stop_project_running(
                 chain_to,
             )
         step_title = step.title if step is not None else cur.value
-        clear_stop(project.id)
+        if not is_advance_active(project.id):
+            clear_stop(project.id)
         msg = f"остановлен шаг «{step_title}» → {rollback_to.value}"
         logger.info(
             "[#{}] STOP: rolled back {} -> {} (auto_mode={} сохранён)",
@@ -296,7 +297,8 @@ async def stop_project_running(
         stopped_kind = "xlsx"
         msg = f"остановлен xlsx-flow ({', '.join(xlsx_stopped)})"
         await stop_active_running_node(session, project)
-        clear_stop(project.id)
+        if not is_advance_active(project.id):
+            clear_stop(project.id)
     else:
         ok = True
         stopped_kind = "gate"

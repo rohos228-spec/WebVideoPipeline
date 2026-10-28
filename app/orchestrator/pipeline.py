@@ -99,6 +99,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
 
     from app.services.step_cancel import (
         abort_if_cancelled,
+        clear_stop,
         register_advance_task,
         unregister_advance_task,
     )
@@ -305,3 +306,4 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
             except Exception:  # noqa: BLE001
                 pass
         unregister_advance_task(pid)
+        clear_stop(pid)
