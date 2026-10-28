@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, ChevronDown, ChevronUp, Calculator } from "lucide-react";
+import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
@@ -11,10 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
-  ELEVENLABS_VOICES,
+  FEMALE_RU_VOICES,
+  MALE_RU_VOICES,
+  STANDARD_ELEVENLABS_VOICES,
   elevenLabsVoiceLabel,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
+import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
 import {
   charCountFromDuration,
   effectiveDurationSeconds,
@@ -139,35 +142,157 @@ function AudioFields({
 }) {
   const savedId = params.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
   const [voiceDraft, setVoiceDraft] = useState(savedId);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [isPlayingSample, setIsPlayingSample] = useState(false);
+  const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     setVoiceDraft(savedId);
   }, [savedId]);
 
+  useEffect(() => {
+    return () => {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
+      }
+    };
+  }, []);
+
   const selected = findElevenLabsVoice(voiceDraft);
+  const ruVoice = getVoiceById(voiceDraft);
+
+  const togglePlaySample = () => {
+    if (isPlayingSample) {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
+      }
+      setIsPlayingSample(false);
+      return;
+    }
+    const sampleUrl = ruVoice?.sample_url || selected?.sample_url || `/api/voices/${voiceDraft}/sample`;
+    if (!sampleUrl) return;
+    const a = new Audio(sampleUrl);
+    sampleAudioRef.current = a;
+    setIsPlayingSample(true);
+    a.play().catch(() => setIsPlayingSample(false));
+    a.onended = () => {
+      setIsPlayingSample(false);
+      sampleAudioRef.current = null;
+    };
+    a.onerror = () => {
+      setIsPlayingSample(false);
+      sampleAudioRef.current = null;
+    };
+  };
+
+  const handleSelectVoiceFromModal = (voiceId: string, voiceName: string) => {
+    setVoiceDraft(voiceId);
+    onSave({ elevenlabs_voice_id: voiceId });
+    toast.success(`Выбран голос: ${voiceName}`);
+  };
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Генерация через официальный ElevenLabs HTTP API (модель eleven_multilingual_v2) с нарезкой таймингов слов через ASR.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            200 русских премиум-голосов (100 Ж / 100 М) ElevenLabs v4 с естественной интонацией и таймингами ASR.
+          </p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setLibraryOpen(true)}
+          className="h-8 gap-1.5 border-cyan-500/30 text-xs text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300"
+        >
+          <Mic className="h-3.5 w-3.5" />
+          Библиотека 200 голосов
+        </Button>
       </div>
+
+      {/* Карточка выбранного голоса */}
+      {selected ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-pink-500/30 bg-pink-500/15 text-pink-400">
+              <Mic className="h-4 w-4" />
+            </div>
+            <div className="flex min-w-0 flex-col">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold text-foreground">
+                  {selected.name}
+                </span>
+                <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-500/15 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                  {selected.gender === "female" ? "Женский" : selected.gender === "male" ? "Мужской" : "Стандартный"}
+                  {selected.index ? ` #${selected.index}` : ""}
+                </span>
+              </div>
+              <span className="truncate text-xs text-muted-foreground">
+                {selected.description}
+              </span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {ruVoice ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={togglePlaySample}
+                className="h-8 gap-1.5 text-xs text-foreground"
+              >
+                {isPlayingSample ? <Pause className="h-3.5 w-3.5 text-cyan-400" /> : <Play className="h-3.5 w-3.5 text-cyan-400" />}
+                {isPlayingSample ? "Пауза" : "Образец"}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setLibraryOpen(true)}
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
+            >
+              Выбрать из 200
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <label className="flex flex-col gap-1.5">
-        <span className="text-sm font-medium text-foreground">Голос</span>
+        <span className="text-sm font-medium text-foreground">Выбрать из списка</span>
         <select
-          className="h-9 w-full max-w-md rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
+          className="h-9 w-full max-w-xl rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
           value={voiceDraft}
           onChange={(e) => setVoiceDraft(e.target.value)}
         >
-          {ELEVENLABS_VOICES.map((v) => (
-            <option key={v.id} value={v.id}>
-              {elevenLabsVoiceLabel(v)}
-            </option>
-          ))}
+          <optgroup label="Женские голоса (100)">
+            {FEMALE_RU_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                #{v.index} {v.name} — {v.description}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Мужские голоса (100)">
+            {MALE_RU_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                #{v.index} {v.name} — {v.description}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Стандартные ElevenLabs (9)">
+            {STANDARD_ELEVENLABS_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} — {v.description}
+              </option>
+            ))}
+          </optgroup>
         </select>
       </label>
+
       <Button
         size="sm"
         className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
@@ -181,6 +306,13 @@ function AudioFields({
         {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
         Сохранить
       </Button>
+
+      <VoiceLibraryModal
+        open={libraryOpen}
+        onOpenChange={setLibraryOpen}
+        selectedVoiceId={voiceDraft}
+        onSelectVoice={handleSelectVoiceFromModal}
+      />
     </section>
   );
 }
