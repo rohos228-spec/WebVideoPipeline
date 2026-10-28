@@ -20,9 +20,11 @@ from sqlalchemy import inspect, text
 
 from app.services.tenant_tables import DEFAULT_POLICY
 
-# То же условие, что в migrations/versions/0006_rls_policies.py.
+# Условие с поддержкой режима администратора (app.is_admin = 'true')
 _PREDICATE = """(
     CASE
+        WHEN current_setting('app.is_admin', true) = 'true'
+            THEN true
         WHEN nullif(current_setting('app.tenant_id', true), '') IS NULL
             THEN tenant_id IS NULL
         ELSE tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid

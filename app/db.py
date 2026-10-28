@@ -108,6 +108,7 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 #: под параметр: `SET LOCAL` плейсхолдера не принимает, а подставлять значение
 #: в текст запроса не хочется даже проверенное.
 _BIND_TENANT_SQL = text("select set_config('app.tenant_id', :tid, true)")
+_BIND_ADMIN_SQL = text("select set_config('app.is_admin', :is_admin, true)")
 
 
 @event.listens_for(Session, "after_begin")
@@ -123,12 +124,20 @@ def _bind_tenant_on_begin(session: Session, transaction, connection) -> None:
     многоарендная работа на нём запрещена (`tenant.require_isolation`).
     """
     from app.services.tenant import current_tenant, require_isolation
+    from app.services.studio_auth import current_is_admin
 
     require_isolation()
-    tenant_id = current_tenant()
-    if tenant_id is None or not settings.is_postgres:
+    if not settings.is_postgres:
         return
-    connection.execute(_BIND_TENANT_SQL, {"tid": tenant_id})
+
+    is_admin = current_is_admin()
+    connection.execute(_BIND_ADMIN_SQL, {"is_admin": "true" if is_admin else "false"})
+
+    tenant_id = current_tenant()
+    if tenant_id is not None:
+        connection.execute(_BIND_TENANT_SQL, {"tid": str(tenant_id)})
+    else:
+        connection.execute(_BIND_TENANT_SQL, {"tid": ""})
 
 
 @event.listens_for(Session, "before_flush")
@@ -180,12 +189,15 @@ async def rebind_tenant(session: AsyncSession) -> str | None:
     На SQLite ничего не делает — там нечего привязывать.
     """
     from app.services.tenant import current_tenant, require_isolation
+    from app.services.studio_auth import current_is_admin
 
     require_isolation()
     tenant_id = current_tenant()
-    if tenant_id is None or not settings.is_postgres:
+    if not settings.is_postgres:
         return tenant_id
-    await session.execute(_BIND_TENANT_SQL, {"tid": tenant_id})
+    is_admin = current_is_admin()
+    await session.execute(_BIND_ADMIN_SQL, {"is_admin": "true" if is_admin else "false"})
+    await session.execute(_BIND_TENANT_SQL, {"tid": str(tenant_id) if tenant_id is not None else ""})
     return tenant_id
 
 

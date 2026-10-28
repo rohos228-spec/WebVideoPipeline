@@ -14,7 +14,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import case, desc, func, or_, select
+from sqlalchemy import case, desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -28,6 +28,7 @@ from app.models import (
     StudioUser,
 )
 from app.services.studio_auth import current_identity
+from app.settings import settings
 from app.web.deps import get_session
 
 router = APIRouter(prefix="/admin", tags=["admin-users"])
@@ -130,12 +131,24 @@ class AdminPlan(BaseModel):
 # ── Вспомогательные агрегаторы ───────────────────────────────────────────────
 
 
-async def _aggregate_user_stats(session: AsyncSession, tenant_id: str | None) -> dict[str, Any]:
+async def _aggregate_user_stats(
+    session: AsyncSession, 
+    tenant_id: str | None,
+    is_primary_admin: bool = False,
+) -> dict[str, Any]:
     """Сбор статистики по конкретному пользователю (tenant_id)."""
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
+        if tenant_id:
+            await session.execute(text("select set_config('app.tenant_id', :tid, true)"), {"tid": tenant_id})
+
     # 1. Проекты
     q_proj = select(func.count(Project.id))
     if tenant_id:
-        q_proj = q_proj.where(Project.tenant_id == tenant_id)
+        if is_primary_admin:
+            q_proj = q_proj.where(or_(Project.tenant_id == tenant_id, Project.tenant_id.is_(None)))
+        else:
+            q_proj = q_proj.where(Project.tenant_id == tenant_id)
     else:
         q_proj = q_proj.where(Project.tenant_id.is_(None))
     projects_count = int((await session.execute(q_proj)).scalar() or 0)
@@ -143,7 +156,10 @@ async def _aggregate_user_stats(session: AsyncSession, tenant_id: str | None) ->
     # 2. Артефакты (сгенерированные картинки, видео, аудио)
     q_art = select(func.count(Artifact.id))
     if tenant_id:
-        q_art = q_art.where(Artifact.tenant_id == tenant_id)
+        if is_primary_admin:
+            q_art = q_art.where(or_(Artifact.tenant_id == tenant_id, Artifact.tenant_id.is_(None)))
+        else:
+            q_art = q_art.where(Artifact.tenant_id == tenant_id)
     else:
         q_art = q_art.where(Artifact.tenant_id.is_(None))
     art_count = int((await session.execute(q_art)).scalar() or 0)
@@ -155,7 +171,10 @@ async def _aggregate_user_stats(session: AsyncSession, tenant_id: str | None) ->
         func.max(MediaCall.created_at),
     )
     if tenant_id:
-        q_media = q_media.where(MediaCall.tenant_id == tenant_id)
+        if is_primary_admin:
+            q_media = q_media.where(or_(MediaCall.tenant_id == tenant_id, MediaCall.tenant_id.is_(None)))
+        else:
+            q_media = q_media.where(MediaCall.tenant_id == tenant_id)
     else:
         q_media = q_media.where(MediaCall.tenant_id.is_(None))
     media_res = (await session.execute(q_media)).first()
@@ -170,7 +189,10 @@ async def _aggregate_user_stats(session: AsyncSession, tenant_id: str | None) ->
         func.max(LlmCall.created_at),
     )
     if tenant_id:
-        q_llm = q_llm.where(LlmCall.tenant_id == tenant_id)
+        if is_primary_admin:
+            q_llm = q_llm.where(or_(LlmCall.tenant_id == tenant_id, LlmCall.tenant_id.is_(None)))
+        else:
+            q_llm = q_llm.where(LlmCall.tenant_id == tenant_id)
     else:
         q_llm = q_llm.where(LlmCall.tenant_id.is_(None))
     llm_res = (await session.execute(q_llm)).first()
@@ -224,6 +246,9 @@ async def list_users(
     session: AsyncSession = Depends(get_session),
 ) -> AdminUsersPage:
     """Список пользователей с метриками генераций, расходов и проектов."""
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
+
     # Получаем пользователей из StudioUser
     query = select(StudioUser)
     if status == "active":
@@ -243,8 +268,18 @@ async def list_users(
     users = (await session.execute(query)).scalars().all()
     rows: list[AdminUserRow] = []
 
+    primary_admin_id = (
+        await session.execute(
+            select(StudioUser.id)
+            .where(StudioUser.role == "admin")
+            .order_by(StudioUser.created_at.asc())
+            .limit(1)
+        )
+    ).scalar()
+
     for u in users:
-        stats = await _aggregate_user_stats(session, u.id)
+        is_primary = (u.id == primary_admin_id) or bool(u.email and "rohos" in u.email.lower())
+        stats = await _aggregate_user_stats(session, u.id, is_primary_admin=is_primary)
         last_login_ts = int(u.last_login_at.timestamp()) if u.last_login_at else None
         created_ts = int(u.created_at.timestamp()) if u.created_at else 0
         username = u.email.split("@")[0] if "@" in u.email else u.email
@@ -325,11 +360,26 @@ async def list_users(
 @router.get("/users/{user_id}", response_model=AdminUserDetail, dependencies=[Depends(_admin_only)])
 async def get_user_detail(user_id: str, session: AsyncSession = Depends(get_session)) -> AdminUserDetail:
     """Подробная карточка пользователя со списком его проектов и логом списаний."""
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
+        if user_id and user_id != "owner":
+            await session.execute(text("select set_config('app.tenant_id', :tid, true)"), {"tid": user_id})
+
     u = await session.get(StudioUser, user_id)
     if u is None and user_id != "owner":
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    stats = await _aggregate_user_stats(session, u.id if u else None)
+    primary_admin_id = (
+        await session.execute(
+            select(StudioUser.id)
+            .where(StudioUser.role == "admin")
+            .order_by(StudioUser.created_at.asc())
+            .limit(1)
+        )
+    ).scalar()
+    is_primary = bool(u and (u.id == primary_admin_id or (u.email and "rohos" in u.email.lower())))
+
+    stats = await _aggregate_user_stats(session, u.id if u else None, is_primary_admin=is_primary)
     username = (u.email.split("@")[0] if "@" in u.email else u.email) if u else "owner"
     name = (u.display_name.strip() if u and u.display_name else username) if u else "Владелец студии"
     email = u.email if u else "owner@studio.local"
@@ -342,7 +392,10 @@ async def get_user_detail(user_id: str, session: AsyncSession = Depends(get_sess
     # Список проектов
     q_p = select(Project).order_by(desc(Project.created_at)).limit(50)
     if u:
-        q_p = q_p.where(Project.tenant_id == u.id)
+        if is_primary:
+            q_p = q_p.where(or_(Project.tenant_id == u.id, Project.tenant_id.is_(None)))
+        else:
+            q_p = q_p.where(Project.tenant_id == u.id)
     else:
         q_p = q_p.where(Project.tenant_id.is_(None))
     projects = (await session.execute(q_p)).scalars().all()
@@ -568,6 +621,9 @@ async def accrue_credits_endpoint(
     """Начисление кредитов пользователю."""
     from app.services.credit_ledger import topup
 
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
+
     u = await session.get(StudioUser, user_id)
     if not u:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
@@ -597,6 +653,9 @@ async def issue_subscription_endpoint(
 ) -> dict[str, Any]:
     """Выдача или продление подписки пользователю."""
     from app.services.credit_ledger import balance_micro, topup
+
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
 
     u = await session.get(StudioUser, user_id)
     if not u:
@@ -662,6 +721,8 @@ async def user_ledger_endpoint(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
     """История операций с балансом пользователя."""
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
     q = (
         select(CreditEntry)
         .where(CreditEntry.tenant_id == user_id)
@@ -727,6 +788,8 @@ async def revoke_sessions_endpoint(
 @router.get("/overview", response_model=AdminOverview, dependencies=[Depends(_admin_only)])
 async def get_overview(days: int = 30, session: AsyncSession = Depends(get_session)) -> AdminOverview:
     """Сводный отчёт по системе: пользователи, проекты, генерации, траты."""
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
     since = (datetime.now(UTC) - timedelta(days=days)).replace(tzinfo=None)
 
     # 1. Пользователи
