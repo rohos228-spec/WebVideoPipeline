@@ -100,3 +100,33 @@ def test_frame_value_in_quotes_is_a_task():
     for q in ("в проекте 12 у кадра 14 действие: «сова поворачивает голову»", "кадр 15: опиши действие «птенец открывает клюв»"):
         assert classify_deterministic(q).mode.value == "task", q
     assert classify_deterministic("какой закадр у кадра 3 «тест»?").mode.value != "task"
+
+
+def test_shot_question_answer_is_merged_with_request():
+    from app.orchestrator.queue import answered_request
+
+    prev = [
+        ("assistant", "У кадра 1 видео есть в обоих шотах. Какой взять: шот 1 или шот 2?"),
+        ("user", "в проекте 4 у кадра 1 используй только первые 2 секунды видео"),
+    ]
+    assert answered_request(prev, "шот 1").endswith("уточнение: шот 1")
+    assert answered_request([("assistant", "Готово: обрезка задана."), prev[1]], "шот 1") is None
+
+
+def test_to_queue_without_verb_is_a_task():
+    from app.orchestrator.queue import classify_deterministic
+
+    assert classify_deterministic("проект 4: в очередь ИИзменение видео кадра 1, сова моргает").mode.value == "task"
+    found = classify_deterministic("что в очереди правок проекта 10")
+    assert found is None or found.mode.value != "task"
+
+
+def test_frame_field_value_without_verb_is_task():
+    from app.orchestrator.queue import classify_deterministic as c
+
+    for q in ("проект 12, кадр 8: ночное освещение", "проект 12: для кадра 11 стык — монтаж по взгляду"):
+        r = c(q)
+        assert r is not None and r.mode.value == "task", q
+    for q in ("какой свет у кадра 8", "покажи действие кадра 3"):
+        r = c(q)
+        assert r is None or r.mode.value != "task", q

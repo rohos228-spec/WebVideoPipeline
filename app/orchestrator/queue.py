@@ -260,6 +260,12 @@ _GO_WORDS = frozenset(
 _QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
 
 
+_SHOW_WORDS = frozenset({"покажи", "скажи", "расскажи", "напомни", "проверь", "посмотри"})
+_FIELD_WORDS = r"освещени|свет|стык|движени|ракурс|крупн|план|действи|якор|закадр"
+_FRAME_FIELD_RE = re.compile(
+    rf"(?<![а-я])кадр\w*\s*\d+[^?]{{0,40}}(?:{_FIELD_WORDS})|(?:{_FIELD_WORDS})\w*[^?]{{0,40}}кадр\w*\s*\d+"
+)
+_TO_QUEUE_RE = re.compile(r"(?<![а-я])в очередь(?![а-я])")
 _FRAME_VALUE_RE = re.compile(r"(?<![а-я])кадр\w*\s*\d+[^«\"?]{0,60}[«\"][^»\"]{2,}")
 _SPEND_LIMIT_RE = re.compile(r"(?<![а-я])(?:лимит\w*|потолок\w*)\s*(?:в\s+)?\$?\s*\d")
 
@@ -297,7 +303,12 @@ def _previous_messages(session_id: str, before_id: int, limit: int = 2) -> list[
 
 # «Уточните, для какого шота…» → «шот 1»: короткий ответ без исходной просьбы терял её
 # («Не указано, что нужно сделать с шотом 1»). Склеиваем ответ с просьбой, которую уточняли.
-_CLARIFY_RE = re.compile(r"(?:^|[.!?;]\s+)уточните(?![а-я])|какой из|какую из|какого из", re.IGNORECASE)
+# «Какой взять: шот 1 или шот 2?» — тоже уточнение, хотя слова «уточните» в нём нет.
+_CLARIFY_RE = re.compile(
+    r"(?:^|[.!?;]\s+)уточните(?![а-я])|какой из|какую из|какого из"
+    r"|(?<![а-я])(?:какой|какую|какое|какие|котор\w+)(?![а-я])[^?]{0,80}\?\s*$",
+    re.IGNORECASE,
+)
 _ANSWER_MAX_WORDS = 5
 
 
@@ -398,7 +409,15 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
         )
     # «Теперь промты картинок для 26, лимит $0.5»: потолок расхода — это просьба запустить, не вопрос.
     # «Кадр 14: действие «сова поворачивает голову»» — новое значение поля кадра в кавычках.
-    sets_field = bool(_FRAME_VALUE_RE.search(norm)) and not norm.rstrip().endswith("?")
+    # «Проект 4: в очередь ИИзменение видео кадра 1» — поставить правку, а не вопрос об очереди.
+    # «Проект 12, кадр 8: ночное освещение» — значение поля кадра без глагола: классификатор
+    # то брал это задачей, то вопросом и отвечал подсказкой команды.
+    field_value = bool(_FRAME_FIELD_RE.search(norm)) and not (
+        tokens and (tokens[0] in _QUESTION_STARTS or tokens[0] in _SHOW_WORDS)
+    )
+    sets_field = bool(_FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value) and not (
+        norm.rstrip().endswith("?")
+    )
     if has_imperative(norm) or sets_field or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?")):
         return ClassifyResult(
             tier="strong",

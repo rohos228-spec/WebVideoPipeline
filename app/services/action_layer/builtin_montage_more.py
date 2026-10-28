@@ -788,6 +788,14 @@ async def _set_video_trim(ctx, params):
     key = f"{params['frame_number']}:{params['shot']}"
 
     def build(board: dict) -> QueueChange:
+        if not params.get("clear"):
+            # Обрезка пустого слота молча записывалась, и чат отвечал «Обрезка видео задана».
+            frame = next(
+                (f for f in board.get("frames") or [] if int(f.get("number") or 0) == int(params["frame_number"])),
+                None,
+            )
+            if frame is not None and not frame.get(f"video_shot{params['shot']}_url"):
+                raise ValueError(f"у кадра {params['frame_number']} в шоте {params['shot']} нет видео: обрезать нечего")
         trims = copy.deepcopy((board.get("meta") or {}).get("video_trims") or {})
         if params.get("clear"):
             trims.pop(key, None)
