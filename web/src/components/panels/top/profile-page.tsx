@@ -107,7 +107,11 @@ function Stars({ value }: { value: number }) {
 
 const STATUS_RU: Record<string, string> = { new: "Новый", published: "Опубликован", done: "Готов", failed: "Ошибка", paused: "Пауза" };
 const statusLabel = (s: string) => STATUS_RU[s] ?? s.replace(/_/g, " ");
-const fmtDate = (s?: string) => (s ? new Date(s).toLocaleDateString("ru-RU", { day: "numeric", month: "short" }) : "—");
+const fmtDate = (s?: string) => {
+  if (!s) return "—";
+  const str = s.includes("T") && !/(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(s) ? s + "Z" : s;
+  return new Date(str).toLocaleDateString("ru-RU", { timeZone: "Europe/Moscow", day: "numeric", month: "short" });
+};
 const NODE_TYPES: { id: string; label: string }[] = [
   { id: "topic", label: "Тема" }, { id: "plan", label: "План" }, { id: "script", label: "Сценарий" }, { id: "hero", label: "Персонажи" },
   { id: "items", label: "Предметы" }, { id: "excel_gpt", label: "Excel GPT" }, { id: "image_prompts", label: "Промты картинок" },
@@ -536,7 +540,21 @@ function ActivityTab({ d }: { d: D }) {
               <div key={p.id} className="relative flex items-center gap-3 rounded-[10px] px-2 py-2 hover:bg-white/[0.03]">
                 <span className="absolute -left-[14px] h-2 w-2 rounded-full" style={{ background: p.status === "published" ? A : "#52525b" }} />
                 <div className="min-w-0 flex-1"><div className="truncate text-[14px] text-white">{p.title || p.topic || p.slug}</div><div className="text-[12px] text-zinc-500">статус: {statusLabel(p.status)}</div></div>
-                <span className="text-[12px] text-zinc-500">{p.updated_at ? new Date(p.updated_at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                <span className="text-[12px] text-zinc-500">
+                  {p.updated_at
+                    ? new Date(
+                        p.updated_at.includes("T") && !/(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(p.updated_at)
+                          ? p.updated_at + "Z"
+                          : p.updated_at
+                      ).toLocaleString("ru-RU", {
+                        timeZone: "Europe/Moscow",
+                        day: "numeric",
+                        month: "short",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : ""}
+                </span>
               </div>
             ))}
           </div>

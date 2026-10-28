@@ -50,7 +50,14 @@ const SOURCES: { key: keyof AdminOverview["sources"]; label: string }[] = [
   { key: "cloud", label: "Облако (CDN)" },
 ];
 
-const shortDate = (s: string) => (s.length >= 10 ? s.slice(5) : s);
+const shortDate = (s: string) => {
+  if (s.length >= 10) {
+    const parts = s.slice(0, 10).split("-");
+    if (parts.length === 3) return `${parts[2]}.${parts[1]}`;
+    return s.slice(5);
+  }
+  return s;
+};
 
 export function AdminOverviewTab() {
   const [days, setDays] = useState(30);
@@ -146,7 +153,7 @@ export function AdminOverviewTab() {
 
           <div className="grid gap-3 lg:grid-cols-2">
             <Card title={`Генерации · ${days} дн`} icon={<Images className="h-4 w-4" />}>
-              {o.series.length ? (
+              {o.series.some((p) => p.generations > 0) ? (
                 <MiniBars
                   points={o.series.map((p) => ({
                     label: shortDate(p.date),
@@ -163,7 +170,7 @@ export function AdminOverviewTab() {
 
             <Card title={`Запросы · ${days} дн`} icon={<Activity className="h-4 w-4" />}>
               {o.sources.tracker_db ? (
-                o.series.length ? (
+                o.series.some((p) => p.requests > 0) ? (
                   <MiniBars
                     points={o.series.map((p) => ({
                       label: shortDate(p.date),
@@ -183,7 +190,7 @@ export function AdminOverviewTab() {
             </Card>
 
             <Card title={`Расход · ${days} дн`} icon={<CreditCard className="h-4 w-4" />}>
-              {o.series.length ? (
+              {o.series.some((p) => p.cost_usd > 0) ? (
                 <MiniBars
                   points={o.series.map((p) => ({
                     label: shortDate(p.date),
@@ -200,7 +207,7 @@ export function AdminOverviewTab() {
             </Card>
 
             <Card title={`Списания кредитов · ${days} дн`} icon={<Coins className="h-4 w-4" />}>
-              {o.series.length ? (
+              {o.series.some((p) => p.credits_spent > 0) ? (
                 <MiniBars
                   points={o.series.map((p) => ({
                     label: shortDate(p.date),
