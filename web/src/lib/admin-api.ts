@@ -84,7 +84,7 @@ function qs(params: Record<string, string | number | boolean | null | undefined>
 /* ──────────────────────────── типы ──────────────────────────── */
 
 export type AdminUserBrief = {
-  id: number;
+  id: number | string;
   email: string;
   username: string;
   name: string;
@@ -445,35 +445,35 @@ export const adminApi = {
       `/users${qs(params)}`,
     ),
 
-  user: (id: number) => adminFetch<AdminUserDetail>(`/users/${id}`),
+  user: (id: number | string) => adminFetch<AdminUserDetail>(`/users/${id}`),
 
   /** Создать аккаунт из админки. 409 — email/username заняты, 400 — валидация. */
   createUser: (body: AdminCreateUserBody) =>
     adminFetch<AdminUserRow>("/users", { method: "POST", body: JSON.stringify(body) }),
 
   /** Удалить аккаунт (себя и последнего админа бэкенд не даёт — 400). */
-  deleteUser: (id: number) =>
+  deleteUser: (id: number | string) =>
     adminFetch<AdminDeleteUserResult>(`/users/${id}`, { method: "DELETE" }),
 
-  userSessions: (id: number) => adminFetch<AdminSessionList>(`/users/${id}/sessions`),
+  userSessions: (id: number | string) => adminFetch<AdminSessionList>(`/users/${id}/sessions`),
 
-  revokeSessions: (id: number) =>
+  revokeSessions: (id: number | string) =>
     adminFetch<{ ok: boolean; revoked: number }>(`/users/${id}/sessions/revoke`, {
       method: "POST",
       body: JSON.stringify({}),
     }),
 
-  userLedger: (id: number, limit = 100) =>
+  userLedger: (id: number | string, limit = 100) =>
     adminFetch<{ items: AdminLedgerEntry[]; total: number }>(`/users/${id}/ledger${qs({ limit })}`),
 
-  accrue: (id: number, body: { amount: number; reason: string }) =>
+  accrue: (id: number | string, body: { amount: number; reason: string }) =>
     adminFetch<{ ok: boolean; entry: AdminLedgerEntry; balance_credits: number }>(`/users/${id}/credits`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
 
   issueSubscription: (
-    id: number,
+    id: number | string,
     body: { plan_id: string; months?: number; credits?: number; auto_renew?: boolean; note?: string },
   ) =>
     adminFetch<{ ok: boolean; subscription: AdminSubscription; balance_credits: number }>(
@@ -481,14 +481,14 @@ export const adminApi = {
       { method: "POST", body: JSON.stringify(body) },
     ),
 
-  cancelSubscription: (id: number) =>
+  cancelSubscription: (id: number | string) =>
     adminFetch<{ ok: boolean; subscription: AdminSubscription }>(`/users/${id}/subscription/cancel`, {
       method: "POST",
       body: JSON.stringify({}),
     }),
 
   updateUser: (
-    id: number,
+    id: number | string,
     body: Partial<{
       plan: string | null;
       role: string;

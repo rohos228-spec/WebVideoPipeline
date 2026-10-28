@@ -154,7 +154,7 @@ export function AdminUsersTab() {
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("activity");
   const [offset, setOffset] = useState(0);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
   const list = useQuery({
@@ -359,13 +359,13 @@ function UserDrawer({
   onClose,
   onChanged,
 }: {
-  userId: number | null;
+  userId: number | string | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const detail = useQuery({
     queryKey: ["admin", "user", userId],
-    queryFn: () => adminApi.user(userId as number),
+    queryFn: () => adminApi.user(userId!),
     enabled: userId !== null,
   });
   const plans = useQuery({
@@ -693,7 +693,7 @@ function SubscriptionHistoryBlock({ items }: { items: AdminSubscription[] }) {
 
 /* ─────────────────────────── начисление кредитов ─────────────────────────── */
 
-function AccrualBlock({ userId, onChanged }: { userId: number; onChanged: () => void }) {
+function AccrualBlock({ userId, onChanged }: { userId: number | string; onChanged: () => void }) {
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -770,7 +770,7 @@ function IssueBlock({
   currentSub,
   onChanged,
 }: {
-  userId: number;
+  userId: number | string;
   plans: AdminPlan[] | undefined;
   plansLoading: boolean;
   currentSub: AdminSubscription | null;
@@ -940,7 +940,7 @@ function SettingsBlock({
 }: {
   u: AdminUserDetail;
   plans: AdminPlan[] | undefined;
-  meId: number | null;
+  meId: number | string | null;
   adminsCount: number | null;
   adminsPending: boolean;
   onChanged: () => void;
@@ -1140,7 +1140,7 @@ function SettingsBlock({
 
 /* ─────────────────────────── история начислений ─────────────────────────── */
 
-function LedgerBlock({ userId }: { userId: number }) {
+function LedgerBlock({ userId }: { userId: number | string }) {
   const q = useQuery({
     queryKey: ["admin", "user", userId, "ledger"],
     queryFn: () => adminApi.userLedger(userId, 100),
@@ -1247,7 +1247,7 @@ function AuditList({ items }: { items: AdminUserDetail["audit"] }) {
 
 /* ─────────────────────────── сессии аккаунта ─────────────────────────── */
 
-function SessionsBlock({ userId, isSelf }: { userId: number; isSelf: boolean }) {
+function SessionsBlock({ userId, isSelf }: { userId: number | string; isSelf: boolean }) {
   const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["admin", "user", userId, "sessions"],
@@ -1349,7 +1349,7 @@ function DangerZone({
   onChanged,
 }: {
   u: AdminUserDetail;
-  meId: number | null;
+  meId: number | string | null;
   adminsCount: number | null;
   onClose: () => void;
   onChanged: () => void;
