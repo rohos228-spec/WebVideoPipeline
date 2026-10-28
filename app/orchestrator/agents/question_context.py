@@ -254,6 +254,13 @@ def _norm(text: str) -> str:
 
 
 _MONTAGE = ("доск", "очередь правок", "очереди правок", "очередь монтаж", "очереди монтаж")
+_MONTAGE_STATUS = (
+    (("применени правок", "применения правок", "применяются правки", "применились"), "montage.apply_status"),
+    (("идет ли монтаж", "идет монтаж", "статус монтажа", "монтаж видео", "смонтировал"), "montage.montage_status"),
+    (("outsee", "галере", "забор правок"), "montage.recover_status"),
+    (("готовые реф", "готовых реф", "готовые референс", "готовых референс"), "montage.list_ref_assets"),
+    (("модель оплат", "как оплачива"), "montage.get_cost_basis"),
+)
 _REF_KIND = {"character": "персонаж", "item": "предмет", "manual": "загруженный"}
 _REF_TO_FRAME = ("привяз", "прилож", "кадр", "доск")
 _FRAMES = ("кадр", "шот")
@@ -332,6 +339,11 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         if pid is not None:
             snap["project_id"] = int(pid)
         return _allowed([("history.list_snapshots", snap)])
+    status_reads = [action for words, action in _MONTAGE_STATUS if _has(norm, words)]
+    if pid is not None and status_reads:
+        # «Идёт ли монтаж», «статус применения правок», «какие готовые референсы»: без этих
+        # чтений модель отвечала «в данных нет сведений».
+        return _allowed([(action, {"project_id": int(pid)}) for action in dict.fromkeys(status_reads)])
     if _has(norm, _MONTAGE):
         # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
         if pid is not None:
