@@ -58,3 +58,20 @@ def test_two_copies_of_one_file_are_both_unlinked() -> None:
                 {"id": "a2", "name": "predmet3_6c6ddac2", "linked": True, "image_url": _URL}])
     out = _run(ctx, "predmet3")
     assert out["removed"] == 2 and [p["ref_id"] for p in ctx.posts] == ["a1", "a2"]
+
+
+def test_item_kind_unlinks_the_linked_asset() -> None:
+    ctx = _Ctx([{"id": "11a16fce", "kind": "item", "name": "predmet5_7d1c8e2d", "linked": True}])
+    out = asyncio.run(bm._unlink_ref(ctx, {"project_id": 4, "frame_number": 1, "ref_id": "predmet5", "kind": "item"}))
+    assert out["deleted"] and ctx.posts == [{"frame_number": 1, "ref_id": "11a16fce", "kind": "manual"}]
+
+
+def test_nothing_deleted_is_an_error_not_done() -> None:
+    class _Miss(_Ctx):
+        async def call(self, method, path, params=None):
+            if method == "GET":
+                return {"frames": [{"number": 1, "manual_refs": []}]}
+            return {"ok": False}
+
+    with pytest.raises(ValueError):
+        asyncio.run(bm._unlink_ref(_Miss([]), {"project_id": 4, "frame_number": 1, "ref_id": "hero1", "kind": "character"}))

@@ -881,6 +881,11 @@ async def _unlink_linked_ref(ctx, params):
     return {**out, "frame_number": number, "name": hit[0].get("name"), "removed": len(hit)}
 
 
+def _names_ref(ref: dict, wanted: str) -> bool:
+    name = str(ref.get("name") or "").lower()
+    return wanted in {str(ref.get("id") or "").lower(), name} or name.startswith(wanted + "_")
+
+
 async def _unlink_ref(ctx, params):
     if params.get("kind") == "linked":
         return await _unlink_linked_ref(ctx, params)
@@ -889,7 +894,16 @@ async def _unlink_ref(ctx, params):
             "unlink_ref: допустимы только kind=character|item|linked; "
             "удаление загруженного рефа - отдельное действие delete_manual_ref"
         )
-    return await _delete_ref(ctx, params)
+    # «Отвяжи реф predmet5»: приложенный предмет лежит у кадра с kind=item, и планировщик
+    # звал kind=item — сервер ничего не находил, а чат писал «Готово».
+    wanted = str(params["ref_id"]).strip().lower()
+    refs = await _frame_refs(ctx, params["project_id"], int(params["frame_number"]))
+    if any(ref.get("linked") and _names_ref(ref, wanted) for ref in refs):
+        return await _unlink_linked_ref(ctx, params)
+    out = await _delete_ref(ctx, params)
+    if not out["deleted"]:
+        raise ValueError(f"у кадра {params['frame_number']} нет рефа «{params['ref_id']}»")
+    return out
 
 
 async def _delete_manual_ref(ctx, params):
