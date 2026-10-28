@@ -10,6 +10,8 @@ from loguru import logger
 BASE_READ_IDS: tuple[str, ...] = (
     "project.status",
     "diag.incidents",
+    # «Разберись, почему упала нода»: разбор до причины всегда в каталоге, до любой правки.
+    "diag.node_failure",
     "logs.tail",
     "node.output",
     "spend.summary",

@@ -815,6 +815,7 @@ _KNOWN_TEXT = {
     "report.gpt_data": _own_text,
     "projects.overview": _overview_text,
     "project.status": _own_text,
+    "diag.node_failure": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
     "publish.send": _own_text,

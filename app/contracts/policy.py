@@ -19,6 +19,7 @@ Repair-попытка НЕ перезапускает адаптивное др�
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -74,8 +75,46 @@ def _prune_rejects(reject_dir: Path) -> None:
             drop.extend(files[: len(files) - _REJECTS_KEEP])
         for p in dict.fromkeys(drop):
             p.unlink(missing_ok=True)
+            # Сайдкар живёт и умирает вместе со своим .txt — retention та же.
+            p.with_suffix(".json").unlink(missing_ok=True)
     except OSError:  # retention — best effort, не валить политику
         pass
+
+
+# Сколько текста промпта класть в reject: начало (инструкция) + конец
+# (фидбек/батч-футер) — середина обычно db_frames, она есть в файлах ноды.
+_PROMPT_EXCERPT = 2000
+_REPLY_EXCERPT = 2000
+
+# Грубая маска того, что похоже на ключи: промпт секретов нести не должен,
+# но reject читают люди и агенты — страхуемся.
+_SECRET_RE = re.compile(
+    r"(?i)(sk-[A-Za-z0-9_\-]{12,}|bearer\s+[A-Za-z0-9._\-]{12,}"
+    r"|(?:api[_-]?key|token|secret|password)\s*[:=]\s*\S{6,})"
+)
+
+
+def redact(text: str) -> str:
+    return _SECRET_RE.sub("[скрыто]", text or "")
+
+
+def excerpt(text: str, n: int = _PROMPT_EXCERPT) -> str:
+    """Начало + конец длинного текста (секреты замаскированы)."""
+    t = redact(text or "")
+    if len(t) <= 2 * n:
+        return t
+    return f"{t[:n]}\n…[вырезано {len(t) - 2 * n} симв.]…\n{t[-n:]}"
+
+
+def _reply_report(reply: str) -> str:
+    """Пояснение модели (report/notes/error) из сырого ответа, «» если нет."""
+    try:
+        from app.contracts.apply_ops import model_report
+        from app.contracts.extract import extract_json_payload
+
+        return model_report(extract_json_payload(reply or ""))
+    except Exception:  # noqa: BLE001 — диагностика, не повод падать
+        return ""
 
 
 METRICS_FILE = "llm_metrics.jsonl"
@@ -130,9 +169,19 @@ def _write_reject(
     attempt: int,
     reply: str,
     error: LlmContractError,
+    info: dict[str, Any] | None = None,
 ) -> Path | None:
+    """Отклонённая попытка на диск: ``<label>_a<N>_<kind>.txt`` + ``.json``.
+
+    .txt — как раньше (заголовок + сырой ответ, его читают люди).
+    .json — сайдкар для машинного разбора (``app.services.llm_attempts``):
+    чего НЕ было в .txt и из-за чего диагноз «пустой ops» был слепым —
+    модель, что ей отправили (выдержка промпта), размер входа, пояснение.
+    """
     if reject_dir is None:
         return None
+    info = dict(info or {})
+    report = _reply_report(reply)
     try:
         reject_dir.mkdir(parents=True, exist_ok=True)
         safe_label = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in (label or "reply"))
@@ -141,9 +190,34 @@ def _write_reject(
             f"# contract: {error.contract or '-'}\n"
             f"# kind: {error.kind}\n"
             f"# error: {error}\n"
+            f"# model: {info.get('model') or '-'}\n"
+            f"# input: frames={info.get('input_frames', '-')} chars={info.get('input_chars', '-')}\n"
+            f"# report: {report or '-'}\n"
             f"# reply_len: {len(reply or '')}\n\n{reply or ''}",
             encoding="utf-8",
         )
+        side = {
+            "label": label,
+            "attempt": attempt,
+            "kind": error.kind,
+            "contract": error.contract or "",
+            "error": str(error)[:4000],
+            "model": info.get("model") or "",
+            "input_frames": info.get("input_frames"),
+            "input_chars": info.get("input_chars"),
+            "expected_uuids": list(info.get("expected_uuids") or [])[:50],
+            "prompt_excerpt": excerpt(str(info.get("prompt") or "")),
+            "reply_len": len(reply or ""),
+            "reply_excerpt": excerpt(reply or "", _REPLY_EXCERPT),
+            "report": report,
+            "ts": datetime.now(UTC).isoformat(timespec="seconds"),
+        }
+        try:
+            path.with_suffix(".json").write_text(
+                json.dumps(side, ensure_ascii=False, indent=1), encoding="utf-8"
+            )
+        except (OSError, TypeError, ValueError) as e:
+            logger.warning("contracts/policy: сайдкар reject не записан: {}", e)
         _prune_rejects(reject_dir)
         return path
     except OSError as e:
@@ -184,6 +258,7 @@ async def run_with_contract(
     label: str = "",
     parse_limit: int = 2,
     validate_limit: int = 2,
+    attempt_info: Callable[[], dict[str, Any]] | None = None,
 ) -> RepairResult[TModel]:
     """Выполнить единицу работы LLM под контрактом с repair-retry.
 
@@ -194,6 +269,11 @@ async def run_with_contract(
 
     ``validate`` — семантика поверх схемы (coverage N/N после склейки,
     доменные проверки): список проблем, пустой = ок.
+
+    ``attempt_info()`` — что ушло в модель на ЭТОЙ попытке (вызывается
+    после отказа): ``model``, ``prompt``, ``input_frames``, ``input_chars``,
+    ``expected_uuids``. Пишется в сайдкар llm_rejects; без него reject
+    хранит только ответ, и причину пустого ответа не восстановить.
 
     Raises:
         LlmContractError: лимит исчерпан (fail-closed). Транспортные
@@ -240,12 +320,19 @@ async def run_with_contract(
                 validate_fails += 1
                 exhausted = validate_fails > validate_limit
             _record(contract.name, reply, label=label, error=str(e), verdict=e.kind)
+            info: dict[str, Any] = {}
+            if attempt_info is not None:
+                try:
+                    info = dict(attempt_info() or {})
+                except Exception as ie:  # noqa: BLE001 — диагностика не валит repair
+                    logger.warning("contracts/policy: attempt_info упал: {}", ie)
             rp = _write_reject(
                 reject_dir,
                 label=label or contract.name,
                 attempt=attempts,
                 reply=reply,
                 error=e,
+                info=info,
             )
             if rp is not None:
                 rejected.append(rp)

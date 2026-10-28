@@ -402,6 +402,7 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("project.status", "none", True, False, False),
     ("node.output", "none", True, False, False),
     ("diag.incidents", "none", True, False, False),
+    ("diag.node_failure", "none", True, False, False),
     ("logs.tail", "none", True, False, False),
     ("spend.summary", "none", True, False, False),
     ("projects.overview", "none", True, False, False),

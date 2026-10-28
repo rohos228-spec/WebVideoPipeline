@@ -50,6 +50,10 @@ _HELD_UNTIL_R2 = frozenset(
         "montage.set_voiceover_span",
     }
 )
+# Общие (мастер) промты из чата не пишутся: правка бьёт по всем проектам сразу. Чат
+# предлагает правку промта одной ноды (prompt.edit_text), мастер меняет человек в Студии.
+_MASTER_PROMPT_WRITES = frozenset({"prompt.save_master", "prompt.create_master"})
+_HELD_UNTIL_R2 = _HELD_UNTIL_R2 | _MASTER_PROMPT_WRITES
 
 
 class BoundResult(ActionResult):
@@ -904,6 +908,8 @@ async def _execute(name: str, params: dict | None, ctx: Any) -> ActionResult:
 
     ensure_builtin_actions()
     params = dict(params or {})
+    if str(name) in _MASTER_PROMPT_WRITES:
+        return _failed("общий (мастер) промт из чата не меняется: правьте его в Студии")
     if str(name) in _HELD_UNTIL_R2:
         return _failed("до R2 недоступно")
     if str(name) == "frame.restore":

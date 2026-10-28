@@ -1537,6 +1537,7 @@ def _batch_footer(
     used_senses: list[str] | None = None,
     used_places: list[str] | None = None,
     frames: list[dict[str, Any]] | None = None,
+    allow_empty_ops: bool = False,
 ) -> str:
     kind = (footer_kind or "").strip().lower()
     if kind in {"vo", "voiceover"}:
@@ -1637,8 +1638,16 @@ def _batch_footer(
             "нет микрожестов без закадра; СТАРТ/КОНЕЦ только у точных жестов; "
             "объект enum, parent_id на одном месте, зоны из площадки, "
             "одну сторону оси у двоих, направление бега по экрану. "
-            "Не пиши промт_картинки и промт_видео. Пустые ops = ок, если всё чисто. "
-            "JSON apply-ops, без прозы.\n"
+            "Не пиши промт_картинки и промт_видео. "
+            # Подсказка обязана совпадать с контрактом: пустой ops примут
+            # только у QC no-op ноды (allows_qc_noop), иначе 3 отказа подряд.
+            + (
+                "Пустые ops = ок, если всё чисто. "
+                if allow_empty_ops
+                else "Пустой ops для этой ноды НЕ принимается: если всё чисто — "
+                "верни ops по каждому uuid с текущими fields.кадры без изменений. "
+            )
+            + "JSON apply-ops, без прозы.\n"
         )
     if kind in {"prompts", "img"}:
         return (
@@ -3066,6 +3075,7 @@ async def _run_apply_ops_batched_kadry(
             frames=chunk,
             used_senses=used_senses,
             used_places=used_places,
+            allow_empty_ops=allow_empty_ops,
         )
         api_kw = dict(
             project_dir=project_dir,

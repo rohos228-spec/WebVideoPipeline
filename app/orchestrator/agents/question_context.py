@@ -17,6 +17,8 @@ _FACT_LIMITS = {
     "node.describe": 4500,
     "report.projects": 6000,
     "report.gpt_data": 7000,
+    # Разбор падения: ошибка, отклонённые ответы модели и варианты исправления — целиком.
+    "diag.node_failure": 6000,
 }
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
@@ -73,6 +75,16 @@ _ABOUT = (
 )
 _LOGS = ("лог", "журнал", "traceback", "трейсбек", "стектрейс")
 _FAILURE = ("почему", "ошиб", "упал", "сломал", "встал", "завис", "не работ", "сломан")
+# «Разберись, в чём проблема», «найди саму причину»: без разбора ноды чат пересказывал
+# «схема отклонена» и говорил, что причину установить нельзя.
+_NODE_FAILURE = ("причин", "разбер", "что не так", "в чем проблем", "упал", "сломал", "сломан", "ошиб", "не работ")
+FAILURE_TITLE = "Почему упала нода"
+FAILURE_RULE = (
+    f"Факт «{FAILURE_TITLE}» — разбор падения по данным студии: назови причину из него своими "
+    "словами и чем она подтверждается (что вернула модель, сколько кадров было на входе). "
+    "Ты ничего не запускаешь и не меняешь; в конце можно дать одну фразу исправления из "
+    "«Что можно сделать» в кавычках «…»."
+)
 _SPEND = (
     "трат",
     "потрат",
@@ -168,6 +180,7 @@ _TITLES = {
     "node.list_models": "Модели, которые можно поставить на ноду",
     "project.status": "Статус проекта",
     "diag.incidents": "Инциденты и ошибки",
+    "diag.node_failure": "Почему упала нода",
     "logs.tail": "Логи",
     "node.output": "Результат ноды",
     "spend.summary": "Траты",
@@ -350,7 +363,8 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             return _allowed([("montage.get_board", {"project_id": int(pid)})])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
-    asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q
+    node_failure = _has(norm, _NODE_FAILURE) or (_has(norm, ("почему",)) and (bool(nodes) or _has(norm, ("нод",))))
+    asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q or node_failure
     if not asked and not wants_data_report(text):
         return []
     logs = _has(norm, _LOGS) or _has(norm, _FAILURE)
@@ -360,6 +374,12 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         reads.append(("project.status", {"project_id": pid}))
         reads.append(("diag.incidents", {"project_id": pid, "limit": 5}))
         reads.extend(("node.output", {"project_id": pid, "node_key": key}) for key in nodes)
+        if node_failure:
+            # Нода не названа — упавшую выберет само чтение (запуск с ошибкой, ошибка шага, отказы).
+            failure: dict[str, Any] = {"project_id": pid}
+            if nodes:
+                failure["node_key"] = nodes[0]
+            reads.append(("diag.node_failure", failure))
         if _has(norm, _FRAMES):
             # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
             reads.append(("montage.get_board", {"project_id": pid}))
@@ -712,6 +732,8 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
         lines.append(DONE_EMPTY_RULE if done.text == _DONE_EMPTY else DONE_RULE)
     if any(fact.action == "glossary" and fact.ok for fact in facts):
         lines.append(GLOSSARY_RULE)
+    if any(fact.action == "diag.node_failure" and fact.ok for fact in facts):
+        lines.append(FAILURE_RULE)
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
     used = 0
     for fact in facts:

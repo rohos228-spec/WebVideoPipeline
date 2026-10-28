@@ -39,6 +39,9 @@ class OperatorApiResult:
     # применяет вызывающий (enrich_xlsx) через db_apply.
     apply_ops: dict | None = None
     applied_in_runner: bool = False
+    # QC no-op: модель честно вернула {"ops": []} («всё чисто») и нода это
+    # допускает (allow_empty_ops). Читает apply_ops_batches перед record_fact.
+    empty_ops_accepted: bool = False
 
 
 def _needs_check_writeback_retry(reply_text: str) -> bool:
@@ -141,8 +144,13 @@ async def run_operator_api(
     check_streams: int | None = None,
     db_sot_check: bool = False,
     auto_pack: bool = True,
+    allow_empty_ops: bool = False,
 ) -> OperatorApiResult:
     """Вызов API-оператора GPT.
+
+    ``allow_empty_ops`` — нода допускает «всё чисто» (QC no-op,
+    ``node_write_contract.allows_qc_noop``): пустой ``{"ops": []}`` на
+    project_file-пути принимается контрактом, а не уходит в repair.
 
     Если задан ключ API (`settings.gpt_api_enabled`) — реальный вызов
     OpenAI-совместимого шлюза; иначе — детерминированный stub без сети
@@ -188,6 +196,7 @@ async def run_operator_api(
             source_prompt_keys=source_prompt_keys,
             db_sot_check=db_sot_check,
             auto_pack=auto_pack,
+            allow_empty_ops=allow_empty_ops,
         )
 
     # Fail-closed: без ключа проверка не имеет права зеленеть stub-вердиктом.
@@ -286,6 +295,7 @@ async def _run_operator_api_real(
     source_prompt_keys: list[str] | None = None,
     db_sot_check: bool = False,
     auto_pack: bool = True,
+    allow_empty_ops: bool = False,
 ) -> OperatorApiResult:
     """Реальный вызов GPT через OpenAI-совместимый API (без браузера/CDP)."""
     from app.services.gpt_api import chat, collect_result_urls, download_content
@@ -340,6 +350,7 @@ async def _run_operator_api_real(
         response_schema=(apply_ops_contract.response_schema() if apply_ops_contract else None),
     )
     reply_text = result.text
+    empty_accepted = False
 
     # report_only: модель иногда копирует assemble JSON. Один повтор — TXT-отчёт.
     if check_mode and not check_fix:
@@ -545,12 +556,29 @@ async def _run_operator_api_real(
         from dataclasses import replace
 
         from app.contracts import APPLY_OPS, extract_json_payload
+        from app.contracts.apply_ops import APPLY_OPS_ALLOW_EMPTY
         from app.contracts.policy import run_with_contract
 
+        contract = APPLY_OPS_ALLOW_EMPTY if allow_empty_ops else APPLY_OPS
         first_reply = reply_text or ""
-        state = {"first_used": False}
         # Retry без xlsx — иначе модель снова упирается в «нет файла».
         retry_paths = [p for p in input_paths if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}]
+        expected_uuids = _expected_uuids_safe(input_paths)
+        state: dict[str, Any] = {
+            "first_used": False,
+            "prompt": prompt_for_model,
+            "model": _result_model(result),
+        }
+
+        def _attempt_info() -> dict[str, Any]:
+            # Что ушло в модель на попытке — для llm_rejects (диагноз пустых ops).
+            return {
+                "model": state["model"],
+                "prompt": state["prompt"],
+                "input_frames": len(expected_uuids),
+                "input_chars": _input_chars(state["prompt"], accomp, input_paths),
+                "expected_uuids": expected_uuids,
+            }
 
         async def _call(feedback: str | None) -> str:
             if not state["first_used"]:
@@ -570,6 +598,9 @@ async def _run_operator_api_real(
             )
             if feedback:
                 retry_prompt = f"{retry_prompt}\n\n{feedback}"
+                if not allow_empty_ops and "пустой ops" in feedback:
+                    retry_prompt = f"{retry_prompt}\n\n{_empty_ops_retry_hint(expected_uuids)}"
+            state["prompt"] = retry_prompt
             retry = await chat(
                 prompt=retry_prompt,
                 accompanying=accomp,
@@ -577,20 +608,31 @@ async def _run_operator_api_real(
                 temperature=0.0,
                 xlsx_write_contract="apply_ops",
                 auto_pack=auto_pack,
-                response_schema=APPLY_OPS.response_schema(),
+                response_schema=contract.response_schema(),
             )
+            state["model"] = _result_model(retry) or state["model"]
             return retry.text or ""
 
         policy_res = await run_with_contract(
-            contract=APPLY_OPS,
+            contract=contract,
             call=_call,
             reject_dir=project_dir / "llm_rejects",
             label=f"apply_ops_{node_key}",
+            attempt_info=_attempt_info,
         )
         # Наверх — сырой parsed dict (алиасы как прислала модель):
         # канонизация остаётся в db_apply.normalize_fields, как до миграции.
         apply_ops = extract_json_payload(policy_res.reply_text)
         apply_ops.pop("_salvaged_partial", None)
+        if allow_empty_ops and not _apply_ops_has_payload(apply_ops):
+            # Контракт уже проверил: целый JSON, ops — список, без error/refusal.
+            empty_accepted = True
+            logger.info(
+                "gpt_operator/api: node={} — QC no-op: пустой ops принят (всё чисто){}",
+                node_key,
+                f", модель: {str(apply_ops.get('report'))[:160]}" if apply_ops.get("report") else "",
+            )
+            await _record_qc_noop_parse(policy_res.reply_text, apply_ops)
         if policy_res.repairs:
             # Диагностика «модель же ответила»: первый (отклонённый) ответ.
             pre_retry_path = out_dir / "gpt_reply_pre_retry.txt"
@@ -640,7 +682,71 @@ async def _run_operator_api_real(
         gate_status=gate_status,
         analysis=analysis,
         apply_ops=apply_ops,
+        empty_ops_accepted=empty_accepted,
     )
+
+
+def _result_model(result: Any) -> str:
+    """Какая модель реально ответила (served), иначе запрошенная."""
+    return str(getattr(result, "served_model", "") or getattr(result, "model", "") or "")
+
+
+def _expected_uuids_safe(input_paths: list[Path]) -> list[str]:
+    try:
+        from app.services.volume_batches import load_expected_frame_uuids
+
+        return load_expected_frame_uuids(input_paths)
+    except Exception:  # noqa: BLE001 — только для фидбека/диагностики
+        return []
+
+
+def _input_chars(prompt: str, accompanying: str, input_paths: list[Path]) -> int:
+    """Грубый размер входа в символах: промпт + сопровод + текстовые файлы."""
+    total = len(prompt or "") + len(accompanying or "")
+    for p in input_paths or []:
+        try:
+            if p.suffix.lower() in {".json", ".txt", ".md", ".tsv", ".csv"}:
+                total += p.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _empty_ops_retry_hint(expected_uuids: list[str]) -> str:
+    """Конкретика к repair пустого ответа: какие uuid ждём и что [] нельзя."""
+    n = len(expected_uuids)
+    if n == 0:
+        return (
+            "# ПУСТОЙ ops НЕ ПРИНИМАЕТСЯ\n"
+            "Для этой ноды пустой список ops не допускается. Кадров во входе "
+            "не найдено (db_frames.json без frames) — не выдумывай uuid, "
+            "в report напиши, чего не хватает."
+        )
+    shown = expected_uuids[:20]
+    tail = f"\n… и ещё {n - len(shown)}" if n > len(shown) else ""
+    return (
+        "# ПУСТОЙ ops НЕ ПРИНИМАЕТСЯ\n"
+        f"Для этой ноды пустой список ops не допускается: во входе {n} кадров, "
+        "нужна операция на КАЖДЫЙ frame_uuid из списка (fields по системному промту). "
+        "Если поле уже заполнено верно — повтори его текущее значение.\n"
+        "Ожидаемые frame_uuid:\n" + "\n".join(shown) + tail
+    )
+
+
+async def _record_qc_noop_parse(reply_text: str, apply_ops: dict) -> None:
+    """Факт parse_result для принятого QC no-op (видит diagnosis/observation)."""
+    try:
+        from app.services import observation
+
+        await observation.record_parse(
+            reply_text or "",
+            apply_ops,
+            payload_required=True,
+            empty_ops_allowed=True,
+            empty_ops_accepted=True,
+        )
+    except Exception as e:  # noqa: BLE001 — наблюдение не валит вызов
+        logger.debug("gpt_operator/api: record_parse QC no-op не записан: {}", e)
 
 
 async def _run_check_vision_batched(

@@ -455,7 +455,7 @@ async def _contract_structured(c):
                 and not noop_allowed
             ),
             "semantic_quality_verified": False,
-            "contract": _batch_footer(1, 0, max(1, count), footer_kind=kind),
+            "contract": _batch_footer(1, 0, max(1, count), footer_kind=kind, allow_empty_ops=noop_allowed),
             "source": "original apply_ops_batches._batch_footer + workflow snapshot + node_config",
             "write_authority": "original runtime only; no direct writes",
         }

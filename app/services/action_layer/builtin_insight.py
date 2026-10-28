@@ -16,6 +16,7 @@ INSIGHT_IDS: tuple[str, ...] = (
     "project.status",
     "node.output",
     "diag.incidents",
+    "diag.node_failure",
     "logs.tail",
     "spend.summary",
     "projects.overview",
@@ -1965,4 +1966,6 @@ def _gpt_data_spec() -> ActionSpec:
 
 
 def register_insight(registry: ActionRegistry) -> None:
-    registry.register_many([*_specs(), _gpt_data_spec()])
+    from app.services.action_layer.node_failure import node_failure_spec
+
+    registry.register_many([*_specs(), _gpt_data_spec(), node_failure_spec()])

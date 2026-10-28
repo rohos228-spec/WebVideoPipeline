@@ -472,6 +472,23 @@ def _is_shots_qc_node(variant: str | None, master: str | None, node_key: str | N
     return _is_shots_qc_prompt(variant, master)
 
 
+def require_frames_for_db_sot(project_id: int | None, node_key: str | None, frames: list | None) -> None:
+    """Fail-fast: DB SoT excel_gpt без единого кадра в проекте.
+
+    Модели уходит только db_frames.json — при нуле кадров он пуст, модель
+    честно отвечает пустым ops, контракт трижды отклоняет, и по логам не
+    видно, что причина во входе. Это не «already_filled» (кадры есть, но
+    заполнены — там пропуск законен): данных для шага нет вовсе, зелёный
+    пропуск был бы тихим успехом без работы, поэтому падаем понятно.
+    """
+    if frames:
+        return
+    raise RuntimeError(
+        f"#{project_id} {node_key}: нет кадров на входе ноды {node_key} — "
+        "сначала нужен шаг разбивки на кадры (сплит закадра), модель не вызывалась"
+    )
+
+
 def _is_scene_analytics_prompt(variant: str | None, master: str | None) -> bool:
     return any(m in _prompt_blob(variant, master) for m in _SCENE_ANALYTICS_MARKERS)
 
@@ -2497,6 +2514,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     "item_descriptions": item_descs,
                 }
             else:
+                require_frames_for_db_sot(project.id, node_key, frames_for_map)
                 gpt_frames = list(frames_for_map)
                 vo_markup = _is_vo_cell_markup_node(variant, master, node_key)
                 if vo_markup:
@@ -2768,6 +2786,22 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                     if neighbors:
                         accompanying = f"{accompanying}\n\n{neighbors}".strip()
                 elif shots_qc_node:
+                    from app.services.node_write_contract import allows_qc_noop as _noop_ok
+
+                    # Подсказка = контракт: «пустые ops = ок» только там, где
+                    # контракт их примет, иначе модель сама зарабатывает отказ.
+                    noop_hint = (
+                        "Пустые ops = ок, если всё чисто."
+                        if _noop_ok(
+                            project,
+                            node_key,
+                            variant=variant,
+                            output_mode=output_mode,
+                            check_mode=check_mode,
+                        )
+                        else "Пустой ops для этой ноды НЕ принимается: если всё чисто — "
+                        "верни ops по каждому uuid с текущими fields.кадры без изменений."
+                    )
                     accompanying = (
                         f"{accompanying}\n\n"
                         "# DB SoT\n"
@@ -2777,7 +2811,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                         "уникальность действия, объект enum, parent_id, "
                         "площадка (зоны, ось двоих, направление бега). "
                         "Не пиши промт_картинки и промт_видео. "
-                        "Пустые ops = ок, если всё чисто."
+                        f"{noop_hint}"
                     ).strip()
                 elif _is_frame_prompts_prompt(variant, master) or str(node_key or "").endswith("_fw_frames"):
                     accompanying = (
