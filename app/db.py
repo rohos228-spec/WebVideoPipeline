@@ -123,8 +123,8 @@ def _bind_tenant_on_begin(session: Session, transaction, connection) -> None:
     На SQLite выполняется только проверка режима — политик там нет, а
     многоарендная работа на нём запрещена (`tenant.require_isolation`).
     """
-    from app.services.tenant import current_tenant, require_isolation
     from app.services.studio_auth import current_is_admin
+    from app.services.tenant import current_tenant, require_isolation
 
     require_isolation()
     if not settings.is_postgres:
@@ -188,8 +188,8 @@ async def rebind_tenant(session: AsyncSession) -> str | None:
 
     На SQLite ничего не делает — там нечего привязывать.
     """
-    from app.services.tenant import current_tenant, require_isolation
     from app.services.studio_auth import current_is_admin
+    from app.services.tenant import current_tenant, require_isolation
 
     require_isolation()
     tenant_id = current_tenant()
