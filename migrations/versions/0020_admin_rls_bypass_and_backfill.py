@@ -54,12 +54,20 @@ def upgrade() -> None:
         )
 
     # Привязываем исторические проекты без tenant_id к первому администратору (Александр)
+    # Временно отключаем RLS на целевых таблицах для миграции, чтобы не срабатывал WITH CHECK
+    backfill_tables = ["projects", "artifacts", "media_calls", "llm_calls", "frames", "scenes"]
+    for t in backfill_tables:
+        if t in tables:
+            op.execute(f"ALTER TABLE {t} NO FORCE ROW LEVEL SECURITY")
+            op.execute(f"ALTER TABLE {t} DISABLE ROW LEVEL SECURITY")
+
     op.execute(
         """
         DO $$
         DECLARE
             admin_id uuid;
         BEGIN
+            PERFORM set_config('app.is_admin', 'true', true);
             SELECT id INTO admin_id FROM studio_users WHERE role = 'admin' AND email LIKE '%rohos%' LIMIT 1;
             IF admin_id IS NULL THEN
                 SELECT id INTO admin_id FROM studio_users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1;
@@ -75,6 +83,11 @@ def upgrade() -> None:
         END $$;
         """
     )
+
+    for t in backfill_tables:
+        if t in tables:
+            op.execute(f"ALTER TABLE {t} ENABLE ROW LEVEL SECURITY")
+            op.execute(f"ALTER TABLE {t} FORCE ROW LEVEL SECURITY")
 
 
 def downgrade() -> None:
