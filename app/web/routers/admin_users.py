@@ -98,6 +98,9 @@ class AdminUpdateUserIn(BaseModel):
     status: str | None = None
     note: str | None = None
     plan: str | None = None
+    tracker_identity: str | None = None
+    device_name: str | None = None
+    limits: dict[str, Any] | None = None
 
 
 class AdminOverview(BaseModel):
@@ -429,8 +432,9 @@ async def update_user(
     if u is None:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    if body.role in ("admin", "member"):
-        u.role = body.role
+    if body.role:
+        if body.role in ("admin", "member", "user"):
+            u.role = "member" if body.role == "user" else body.role
     if body.status == "active":
         u.is_active = True
     elif body.status == "blocked":

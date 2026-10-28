@@ -1073,7 +1073,7 @@ function SettingsBlock({
             </Select>
           </Field>
           <Field label="Роль">
-            <Select value={role} onChange={(e) => setRole(e.target.value)}>
+            <Select value={role === "member" ? "user" : role} onChange={(e) => setRole(e.target.value)}>
               <option value="user">user</option>
               <option value="admin">admin</option>
             </Select>
