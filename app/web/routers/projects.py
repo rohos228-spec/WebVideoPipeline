@@ -598,6 +598,11 @@ async def run_project_step(
     await commit_with_retry(session)
     await session.refresh(p)
     await sync_run_for_project(project_id)
+    try:
+        from app.services.pipeline_worker import wake_worker
+        wake_worker()
+    except Exception:
+        pass
     await publish_project_event(
         project_id,
         event_type="project_updated",

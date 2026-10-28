@@ -502,7 +502,10 @@ export function StudioWorkspace({
           );
           qc.invalidateQueries({ queryKey: ["project", projectId] });
           qc.invalidateQueries({ queryKey: ["project-run", projectId] });
-          await qc.refetchQueries({ queryKey: ["project-run", projectId] });
+          await Promise.all([
+            qc.refetchQueries({ queryKey: ["project", projectId] }),
+            qc.refetchQueries({ queryKey: ["project-run", projectId] }),
+          ]);
         } catch (e) {
           toast.error(errorMessageFromUnknown(e));
         }
