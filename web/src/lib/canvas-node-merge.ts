@@ -37,7 +37,8 @@ export function mergeGraphNodesWithRuntime<T extends CanvasRuntimeData>(
   prevNodes: MergeableCanvasNode<T>[],
 ): MergeableCanvasNode<T>[] {
   const prevById = new Map(prevNodes.map((n) => [n.id, n]));
-  return sourceNodes.map((n) => {
+  const sourceIds = new Set(sourceNodes.map((n) => n.id));
+  const merged = sourceNodes.map((n) => {
     const old = prevById.get(n.id);
     if (!old) return n;
     return {
@@ -69,4 +70,11 @@ export function mergeGraphNodesWithRuntime<T extends CanvasRuntimeData>(
       },
     };
   });
+  // Сохраняем добавленные локально ноды, пока они не пришли из снапшота сервера
+  for (const prev of prevNodes) {
+    if (!sourceIds.has(prev.id)) {
+      merged.push(prev);
+    }
+  }
+  return merged;
 }

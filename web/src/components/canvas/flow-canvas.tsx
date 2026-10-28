@@ -1033,10 +1033,15 @@ export function FlowCanvas({
         targetPosition: Position.Left,
       };
       setNodes((prev) => [...prev, newNode]);
-      scheduleSaveWorkflow();
+      nodesRef.current = [...nodesRef.current, newNode];
+      if (saveTimerRef.current != null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      void persistWorkflow();
       toast.message(`Добавлена нода: ${spec.label}`);
     },
-    [nodes, setNodes, scheduleSaveWorkflow],
+    [nodes, setNodes, persistWorkflow],
   );
 
   const onNodesDelete = useCallback(
