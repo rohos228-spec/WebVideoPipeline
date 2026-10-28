@@ -292,3 +292,16 @@ def test_read_rejects_with_and_without_shared_reader(tmp_path, monkeypatch, shar
     assert rej["model"] == "gpt-test-mini" and rej["input_frames"] == 24
     assert rej["report"] == "кадры уже заполнены" and "пустой ops" in rej["error"]
     assert nf.classify(errors=[], rejects=[rej], frames=None, is_check=False)["code"] == "empty_ops"
+
+
+def test_failure_goal_adds_node_failure_read():
+    from app.orchestrator.agents.failure_scope import failure_reads
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [PlanStep(action="montage.get_board", params={"project_id": 26}, expected="доска")]
+    out = failure_reads(plan, "проект 26: найди саму причину ошибки в ИИ-редакторе сцен", None)
+    assert [s.action for s in out] == ["diag.node_failure", "montage.get_board"]
+    assert out[0].params == {"project_id": 26}
+    assert failure_reads([], "в 26 проекте найди причину, почему нода падала", None)[0].params["project_id"] == 26
+    fix = [PlanStep(action="node.set_model", params={"project_id": 26}, expected="м", mutating=True)]
+    assert failure_reads(fix, "найди причину ошибки в проекте 26", None) == fix
