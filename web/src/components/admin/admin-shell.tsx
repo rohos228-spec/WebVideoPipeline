@@ -10,21 +10,24 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Coins,
+  LayoutDashboard,
   RefreshCw,
   ShieldAlert,
+  Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { adminApi, isUnauthorized } from "@/lib/admin-api";
 import { A, Badge, Btn, ErrorBox, FONT, Spinner } from "./admin-kit";
 import { AdminCostsTab } from "./admin-costs";
+import { AdminOverviewTab } from "./admin-overview";
+import { AdminUsersTab } from "./admin-users";
 
-/** Вкладки, у которых в ветке test есть бэкенд. Остальные (Обзор,
- *  Пользователи, Генерации, Запросы, Тарифы, Настройки, Аудит) нарисованы с
- *  main, но их ручек `/api/admin/*` здесь нет — показывать кнопки, ведущие в
- *  «ручка недоступна», хуже, чем не показывать вовсе. Вернутся вместе с API. */
-type TabId = "costs";
+/** Вкладки панели управления VIA. */
+type TabId = "overview" | "users" | "costs";
 
 const TABS: { id: TabId; t: string; i: LucideIcon }[] = [
+  { id: "overview", t: "Обзор", i: LayoutDashboard },
+  { id: "users", t: "Пользователи", i: Users },
   { id: "costs", t: "Расходы", i: Coins },
 ];
 
@@ -32,6 +35,10 @@ const isTabId = (v: string): v is TabId => TABS.some((t) => t.id === v);
 
 function TabBody({ tab }: { tab: TabId }) {
   switch (tab) {
+    case "overview":
+      return <AdminOverviewTab />;
+    case "users":
+      return <AdminUsersTab />;
     case "costs":
       return <AdminCostsTab />;
     default:
@@ -46,7 +53,7 @@ const accentLinkCls = "inline-flex items-center justify-center gap-2 rounded-[10
 
 export function AdminPanel() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<TabId>("costs");
+  const [tab, setTab] = useState<TabId>("users");
   const [refreshing, setRefreshing] = useState(false);
   const access = useQuery({
     queryKey: ["admin", "access"],

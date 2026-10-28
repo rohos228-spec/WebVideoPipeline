@@ -28,6 +28,9 @@ from app.web.routers import (
     admin_costs as admin_costs_router,
 )
 from app.web.routers import (
+    admin_users as admin_users_router,
+)
+from app.web.routers import (
     artifacts as artifacts_router,
 )
 from app.web.routers import (
@@ -56,6 +59,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     gen_assistant as gen_assistant_router,
+)
+from app.web.routers import (
+    generation as generation_router,
 )
 from app.web.routers import (
     generation_options as generation_options_router,
@@ -476,6 +482,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
+    app.include_router(generation_router.router, prefix=API_PREFIX)
     app.include_router(config_presets_router.router, prefix=API_PREFIX)
     app.include_router(outsee_create_router.router, prefix=API_PREFIX)
     app.include_router(outsee_http_router.router, prefix=API_PREFIX)
@@ -489,6 +496,7 @@ def create_app() -> FastAPI:
     app.include_router(llm_costs_router.router, prefix=API_PREFIX)
     app.include_router(admin_access_router.router, prefix=API_PREFIX)
     app.include_router(admin_costs_router.router, prefix=API_PREFIX)
+    app.include_router(admin_users_router.router, prefix=API_PREFIX)
     app.include_router(prompts_router.router, prefix=API_PREFIX)
     app.include_router(prompt_studio_router.router, prefix=API_PREFIX)
     app.include_router(prompt_files_router.router, prefix=API_PREFIX)
