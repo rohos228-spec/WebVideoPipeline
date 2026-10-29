@@ -19,8 +19,12 @@ _PROJECT = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d+)|(\d+)\s*-?\w*\s+п�
 _FIX_ONLY = re.compile(
     r"^\s*(?:а\s+)?(?:(?:можешь|давай|ну)\s+)?(?:почини|исправь|исправить|починить|чини|поправь|"
     r"сделай\s+как\s+предлож\w*|сделай\s+это|давай\s+исправ\w*)(?:\s+(?:это|её|ее|его|ноду|ошибку|сбой|"
-    r"сам|пожалуйста|тогда|теперь))*\s*[.!?]*\s*$"
+    r"сам|пожалуйста|тогда|теперь|расхождени\w*|несоответстви\w*|ошибк\w*|все|всё))*\s*[.!?]*\s*$"
 )
+
+
+def is_bare_fix(goal: str) -> bool:
+    return bool(_FIX_ONLY.match(str(goal or "").lower()))
 
 
 def fix_after_diag_goal(goal: str, last_project: int | None) -> str:
@@ -34,7 +38,20 @@ def fix_after_diag_goal(goal: str, last_project: int | None) -> str:
     )
 
 
-_READ_ONLY = frozenset({"node.output", "logs.tail", "diag.node_failure", "diag.incidents"})
+_READ_ONLY = frozenset(
+    {"node.output", "logs.tail", "diag.node_failure", "diag.incidents", "diag.content_checks"}
+)
+_FIX_VERB = re.compile(r"исправ|почин|чини|поправ")
+_MAX_EDITS = 8
+
+
+def _fix_step(fix: dict, default: str) -> PlanStep:
+    return PlanStep(
+        action=str(fix["action"]),
+        params=dict(fix.get("params") or {}),
+        expected=str(fix.get("title_ru") or default),
+        mutating=True,
+    )
 
 
 async def plan_fix_from_diag(project_id: int) -> list[PlanStep] | None:
@@ -47,15 +64,56 @@ async def plan_fix_from_diag(project_id: int) -> list[PlanStep] | None:
         action = fix.get("action")
         if not action or action in _READ_ONLY:
             continue
-        return [
-            PlanStep(
-                action=str(action),
-                params=dict(fix.get("params") or {}),
-                expected=str(fix.get("title_ru") or "Исправление сбоя ноды"),
-                mutating=True,
-            )
-        ]
+        return [_fix_step(fix, "Исправление сбоя ноды")]
     return None
+
+
+async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanStep] | None:
+    """«Почини» после проверки содержания: точные правки ячеек (бесплатно) или первое исправление."""
+    from app.orchestrator import app_ref
+    from app.services.action_layer.content_checks_diag import _diag_content_checks
+    from app.services.action_layer.context import ActionContext
+
+    ctx = ActionContext(app=app_ref.current(), operator="system", read_only=True)
+    params: dict = {"project_id": int(project_id), **({"step": step} if step else {})}
+    out = await _diag_content_checks(ctx, params)
+    fixes = [f for f in (out or {}).get("fix_options") or [] if f.get("action") not in _READ_ONLY]
+    exact = [f for f in fixes if f.get("deterministic")]
+    if exact:
+        return [_fix_step(f, "Правка по проверке содержания") for f in exact[:_MAX_EDITS]]
+    return [_fix_step(fixes[0], "Исправление по проверке содержания")] if fixes else None
+
+
+async def plan_fix_from_last(last: tuple[str, dict] | None) -> list[PlanStep] | None:
+    """Исправление из последнего разбора в этом чате: сбой ноды или проверка содержания."""
+    if not last:
+        return None
+    action, params = last
+    pid = params.get("project_id")
+    if not isinstance(pid, int):
+        return None
+    if action == "diag.content_checks":
+        return await plan_fix_from_content(pid, params.get("step"))
+    return await plan_fix_from_diag(pid)
+
+
+async def fix_with_diag(plan: list[PlanStep], goal: str) -> list[PlanStep]:
+    """«Найди причину и исправь» одной фразой: исправление — из разбора, а не догадка планировщика.
+
+    Планировщик ставил после diag.node_failure перезапуск самой ноды, хотя на входе не было
+    кадров: тот же сбой ещё раз. Правки плана заменяются первым исправлением разбора.
+    """
+    if not _FIX_VERB.search(str(goal or "").lower()):
+        return plan
+    diag = next((step for step in plan if step.action == "diag.node_failure"), None)
+    if diag is None or not isinstance(diag.params.get("project_id"), int):
+        return plan
+    if not any(step.mutating or step.paid for step in plan):
+        return plan
+    fixed = await plan_fix_from_diag(diag.params["project_id"])
+    if not fixed:
+        return plan
+    return [*(step for step in plan if not (step.mutating or step.paid)), *fixed]
 
 
 def failure_reads(

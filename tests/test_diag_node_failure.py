@@ -339,3 +339,55 @@ def test_plan_fix_from_diag_takes_first_action(monkeypatch):
     plan = asyncio.run(failure_scope.plan_fix_from_diag(30))
     assert [s.action for s in plan] == ["step.run_step"]
     assert plan[0].params == {"project_id": 30, "step_code": "split"}
+
+
+def test_bare_fix_phrases():
+    from app.orchestrator.agents.failure_scope import is_bare_fix
+
+    for goal in ("почини", "исправь это расхождение", "исправь ошибку", "почини всё"):
+        assert is_bare_fix(goal), goal
+    assert not is_bare_fix("почини кадр 5 в проекте 12, там картинка кривая")
+
+
+def test_fix_with_diag_replaces_planner_guess(monkeypatch):
+    import asyncio
+
+    from app.orchestrator.agents import failure_scope as fs
+    from app.orchestrator.contracts import PlanStep
+
+    split = PlanStep(action="step.run_step", params={"project_id": 30, "step": "split"}, expected="x", mutating=True)
+
+    async def fake(pid):
+        return [split]
+
+    monkeypatch.setattr(fs, "plan_fix_from_diag", fake)
+    diag = PlanStep(action="diag.node_failure", params={"project_id": 30}, expected="x")
+    rerun = PlanStep(action="step.run_step", params={"project_id": 30, "step": "excel_gpt"}, expected="x", mutating=True)
+    out = asyncio.run(fs.fix_with_diag([diag, rerun], "в проекте 30 нода GPT упала, найди причину и исправь"))
+    assert [s.params.get("step") for s in out] == [None, "split"]
+    assert asyncio.run(fs.fix_with_diag([diag, rerun], "найди причину сбоя в проекте 30")) == [diag, rerun]
+
+
+def test_content_fix_takes_exact_cell_edits(monkeypatch):
+    import asyncio
+
+    from app.orchestrator.agents import failure_scope as fs
+    from app.services.action_layer import content_checks_diag as ccd
+
+    async def fake(ctx, params):
+        return {
+            "fix_options": [
+                {"action": "step.run_step", "params": {"project_id": 26, "step": "split"}, "title_ru": "заново"},
+                {
+                    "action": "shot.edit_cell_voiceover",
+                    "params": {"project_id": 26, "parent_uuid": "u3", "voiceover": "Убегать поздно"},
+                    "title_ru": "Вернуть кадру 3 закадр",
+                    "deterministic": True,
+                },
+            ]
+        }
+
+    monkeypatch.setattr(ccd, "_diag_content_checks", fake)
+    out = asyncio.run(fs.plan_fix_from_last(("diag.content_checks", {"project_id": 26, "step": "split"})))
+    assert [s.action for s in out] == ["shot.edit_cell_voiceover"]
+    assert out[0].mutating

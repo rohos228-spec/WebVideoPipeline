@@ -67,7 +67,13 @@ from app.orchestrator.agents.executor import effective_risk, run_many, step_is_p
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.light_scope import light_as_coverage
-from app.orchestrator.agents.failure_scope import failure_reads, fix_after_diag_goal, plan_fix_from_diag
+from app.orchestrator.agents.failure_scope import (
+    failure_reads,
+    fix_after_diag_goal,
+    fix_with_diag,
+    is_bare_fix,
+    plan_fix_from_last,
+)
 from app.orchestrator.agents.upload_scope import upload_source_from_goal
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
@@ -2787,6 +2793,23 @@ class Supervisor:
                 return pid
         return None
 
+    def _last_check(self, session_id: str) -> tuple[str, dict] | None:
+        # «Почини» — к последнему разбору в чате: сбою ноды или проверке содержания.
+        rows: list[dict] = []
+        for action in ("diag.node_failure", "diag.content_checks"):
+            try:
+                rows += self.tasks.session_steps(session_id, action)
+            except Exception:
+                continue
+        for row in sorted(rows, key=lambda r: int(r.get("id") or 0), reverse=True):
+            try:
+                params = json.loads(row.get("params_json") or "{}")
+            except (TypeError, ValueError):
+                continue
+            if isinstance(params.get("project_id"), int) and params["project_id"] > 0:
+                return str(row.get("action_name")), params
+        return None
+
     async def _make_plan(
         self,
         task_id: int,
@@ -2800,13 +2823,13 @@ class Supervisor:
         if self._status(task_id) is not TaskStatus.planning:
             await self._set_status(task_id, TaskStatus.planning, session_id=session_id)
         # «Почини» сразу после разбора сбоя: без проекта и ноды планировщик отвечал «уточните».
-        last_diag = self._last_diag_project(session_id)
-        bare_fix = fix_after_diag_goal(goal, last_diag) != goal
-        goal = fix_after_diag_goal(goal, last_diag)
+        last_check = self._last_check(session_id) if is_bare_fix(goal) else None
+        if last_check and last_check[0] == "diag.node_failure":
+            goal = fix_after_diag_goal(goal, last_check[1]["project_id"])
         token = _LLM_TASK.set(int(task_id))
         try:
             # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
-            fixed = await plan_fix_from_diag(last_diag) if bare_fix and last_diag else None
+            fixed = await plan_fix_from_last(last_check)
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
@@ -2832,6 +2855,7 @@ class Supervisor:
         drafted = upload_source_from_goal(drafted, goal)
         # «Найди причину ошибки в ИИ-редакторе сцен»: разбор сбоя ноды, а не одно чтение доски.
         drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
+        drafted = await fix_with_diag(list(drafted), goal)
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []
