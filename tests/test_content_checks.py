@@ -560,3 +560,19 @@ def test_summary_text_prompts_names_heroes_first():
     text = summary_text({"step": "img_pr", "ok": False, "findings": [vo, hero]})
     assert text.startswith("Герои в промтах картинок не совпали") and text.index("c07") < text.index("Закадр")
     assert "Герои" not in summary_text({"step": "split", "ok": True, "findings": []})
+
+
+def test_voiceover_edits_after_other_step_are_not_auto():
+    from app.services import content_checks as cc
+
+    finding = {
+        "check": "vo_concat",
+        "title_ru": "Закадр кадров не сходится",
+        "frames": [4],
+        "fixes": [{"uuid": "u4", "number": 4, "text": "Первый: во время охоты сова полагается не только на зрение."}],
+    }
+    after_prompts = cc.fix_options({"step": "img_pr", "findings": [finding]}, 10)
+    edits = [f for f in after_prompts if f["action"] == "shot.edit_cell_voiceover"]
+    assert edits and not any(f.get("deterministic") for f in edits)
+    after_split = cc.fix_options({"step": "split", "findings": [finding]}, 10)
+    assert any(f.get("deterministic") for f in after_split if f["action"] == "shot.edit_cell_voiceover")

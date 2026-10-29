@@ -618,8 +618,10 @@ def fix_options(report: dict[str, Any], project_id: int) -> list[dict[str, Any]]
     for f in report.get("findings") or []:
         if f.get("check") in ("vo_concat", "frame_count", "split_degraded") and step != "split":
             # После «Работы с GPT» и промтов переделка разбивки сотрёт их работу:
-            # только точечная правка ячейки, остальное — человеку.
-            out += _cell_edits(f, pid)
+            # только точечная правка ячейки, остальное — человеку. Закадр этот шаг не писал:
+            # расхождение — скорее правка человека после разбивки («поменяй текст кадра 4»),
+            # поэтому сами не возвращаем, только предлагаем кнопкой.
+            out += [dict(e, deterministic=False) for e in _cell_edits(f, pid)]
             continue
         check = f.get("check")
         if check == "vo_concat":

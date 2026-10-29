@@ -79,7 +79,8 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
     params: dict = {"project_id": int(project_id), **({"step": step} if step else {})}
     out = await _diag_content_checks(ctx, params)
     fixes = [f for f in (out or {}).get("fix_options") or [] if f.get("action") not in _READ_ONLY]
-    exact = [f for f in fixes if f.get("deterministic")]
+    # Человек сам попросил починить: правки ячеек закадра — все, карточкой.
+    exact = [f for f in fixes if f.get("deterministic") or f.get("action") == "shot.edit_cell_voiceover"]
     if exact:
         return [_fix_step(f, "Правка по проверке содержания") for f in exact[:_MAX_EDITS]]
     if fixes:
