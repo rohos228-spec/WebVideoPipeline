@@ -18,7 +18,7 @@ as-is, не «неизвестное поле»).
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from loguru import logger
 from pydantic import (
@@ -103,6 +103,43 @@ _ENVELOPE_KEYS = frozenset({"ops", "actions", "characters", "scenes"})
 _BARE_OP_KEYS = frozenset({"target", "frame_uuid", "fields", "frames", "кадры"})
 
 
+# Ключи, где модель объясняет свой ответ («нечего менять», отказ).
+_REPORT_KEYS = ("report", "notes", "summary", "comment", "reason", "error", "refusal")
+# Явный отказ модели — не «всё чисто», даже если ops пустой.
+_REFUSAL_KEYS = ("error", "refusal")
+
+
+def model_report(data: Any, *, limit: int = 600) -> str:
+    """Текст-пояснение модели из конверта (report/notes/error…), «» если нет.
+
+    Конверт его выбрасывает как не-данные, но для диагностики пустого ответа
+    это главная улика: модель обычно пишет, ПОЧЕМУ ничего не вернула.
+    """
+    if not isinstance(data, dict):
+        return ""
+    parts: list[str] = []
+    for k in _REPORT_KEYS:
+        v = data.get(k)
+        if v in (None, "", [], {}):
+            continue
+        txt = v if isinstance(v, str) else str(v)
+        parts.append(f"{k}: {txt.strip()}" if k != "report" else txt.strip())
+    out = " | ".join(p for p in parts if p)
+    return out if len(out) <= limit else out[: limit - 1] + "…"
+
+
+def _payload_empty(data: dict[str, Any]) -> bool:
+    return not any(data.get(k) for k in _ENVELOPE_KEYS)
+
+
+def empty_ops_message(report: str = "") -> str:
+    """Текст ошибки пустого ответа; пояснение модели — внутрь, а не в лог."""
+    msg = "пустой ops — нечего применять"
+    if report:
+        msg += f"; модель объяснила: «{report}»"
+    return msg
+
+
 def _looks_like_payload(value: Any) -> bool:
     """Похоже ли значение на операции/кадры, а не на текст-комментарий."""
     if isinstance(value, dict):
@@ -116,6 +153,10 @@ class ApplyOpsEnvelope(BaseModel):
     """Конверт ответа apply-ops: ops + опц. characters/scenes."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    # True — пустой ops значит «всё чисто, менять нечего» (QC no-op ноды,
+    # см. node_write_contract.allows_qc_noop). Иначе пустой ответ — брак.
+    allow_empty: ClassVar[bool] = False
 
     ops: list[ApplyOp] = Field(default_factory=list, validation_alias=AliasChoices("ops", "actions"))
     characters: list[dict[str, Any]] | None = None
@@ -137,6 +178,15 @@ class ApplyOpsEnvelope(BaseModel):
         """
         if not isinstance(data, dict):
             return data
+        if _payload_empty(data) and not (_BARE_OP_KEYS & data.keys()):
+            # Пустой ответ проверяем ДО выброса report: иначе объяснение
+            # модели теряется, и в ошибке/llm_rejects видно лишь «пустой ops».
+            report = model_report(data)
+            if not cls.allow_empty:
+                raise ValueError(empty_ops_message(report))
+            refusal = model_report({k: data.get(k) for k in _REFUSAL_KEYS})
+            if refusal:
+                raise ValueError(f"пустой ops с отказом модели — это не «всё чисто»: «{refusal}»")
         if not (_ENVELOPE_KEYS & data.keys()) and (_BARE_OP_KEYS & data.keys()):
             logger.warning("contracts/apply_ops: операция без конверта — оборачиваю в ops[]")
             return {"ops": [data]}
@@ -159,8 +209,8 @@ class ApplyOpsEnvelope(BaseModel):
 
     @model_validator(mode="after")
     def _not_empty_and_replace_rules(self) -> ApplyOpsEnvelope:
-        if not self.ops and not self.characters and not self.scenes:
-            raise ValueError("пустой ops — нечего применять")
+        if not self.ops and not self.characters and not self.scenes and not type(self).allow_empty:
+            raise ValueError(empty_ops_message())
         replace_n = sum(1 for op in self.ops if op.target == "replace_frames")
         if replace_n > 1:
             raise ValueError("replace_frames: только одна операция за раз")
@@ -175,3 +225,13 @@ class ApplyOpsEnvelope(BaseModel):
 # strict=False: fields — словарь с динамическими ключами (алиасы),
 # в OpenAI strict-режиме невыразим (см. ResponseSchema.strict).
 APPLY_OPS = LlmContract(name="vp_apply_ops", model=ApplyOpsEnvelope, strict=False)
+
+
+class ApplyOpsEnvelopeAllowEmpty(ApplyOpsEnvelope):
+    """Тот же конверт, но ``{"ops": []}`` = «всё чисто» (QC no-op)."""
+
+    allow_empty: ClassVar[bool] = True
+
+
+# Имя то же: метрики repair-rate и рекордер считают один контракт.
+APPLY_OPS_ALLOW_EMPTY = LlmContract(name="vp_apply_ops", model=ApplyOpsEnvelopeAllowEmpty, strict=False)
