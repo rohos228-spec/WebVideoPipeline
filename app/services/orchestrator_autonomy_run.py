@@ -329,7 +329,7 @@ def diagnosis_text(diag: dict, decision: oa.FixDecision) -> str:
             + "."
         )
     if checks:
-        parts.append("Проверить можно кнопкой: " + "; ".join(s.title_ru for s in checks) + ".")
+        parts.append("Для проверки есть кнопка: " + "; ".join(f"«{s.title_ru}»" for s in checks) + ".")
     return " ".join(_sentence(p) for p in parts if p)
 
 
