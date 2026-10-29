@@ -434,16 +434,21 @@ function AssembleFields({
       />
       <button
         type="button"
+        data-keep-bg
         disabled={saving}
         onClick={() => onSave({ send_to_main_pc: !sendToMain })}
         className={cn(
-          "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-          sendToMain ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent/40",
+          "flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+          sendToMain
+            ? "border-emerald-500/35 bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12]"
+            : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]",
         )}
       >
         <span className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">Отправить на основной ПК</span>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-sm font-medium transition-colors", sendToMain ? "text-emerald-300" : "text-white/90")}>
+            Отправить на основной ПК
+          </span>
+          <span className={cn("text-xs transition-colors", sendToMain ? "text-emerald-400/80" : "text-zinc-400")}>
             {sendToMain
               ? "После музыки проект уйдёт на hub для ASR и FFmpeg"
               : "Монтаж локально на этой станции"}
@@ -451,35 +456,59 @@ function AssembleFields({
         </span>
         <span
           data-keep-bg
-          className={cn("mt-0.5 h-5 w-9 shrink-0 rounded-[3px] border p-0.5 transition-colors", sendToMain ? "border-white bg-white" : "border-white/30 bg-transparent")}
-          >
-            <span data-keep-bg className={cn("block h-4 w-4 rounded-[2px] transition-transform", sendToMain ? "translate-x-4 bg-[#0a0a0a]" : "bg-white/70")} />
-          </span>
+          className={cn(
+            "mt-0.5 h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors",
+            sendToMain ? "border-emerald-500/60 bg-emerald-500" : "border-white/20 bg-zinc-800",
+          )}
+        >
+          <span
+            data-keep-bg
+            className={cn(
+              "block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+              sendToMain ? "translate-x-4" : "translate-x-0",
+            )}
+          />
+        </span>
       </button>
       <button
         type="button"
+        data-keep-bg
         disabled={saving}
         onClick={() => onSave({ subtitles_enabled: !subsOn })}
         className={cn(
-          "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-          subsOn ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent/40",
+          "flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+          subsOn
+            ? "border-emerald-500/35 bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12]"
+            : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]",
         )}
       >
         <span className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">Субтитры в ролике</span>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-sm font-medium transition-colors", subsOn ? "text-emerald-300" : "text-white/90")}>
+            Субтитры в ролике
+          </span>
+          <span className={cn("text-xs transition-colors", subsOn ? "text-emerald-400/80" : "text-zinc-400")}>
             {subsOn ? "Включены — ASS вшивается при сборке" : "Выключены — без прожига текста"}
           </span>
         </span>
         <span
           data-keep-bg
-          className={cn("mt-0.5 h-5 w-9 shrink-0 rounded-[3px] border p-0.5 transition-colors", subsOn ? "border-white bg-white" : "border-white/30 bg-transparent")}
-          >
-            <span data-keep-bg className={cn("block h-4 w-4 rounded-[2px] transition-transform", subsOn ? "translate-x-4 bg-[#0a0a0a]" : "bg-white/70")} />
-          </span>
+          className={cn(
+            "mt-0.5 h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors",
+            subsOn ? "border-emerald-500/60 bg-emerald-500" : "border-white/20 bg-zinc-800",
+          )}
+        >
+          <span
+            data-keep-bg
+            className={cn(
+              "block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+              subsOn ? "translate-x-4" : "translate-x-0",
+            )}
+          />
+        </span>
       </button>
       <button
         type="button"
+        data-keep-bg
         disabled={saving}
         onClick={() =>
           onSave({
@@ -488,13 +517,17 @@ function AssembleFields({
           })
         }
         className={cn(
-          "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-          skipIntroOn ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent/40",
+          "flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+          skipIntroOn
+            ? "border-emerald-500/35 bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12]"
+            : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]",
         )}
       >
         <span className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">Не учитывать первые секунды</span>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-sm font-medium transition-colors", skipIntroOn ? "text-emerald-300" : "text-white/90")}>
+            Не учитывать первые секунды
+          </span>
+          <span className={cn("text-xs transition-colors", skipIntroOn ? "text-emerald-400/80" : "text-zinc-400")}>
             {skipIntroOn
               ? `Отрезаем начало ролика: ${skipIntroLabel}`
               : "Выкл — ролик с 0:00 без обрезки начала"}
@@ -502,10 +535,19 @@ function AssembleFields({
         </span>
         <span
           data-keep-bg
-          className={cn("mt-0.5 h-5 w-9 shrink-0 rounded-[3px] border p-0.5 transition-colors", skipIntroOn ? "border-white bg-white" : "border-white/30 bg-transparent")}
-          >
-            <span data-keep-bg className={cn("block h-4 w-4 rounded-[2px] transition-transform", skipIntroOn ? "translate-x-4 bg-[#0a0a0a]" : "bg-white/70")} />
-          </span>
+          className={cn(
+            "mt-0.5 h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors",
+            skipIntroOn ? "border-emerald-500/60 bg-emerald-500" : "border-white/20 bg-zinc-800",
+          )}
+        >
+          <span
+            data-keep-bg
+            className={cn(
+              "block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+              skipIntroOn ? "translate-x-4" : "translate-x-0",
+            )}
+          />
+        </span>
       </button>
       {skipIntroOn ? (
         <StepperControl
