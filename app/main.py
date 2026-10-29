@@ -379,6 +379,14 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                         return
                     action = await record_step_failure(s, p, error=e)
                     await s.commit()
+                    # Нода стала failed: разбор в чат и, если включено, исправление — в фоне.
+                    # Сбой самого хука не должен уводить в аварийный «unstick» ниже.
+                    try:
+                        from app.services.orchestrator_autonomy_run import on_step_failure
+
+                        on_step_failure(project_id, action)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("orchestrator autonomy hook failed for #{}", project_id)
                     if action == "abandon":
                         from app.services.gen_queue import gen_queue_tick
 

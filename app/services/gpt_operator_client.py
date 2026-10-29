@@ -316,6 +316,13 @@ async def _run_operator_api_real(
         prompt_for_model = append_response_footer(raw_prompt)
     else:
         prompt_for_model = raw_prompt
+    from app.contracts.policy import FEEDBACK_HEADER
+    from app.services.orchestrator_autonomy import read_feedback
+
+    retry_feedback = read_feedback(project_dir, node_key)
+    if retry_feedback:
+        # Автоповтор оркестратора: модель видит, почему прошлый запуск отклонён.
+        prompt_for_model = f"{prompt_for_model}\n\n{FEEDBACK_HEADER}\n{retry_feedback}"
 
     from app.services.llm_contract import build_api_accompany
 

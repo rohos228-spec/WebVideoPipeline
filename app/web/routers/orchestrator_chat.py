@@ -7,6 +7,8 @@ POST ``/api/orchestrator/chat/{session_id}/approve``
 POST ``/api/orchestrator/chat/{session}/reject``   (отказ по карточке: задача отменена, план отозван)
 POST ``/api/orchestrator/chat/{session}/kill``     (стоп задачи чата и её проекта)
 GET  ``/api/orchestrator/chat/{session}/partial-changes``
+GET  ``/api/orchestrator/chat/autonomy``   (переключатели автономности при сбое ноды)
+PUT  ``/api/orchestrator/chat/autonomy``
 
 Чат открыт каждому клиенту студии. Имя сессии из пути — внешнее; внутрь
 движка уходит имя с арендатором (``orch_tenancy.scoped_session``), так что
@@ -23,7 +25,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, model_validator
 from sse_starlette.sse import EventSourceResponse
 
 from app.orchestrator.agents.runtime import get_runtime
@@ -35,6 +37,7 @@ from app.orchestrator.agents.supervisor import (
 )
 from app.orchestrator.contracts import MessageMode, OrchEvent
 from app.services import orch_bridge
+from app.services import orchestrator_autonomy as oa
 from app.services.action_layer import approval as al_approval
 from app.services.action_layer import planner as al_planner
 from app.services.orch_tenancy import public_session, scoped_session
@@ -414,6 +417,56 @@ async def post_resume(session: str) -> dict[str, object]:
         "task_id": task_id,
         "status": status.value if status is not None else "",
     }
+
+
+class AutonomyIn(BaseModel):
+    """Частичная правка автономности: любые из полей, остальные остаются как были."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auto_retry: StrictBool | None = None
+    auto_model_switch: StrictBool | None = None
+    auto_fix_on_failure: StrictBool | None = None
+    max_auto_retries_per_node: StrictInt | None = Field(default=None, ge=0, le=oa.MAX_RETRIES_CAP)
+    auto_spend_limit_usd: float | None = Field(default=None, ge=0, le=oa.SPEND_LIMIT_CAP_USD)
+
+
+@router.get("/autonomy")
+async def get_autonomy() -> dict[str, object]:
+    """Автономность чата при сбое ноды — у каждого клиента студии своя.
+
+    ``false`` — «с подтверждением» (по умолчанию, как раньше), ``true`` — «автономно»::
+
+        {
+          "auto_retry": false,            // сам перезапускает упавшую ноду (платный вызов модели,
+                                          //   текст ошибки уходит модели)
+          "auto_model_switch": false,     // сам ставит модель не дороже текущей
+          "auto_fix_on_failure": false,   // после разбора сбоя сам чинит; false — разбор и карточка
+          "max_auto_retries_per_node": 2, // автоповторов подряд на ноду, 0..5
+          "auto_spend_limit_usd": 0.5,    // потолок одного автозапуска в $, 0..20
+          "modes": {"auto_retry": "с подтверждением", ...},   // то же словами
+          "updated_by": "studio_user:…" | "local_web_operator" | null,  // кто менял: от его
+                                          //   имени подтверждается автозапуск
+          "updated_at": "2026-10-29T12:00:00+00:00" | null,
+          "defaults": {...пять полей...},
+          "limits": {"max_auto_retries_per_node": [0, 5], "auto_spend_limit_usd": [0, 20]}
+        }
+
+    Разбор сбоя пишется в чат в обоих режимах. Перезапуск без карточки — только при
+    ``auto_fix_on_failure`` и ``auto_retry``, смена модели — при ``auto_fix_on_failure`` и
+    ``auto_model_switch``. Правка промтов и удаление — всегда карточка.
+    """
+    return oa.public_view(oa.load())
+
+
+@router.put("/autonomy")
+async def put_autonomy(body: AutonomyIn, request: Request) -> dict[str, object]:
+    """Тело — любые из пяти полей ``GET``; ответ — как у ``GET``. Чужое поле или выход за
+    пределы — 422. Менять может только человек из интерфейса, как и одобрять карточки (403)."""
+    operator = orch_bridge.human_operator(request.scope)
+    if operator is None:
+        raise HTTPException(status_code=403, detail="operator_token_required")
+    return oa.public_view(oa.save(body.model_dump(exclude_none=True), actor=operator.id))
 
 
 @router.get("/{session}/status")
