@@ -975,7 +975,18 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
     if checks_text:
         lines.append(f"Проверки: {checks_text}.")
     arts = card["artifacts"]
-    lines.append(f"Файлов результата: {arts['count']}{'+' if arts.get('more') else ''}.")
+    files_line = f"Файлов результата: {arts['count']}{'+' if arts.get('more') else ''}."
+    sample = [str(f) for f in arts.get("sample") or []]
+    if sample and all(Path(f).name == "project.xlsx" for f in sample):
+        # Общая таблица есть у проекта всегда: без числа кадров «1 файл» читается как готовый результат.
+        frames = await _frame_count(_sessions(), pid)
+        if frames is not None:
+            card["frames"] = frames
+            files_line = (
+                f"Файл результата — общая таблица проекта project.xlsx, кадров в проекте: {frames}"
+                + (" (нода ещё не отдала ни одного кадра)." if frames == 0 else ".")
+            )
+    lines.append(files_line)
     excerpt = _text_excerpt(project, list(arts.get("sample") or [])) if project is not None else None
     if excerpt:
         card["text_excerpt"] = excerpt
