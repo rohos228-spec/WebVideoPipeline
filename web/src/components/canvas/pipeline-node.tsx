@@ -43,7 +43,6 @@ import { StoragePanel } from "./storage-panel";
 import { StyleExtractPanel } from "./style-extract-panel";
 import { HitlStylePanel } from "./hitl-style-panel";
 import { ShotsReportPanel } from "./shots-report-panel";
-import { NodeAudioMiniPlayer } from "./custom-audio-player";
 import { HeroConfigPanel } from "./hero-config-panel";
 import { ItemsConfigPanel } from "./items-config-panel";
 import { AssembleMontageTrigger } from "./assemble-montage-board";
@@ -1006,18 +1005,6 @@ function PosterTile({
         )}
       </div>
     );
-  } else if (audio.length) {
-    body = (
-      <div className="nodrag nopan absolute inset-x-2.5 bottom-2.5 z-[1]">
-        {audio.slice(0, 1).map((a) => (
-          <NodeAudioMiniPlayer
-            key={a.id}
-            src={(a.previewUrl || a.downloadUrl) ?? ""}
-            label={a.label}
-          />
-        ))}
-      </div>
-    );
   } else if (settingsLines.length) {
     body = (
       <div className="absolute inset-x-0 bottom-0 top-10 flex flex-col gap-1 overflow-hidden px-3 pb-2">
@@ -1063,7 +1050,7 @@ function PosterTile({
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[35%] bg-gradient-to-b from-black/70 to-transparent" />
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[35%] bg-gradient-to-t from-black/70 to-transparent" />
           </>
-        {media.length || audio.length ? (
+        {media.length ? (
           body
         ) : (
           <div data-vp-tile-mid className="absolute inset-0 opacity-0 transition-opacity duration-[120ms] ease-out group-hover:opacity-100">{body}</div>
