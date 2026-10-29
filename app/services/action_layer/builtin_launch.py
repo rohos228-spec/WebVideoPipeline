@@ -358,8 +358,10 @@ async def _run_any_step(ctx, params):
     if params.get("node_key"):
         query["node_key"] = params["node_key"]
     await _arm_stop_point(ctx, params)
-    if params.get("allow_auto_chain") and (params.get("ceiling_credits") or 0) > 0:
-        # Потолок на всю цепочку доходит до воркера, а не только до резерва плана.
+    bounded = params.get("allow_auto_chain") or params.get("stop_after_node_key")
+    if bounded and (params.get("ceiling_credits") or 0) > 0:
+        # Потолок доходит до воркера, а не только до резерва плана: цепочка и запуск одной
+        # ноды (автоповтор) останавливаются на нём, GPT шага тоже (llm_ledger.check_run_cap).
         query["run_cap_credits"] = params["ceiling_credits"]
         query["run_tag"] = _chain_tag(ctx)
     before = await _get_project(ctx, params["project_id"])

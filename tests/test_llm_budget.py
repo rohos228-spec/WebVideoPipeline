@@ -358,3 +358,34 @@ async def test_budget_endpoint_raises_budget_and_clears_pause(client, db):
     assert p.meta["llm_budget_usd"] == 25.0 and "pause_reason" not in p.meta
     r = await client.post(f"/api/projects/{pid}/llm-budget", json={"budget_usd": -1})
     assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_run_cap_stops_step_gpt_only_with_spend_since_start(db, monkeypatch):
+    """Потолок автоповтора/цепочки держит и GPT шага: считаются траты с начала запуска."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import spend_guard
+
+    monkeypatch.setattr(settings, "llm_budget_usd", 0.0)
+    start = datetime.now(UTC)
+    budget = spend_guard.chain_budget_meta(1, 60, "t")  # 60 кр = $0.30
+    budget["started_at"] = start.isoformat(timespec="seconds")
+    pid = await _add_project(db, meta={spend_guard.CHAIN_BUDGET_META: budget})
+    async with db() as s:  # дорогой вызов ДО старта запуска не считается
+        s.add(LlmCall(project_id=pid, node_key="n", logical_call_id="l", model="m", cost_usd=5.0, result="ok",
+                      created_at=(start - timedelta(hours=1)).replace(tzinfo=None)))
+        await s.commit()
+    await ledger.check_budget(pid)
+    await _add_call(db, pid, 0.31)
+    with pytest.raises(BudgetExhausted) as e:
+        await ledger.check_budget(pid)
+    assert e.value.budget_usd == pytest.approx(0.30)
+
+
+@pytest.mark.asyncio
+async def test_no_run_cap_means_project_budget_only(db, monkeypatch):
+    monkeypatch.setattr(settings, "llm_budget_usd", 0.0)
+    pid = await _add_project(db)
+    await _add_call(db, pid, 50.0)
+    await ledger.check_budget(pid)

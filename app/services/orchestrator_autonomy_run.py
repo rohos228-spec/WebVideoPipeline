@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from typing import Any
 
@@ -36,6 +37,7 @@ BLOCKED_RU = {
 }
 KIND_FAILURE = "node_failure"
 KIND_RESULT = "node_failure_fix"
+REPEAT_NOTICE_S = 24 * 3600
 MAX_CARD_ACTIONS = 4
 
 _BUSY: set[tuple[str, int]] = set()
@@ -356,7 +358,7 @@ def _sentence(text: str) -> str:
 
 
 async def _notify(
-    project_id: int, level: str, title: str, text: str, *, kind: str, key: str, actions=None
+    project_id: int, level: str, title: str, text: str, *, kind: str, key: str, actions=None, window_s=None
 ) -> str:
     from app.services import chat_notice
 
@@ -369,7 +371,7 @@ async def _notify(
             text,
             kind=kind,
             dedup_key=key,
-            dedup_window_s=chat_notice.FOREVER_S,
+            dedup_window_s=chat_notice.FOREVER_S if window_s is None else window_s,
             suggested_actions=actions or [],
         )
     return status
@@ -426,14 +428,22 @@ async def _incident(project_id: int, step_action: str, app: Any) -> dict:
         why = (diag.get("cause") or {}).get("title_ru") or "сбой"
         title = f"Нода «{diag.get('title') or node_key}» упала: {why}"
         fid = failed["failure_id"]
+        text = diagnosis_text(diag, decision)
+        key, window = f"{KIND_FAILURE}:{project_id}:{fid}", None
+        if not decision.auto_steps:
+            # Шаг сам повторяет ноду по своей политике (раз в ~30 мин): та же причина и тот же
+            # совет — одно уведомление в сутки, а не по штуке на попытку.
+            digest = hashlib.sha1("|".join((node_key, title, text)).encode()).hexdigest()[:16]
+            key, window = f"{KIND_FAILURE}:{project_id}:same:{digest}", REPEAT_NOTICE_S
         status = await _notify(
             project_id,
             "error",
             title,
-            diagnosis_text(diag, decision),
+            text,
             kind=KIND_FAILURE,
-            key=f"{KIND_FAILURE}:{project_id}:{fid}",
+            key=key,
             actions=_card_actions(decision),
+            window_s=window,
         )
         report["rounds"].append(
             {"failure_id": fid, "notice": status, "auto": [s.action for s in decision.auto_steps]}

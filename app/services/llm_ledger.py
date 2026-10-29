@@ -26,6 +26,7 @@ from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -478,9 +479,64 @@ async def check_budget(project_id: int | None) -> None:
     """Raise BudgetExhausted, если spent ≥ budget (budget 0 = выключен)."""
     if project_id is None:
         return
+    await check_run_cap(project_id)
     budget = await budget_usd(project_id)
     if budget <= 0:
         return
     spent = await spent_usd(project_id)
     if spent >= budget:
         raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=budget)
+
+
+async def _run_cap(project_id: int) -> tuple[float, datetime] | None:
+    """Потолок запуска из чата/автономии (meta «chat_run_budget»): $ и момент старта (UTC без пояса)."""
+    from sqlalchemy import select
+
+    from app.models import Project
+    from app.services import spend_guard
+
+    async with session_scope() as session:
+        meta = (await session.execute(select(Project.meta).where(Project.id == project_id))).scalar_one_or_none()
+    raw = meta.get(spend_guard.CHAIN_BUDGET_META) if isinstance(meta, dict) else None
+    if spend_guard.chain_budget(meta) is None or not isinstance(raw, dict):
+        return None
+    try:
+        started = datetime.fromisoformat(str(raw.get("started_at")))
+    except ValueError:
+        return None
+    if started.tzinfo is not None:
+        started = started.astimezone(UTC).replace(tzinfo=None)
+    return float(raw["cap_usd"]), started
+
+
+async def check_run_cap(project_id: int) -> None:
+    """GPT шага тоже упирается в потолок запуска, а не только в бюджет проекта.
+
+    Без этого потолок автоповтора/цепочки из чата держал только медиа: GPT-нода тратила
+    сколько угодно в пределах общего бюджета проекта.
+    """
+    from sqlalchemy import func, select
+
+    try:
+        cap = await _run_cap(project_id)
+        if cap is None:
+            return
+        cap_usd, started = cap
+        async with session_scope() as session:
+            spent = float(
+                (
+                    await session.execute(
+                        select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
+                            LlmCall.project_id == project_id, LlmCall.created_at >= started
+                        )
+                    )
+                ).scalar_one()
+                or 0.0
+            )
+    except Exception as e:  # noqa: BLE001 — потолок не прочитан: не глушим шаг, бюджет проекта остаётся
+        logger.warning("llm_ledger: потолок запуска не прочитан: {}", e)
+        return
+    spent += unpersisted_spent(project_id)
+    if spent >= cap_usd:
+        raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=cap_usd)
+

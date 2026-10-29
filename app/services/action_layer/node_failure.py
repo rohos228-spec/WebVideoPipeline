@@ -40,6 +40,7 @@ CAUSE_RU = {
     "truncated": "ответ модели оборван",
     "refusal": "модель отказалась отвечать",
     "provider_error": "сбой у провайдера модели",
+    "budget_cap": "упёрлись в потолок трат",
     "schema_other": "ответ модели не прошёл проверку формата",
     "content_mismatch": "закадр кадров не сходится с закадровым текстом",
     "unknown": "причина по данным не видна",
@@ -52,6 +53,8 @@ _PROVIDER = re.compile(
     r"connection (?:reset|error|refused)",
     re.I,
 )
+# llm_ledger.BudgetExhausted: «бюджет исчерпан: $0.31 из $0.30 (проект #10)».
+_BUDGET = re.compile(r"бюджет исчерпан|budget exhausted|spend_cap_\w+|потол\w* (?:трат|расход)", re.I)
 _TRUNC = re.compile(
     r"finish_reason\W*length|max_tokens|unterminated|обрез|оборван|незакрыт",
     re.I,
@@ -343,6 +346,12 @@ def classify(
     if frames == 0 or (_EMPTY_INPUT.search(all_err) and not rejects):
         code = "empty_input"
         explain = "Модели нечего было обрабатывать: во входной таблице ноды нет ни одного кадра."
+    elif _BUDGET.search(all_err):
+        code = "budget_cap"
+        explain = (
+            "Модель остановлена потолком трат: на этот запуск или проект деньги кончились. "
+            "Повтор упрётся в тот же потолок — нужно поднять его или подтвердить запуск."
+        )
     elif _PROVIDER.search(all_err) and not rejects:
         code = "provider_error"
         explain = "Запрос не дошёл до ответа модели: провайдер вернул сбой, таймаут или кончилась квота."
@@ -531,6 +540,8 @@ def fix_options(
         ]
     if code == "provider_error":
         return [dict(retry, title_ru="Повторить позже: сбой был у провайдера"), models]
+    if code == "budget_cap":
+        return [dict(retry, title_ru="Перезапустить ноду с новым потолком (с подтверждением)")]
     if code == "schema_other":
         return [
             prompt_edit(

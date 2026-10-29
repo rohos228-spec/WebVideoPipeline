@@ -54,7 +54,7 @@ DATA_FIX_ACTIONS = frozenset({"shot.edit_cell_voiceover", "shot.edit_field"})
 # Только эти действия бывают без карточки; всё прочее из разбора — кнопка с подтверждением.
 AUTO_ACTIONS = frozenset({"step.run_step", "node.set_model", *DATA_FIX_ACTIONS})
 # Повтор с той же причиной даст тот же ответ: на входе нет кадров.
-NO_AUTO_RETRY_CAUSES = frozenset({"empty_input"})
+NO_AUTO_RETRY_CAUSES = frozenset({"empty_input", "budget_cap"})
 
 _LOCK = threading.Lock()
 
