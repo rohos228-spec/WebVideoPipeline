@@ -155,6 +155,7 @@ export interface ProjectSummary {
   sidebar_folder_id?: string | null;
   sidebar_order?: number | null;
   gen_queue_position?: number | null;
+  tenant_id?: string | null;
 }
 
 export interface SidebarFolder {
