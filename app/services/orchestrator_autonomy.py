@@ -280,6 +280,8 @@ def price_not_higher(current: Any, new: Any) -> bool | None:
         return None
 
 
+_READ_ONLY_FIXES = frozenset({"node.output", "logs.tail", "diag.node_failure", "diag.incidents"})
+
 def decide_fix(
     *,
     cause: dict | str,
@@ -364,9 +366,13 @@ def decide_fix(
             runs.append(FixStep(action, params, title, not why, why))
             continue
         # Правка промта, вариант промта, мастер-промты, удаление — всегда через человека.
-        others.append(
-            FixStep(action, params, title, False, "меняет промт или данные: только с подтверждением")
+        # Чтение (node.output, logs.tail) ничего не меняет: так и пишем, а не «меняет промт».
+        why = (
+            "это проверка, по кнопке"
+            if action in _READ_ONLY_FIXES
+            else "меняет промт или данные: только с подтверждением"
         )
+        others.append(FixStep(action, params, title, False, why))
     steps = [*models[:1], *runs[:1], *others]
     # Страховка от будущих правок правила: вне белого списка без карточки не идёт ничего.
     steps = [
