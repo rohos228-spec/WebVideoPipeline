@@ -1107,25 +1107,7 @@ function SfxPlanSettingsPanel({ projectId: _projectId }: { projectId: number }) 
   );
 }
 
-function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
-  const project = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => api.getProject(projectId),
-  });
-
-  const meta = (project.data?.meta || {}) as Record<string, unknown>;
-  const aiJobs = (meta.ai_jobs || {}) as Record<string, unknown>;
-  const sfxPlan = (aiJobs.sfx_plan || meta.sfx_plan) as
-    | {
-        total_duration?: number;
-        events?: unknown[];
-      }
-    | undefined;
-
-  const sfxFiles = (aiJobs.sfx_files || {}) as { files?: unknown[] };
-  const plannedCount = sfxPlan?.events?.length ?? 0;
-  const generatedCount = sfxFiles?.files?.length ?? 0;
-
+function SfxGenSettingsPanel({ projectId: _projectId }: { projectId: number }) {
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
       <div>
@@ -1133,37 +1115,6 @@ function SfxGenSettingsPanel({ projectId }: { projectId: number }) {
         <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
           Генерация аудиофайлов для каждого запланированного звукового события через нейросеть ElevenLabs Sound Generation или встроенный офлайн-синтезатор.
         </p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-          <div className="text-[11px] font-medium text-zinc-400">Статус генерации файлов</div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                generatedCount > 0 ? "bg-emerald-400" : plannedCount > 0 ? "bg-amber-400" : "bg-zinc-500",
-              )}
-            />
-            <span className="text-sm font-medium text-foreground">
-              {generatedCount > 0
-                ? `Готово: ${generatedCount} / ${plannedCount || generatedCount} файлов`
-                : plannedCount > 0
-                  ? `Ожидает запуска (${plannedCount} событий в плане)`
-                  : "Нет плана звуков"}
-            </span>
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-          <div className="text-[11px] font-medium text-zinc-400">Провайдер ИИ-звуков</div>
-          <div className="mt-1.5 flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">ElevenLabs SFX API</span>
-            <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300 border border-violet-500/30">
-              ~$0.01 / звук
-            </span>
-          </div>
-        </div>
       </div>
 
       <div className="rounded-lg border border-white/10 bg-black/20 p-3.5 flex flex-col gap-2">
