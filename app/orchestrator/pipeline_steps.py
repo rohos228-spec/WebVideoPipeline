@@ -381,3 +381,14 @@ def step_icon(step: StepDef, project_status: ProjectStatus) -> str:
     if status_order(project_status) >= status_order(step.ready_status):
         return "✅"
     return "⬜"
+
+def is_step_runnable(step: StepDef, project_status: ProjectStatus) -> bool:
+    """Можно ли запустить шаг сейчас: достигнут его prerequisite (или его нет).
+
+    Перезапуск уже пройденного шага разрешён. Перенос из движка
+    (app/telegram/menu.py:is_step_runnable).
+    """
+    if step.requires is None:
+        return True
+    return status_order(project_status) >= status_order(step.requires)
+

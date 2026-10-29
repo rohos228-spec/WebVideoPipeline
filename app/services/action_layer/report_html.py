@@ -13,25 +13,7 @@ from typing import Any
 
 from app.services.action_layer import report_template as tpl
 from app.services.action_layer.report_costs import NO_DATA, SOURCE_RU, cost_text
-
-try:
-    from app.services.shots_report import REPORT_CSS, _counts_line, _diary_block, _esc, _rules_block
-except ImportError:
-    REPORT_CSS = "body{font-family:sans-serif;background:#111;color:#eee}"
-
-    def _esc(val: Any) -> str:
-        return html.escape(str(val if val is not None else ""))
-
-    def _counts_line(counts: Any) -> str:
-        if not isinstance(counts, dict):
-            return str(counts or "")
-        return ", ".join(f"{k}: {v}" for k, v in counts.items())
-
-    def _diary_block(diary: Any, title: str = "", with_cell: bool = False) -> str:
-        return ""
-
-    def _rules_block() -> str:
-        return ""
+from app.services.shots_report import REPORT_CSS, _counts_line, _diary_block, _esc, _rules_block
 
 # Поверх общего вида: значения полей с переносами строк как есть.
 _EXTRA_CSS = """.val{white-space:pre-wrap;word-break:break-word}

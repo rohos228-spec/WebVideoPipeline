@@ -403,15 +403,58 @@ async def _node_get_config(ctx: ActionContext, params: dict) -> dict:
     return out
 
 
+_PROVIDER_RU = {
+    "kie": "Kie",
+    "vibecode": "Vibecode",
+    "pay52": "52pay",
+    "outsee": "Outsee",
+    "minimax": "MiniMax",
+    "unknown": "неизвестно",
+}
+
+
+def _text_provider(model_id: str | None) -> str:
+    """Провайдер текстовых вызовов ноды: модели Claude — Vibecode, иначе выбор студии (kie / pay52 / vibecode)."""
+    try:
+        from app.services.anthropic_messages import is_anthropic_model
+        from app.settings import settings
+
+        if is_anthropic_model(model_id):
+            return "vibecode"
+        return str(settings.resolved_text_llm_provider() or "unknown")
+    except Exception:
+        return "unknown"
+
+
 async def _node_get_llm_route(ctx: ActionContext, params: dict) -> dict:
     described = await ctx.call("GET", f"/projects/{params['project_id']}/nodes/{params['node_key']}/describe")
     model = described.get("model") or {}
     forced = bool(model.get("forced_vibecode")) or _forced_vibecode(params["node_key"])
+    # «Через какого провайдера идёт нода»: без провайдера чат отвечал «в данных не указано».
+    kind = str(model.get("kind") or "")
+    if kind in ("image", "video"):
+        # Картинки и видео идут через поставщика медиа, а не через провайдера текстовых запросов.
+        from app.settings import settings
+
+        provider = str(getattr(settings, f"{kind}_provider", "") or "unknown").strip().lower()
+    else:
+        provider = "vibecode" if forced else _text_provider(model.get("model_id"))
+    provider_ru = _PROVIDER_RU.get(provider, provider)
+    text = (
+        f"Модель {model.get('model_label') or model.get('model_id') or 'не задана'}, "
+        f"запросы идут через провайдера {provider_ru}."
+    )
+    if model.get("from_project"):
+        text += " Модель взята из настроек проекта: своя на ноде не выбрана."
+        if model.get("known") is False:
+            text += " Такого генератора нет в каталоге студии, шаг с ним не пойдёт."
     return {
         "node_key": params["node_key"],
         "forced_vibecode": forced,
         "model_id": model.get("model_id"),
         "model_label": model.get("model_label"),
+        "provider": provider,
+        "text_ru": text,
         "is_default": model.get("is_default"),
         "applies": model.get("applies"),
         "note": (
@@ -684,10 +727,20 @@ def node_label_ru(meta: dict | None, node_key: str) -> str:
     from app.services.action_layer import builtin_insight as bi
 
     nodes = bi._canvas_nodes(meta) if isinstance(meta, dict) else []
-    labels = {str(n["id"]): str((n.get("data") or {}).get("label") or n["id"]) for n in nodes}
-    label = labels.get(node_key, node_key)
+    # У нод нового проекта подписи нет: русское название типа, а не ключ «n_excel_gpt_1».
+    labels = {
+        str(n["id"]): str((n.get("data") or {}).get("label") or bi._type_ru(str(n.get("type") or "")) or n["id"])
+        for n in nodes
+    }
     number = "".join(ch for ch in node_key if ch.isdigit())
-    if number and list(labels.values()).count(label) > 1:
+    if node_key in labels:
+        label = labels[node_key]
+        twin = list(labels.values()).count(label) > 1
+    else:
+        # Меты без схемы нод: тип из ключа «n_excel_gpt_2» → «Работа с GPT 2».
+        label = bi._type_ru(re.sub(r"^n_|_\d+$", "", node_key)) or node_key
+        twin = label != node_key
+    if number and twin:
         label += " " + number
     return label.strip()
 
@@ -732,10 +785,22 @@ async def _node_set_disabled(ctx: ActionContext, params: dict) -> dict:
         f"/projects/{params['project_id']}",
         json={"meta": {"disabled_nodes": result["disabled_nodes"], "meta_version": result["version"]}},
     )
+    try:
+        described = await ctx.call("GET", f"/projects/{params['project_id']}/nodes/{params['node_key']}/describe")
+        label = str((described or {}).get("label") or params["node_key"])
+    except Exception:
+        label = str(params["node_key"])
+    # Без text_ru чат отвечал полями «disabled nodes: …; rollback possible: да».
+    text = (
+        f"Нода «{label}» выключена: при запуске конвейера она будет пропущена."
+        if result["disabled"]
+        else f"Нода «{label}» снова включена."
+    )
     return {
         "node_key": result["node_key"],
         "disabled": result["disabled"],
         "disabled_nodes": result["disabled_nodes"],
+        "text_ru": text,
     }
 
 

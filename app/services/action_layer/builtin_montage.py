@@ -134,10 +134,15 @@ async def _get_board(ctx: ActionContext, params: dict) -> dict:
                 "voiceover_text": (f.get("voiceover_text") or "")[:300],
                 "shot_kind": f.get("shot_kind"),
                 "has_shot2": f.get("has_shot2"),
+                # «Картинка для кадра 1 появилась?»: без этого чат отвечал «данных нет».
+                "has_image": bool(f.get("image_shot1_url") or f.get("image_shot2_url")),
+                "has_video": bool(f.get("video_shot1_url") or f.get("video_shot2_url")),
             }
             for f in frames[:_MAX_FRAMES_IN_RESULT]
         ],
         "frames_truncated": len(frames) > _MAX_FRAMES_IN_RESULT,
+        "frames_with_image": sum(1 for f in frames if f.get("image_shot1_url") or f.get("image_shot2_url")),
+        "frames_with_video": sum(1 for f in frames if f.get("video_shot1_url") or f.get("video_shot2_url")),
         "pending_ops": list(meta.get("pending_ops") or []),
         "stale_videos": list(meta.get("stale_videos") or []),
     }
@@ -187,6 +192,7 @@ async def _set_coverage(ctx: ActionContext, params: dict) -> dict:
         "ok": bool(data.get("ok")),
         "frame_number": params["frame_number"],
         "type": op_type,
+        "value": params["value"],
         "shot_kind": data.get("shot_kind"),
         "shot_parent_number": (data.get("frame") or {}).get("shot_parent_number"),
     }

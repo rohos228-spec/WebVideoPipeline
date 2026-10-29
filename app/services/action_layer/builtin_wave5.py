@@ -722,9 +722,26 @@ async def _patch_settings(ctx, params):
         if notes:
             out["node_overrides"] = notes
             lines.extend(notes)
-    if lines:
-        out["text_ru"] = " ".join(lines)
+    # Без text_ru чат отвечал полями «updated: title; rollback possible: да».
+    if "title" in body:
+        lines.insert(0, f"Проект #{pid} теперь называется «{body['title']}».")
+    if "topic" in body:
+        lines.insert(0, f"Тема проекта #{pid}: «{body['topic']}».")
+    if not lines:
+        names = ", ".join(_SETTING_RU.get(k, k) for k in sorted(body))
+        lines.append(f"В проекте #{pid} изменено: {names}.")
+    out["text_ru"] = " ".join(lines)
     return out
+
+
+_SETTING_RU = {
+    "hero_mode": "режим героя",
+    "image_resolution": "разрешение картинок",
+    "video_resolution": "разрешение видео",
+    "image_generator": "модель картинок",
+    "video_generator": "модель видео",
+    "aspect_ratio": "формат кадра",
+}
 
 
 async def _mass_start(ctx, params):

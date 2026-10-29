@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from loguru import logger
@@ -62,6 +62,8 @@ _CLAUSE = re.compile(r"(?<=[,;:])\s+|\s+(?=или\s)")
 
 def _scrub(sentence: str) -> str:
     end = sentence[-1] if sentence[-1:] in ".!?…" else ""
+    # «Уточните их номера (project_id)»: служебное в скобках убираем, сам вопрос оставляем.
+    sentence = _JARGON[0][0].sub("", sentence)
     clauses = [part for part in _CLAUSE.split(sentence.rstrip(".!?…")) if not _TECH_ASK.search(part)]
     out = " ".join(clauses).rstrip(",;: ") + end if clauses else ""
     out = re.sub(r"\s*(?:№|#)\s?\d+\b", "", out)
@@ -104,13 +106,72 @@ NOT_SUPPORTED = "Этого чат пока не умеет."
 DELETE_PROJECT_HINT = "Удалить проект можно в списке проектов слева: меню у проекта → «Удалить»."
 
 
+# Планировщику запрещено удалять кадры и сцены («Удаление кадров не планируется»): раньше это
+# уходило человеку как «Не понял, что сделать».
+_NO_FRAME_DELETE = re.compile(
+    r"удален\w*\s+(?:\w+\s+)?(?:кадр|сцен|шот)\w*[^.;]{0,40}?(?:не\s+(?:планир|выполн|делаю)|нельзя)",
+    re.IGNORECASE,
+)
+FRAME_DELETE_HINT = (
+    "Удалять кадры и сцены через чат я не могу, так задумано для безопасности. "
+    "Удалите кадр кнопкой на доске монтажа."
+)
+
+
+# Разбивки сцен на доске этой линии нет (executor._HELD_UNTIL_R2): объясняем, а не «не умею».
+_SPLIT_SCENE = re.compile(r"(?:отдел|раздел|разбе|разби|расклей)\w*[^.?!]{0,40}сцен", re.IGNORECASE)
+SPLIT_SCENE_HINT = (
+    "Разделять сцены в этой версии доски монтажа нельзя: такой функции на доске нет. "
+    "Объединить сцены можно, напишите «объедини сцены кадров 13 и 14»."
+)
+
+
+# «Удали кадр 5 в проекте 12»: план пустой, и человек получал «Не понял, что сделать».
+_DELETE_VERB = re.compile(r"(?<![а-я])(?:удал|сотр|стер)|(?<![а-я])убер\w*.{0,30}совсем")
+_BOARD_THING = re.compile(r"кадр|сцен|шот|картин|видео")
+DELETE_REFUSED = (
+    "Удалять через чат нельзя, так задумано. Кадры, картинки и видео удаляются вручную "
+    "на доске монтажа."
+)
+
+
+def delete_refusal_text(goal: str) -> str:
+    text = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    return DELETE_REFUSED if _DELETE_VERB.search(text) and _BOARD_THING.search(text) else ""
+
+
 def missing_action_text(reason: str, goal: str = "") -> str:
     """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
+    if _NO_FRAME_DELETE.search(reason or ""):
+        return FRAME_DELETE_HINT
     if not _MISSING_ACTION.search(reason or ""):
         return ""
     if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):
         return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
-    return NOT_SUPPORTED
+    if _SPLIT_SCENE.search(goal or ""):
+        return f"{NOT_SUPPORTED} {SPLIT_SCENE_HINT}"
+    why = _other_reasons(reason)
+    return f"{NOT_SUPPORTED} {why}" if why else NOT_SUPPORTED
+
+
+_DEV_ADVICE = re.compile(r"добавить\s+(?:\w+\s+)?(?:его|е[её]|это|такое|действи)|уточнить\s+доступн")
+
+
+def _other_reasons(reason: str) -> str:
+    """«В проекте 0 кадров, сначала нужна разбивка; кроме того, действия нет»: суть кроме «нет действия».
+
+    Без неё человек видел только «не умею» и не знал, что сделать первым.
+    """
+    keep = []
+    for part in re.split(r"[;.]\s+|[;.]$", reason or ""):
+        part = re.sub(r"^\s*(?:кроме того|также|и)\s*,?\s*", "", part.strip(), flags=re.IGNORECASE)
+        low = part.lower()
+        # «Нужно добавить его или уточнить способ» — совет разработчику, не человеку.
+        if not part or _MISSING_ACTION.search(part) or "_" in part or "каталог" in low or _DEV_ADVICE.search(low):
+            continue
+        keep.append(part[:1].upper() + part[1:])
+    text = ". ".join(keep)[:300].strip()
+    return text + "." if text and not text.endswith((".", "!", "?")) else text
 
 
 # «Из файла / по файлу / в файле»: прикрепить файл к сообщению чата оркестратора нельзя.
@@ -314,7 +375,8 @@ _REASON_RU: dict[str, tuple[str, str]] = {
     ),
     "deletion_blocked": (
         "план удалял данные — такой шаг заблокирован",
-        "Кадры и сцены можно только скрыть мягко, без удаления.",
+        # Сюда попадают и файлы хранилища, и сброс шагов, и общие промты: совет только про кадры был не к месту.
+        "Удалить это можно только вручную в Студии; кадры и сцены чат умеет скрыть без удаления.",
     ),
     "critic_reject": (
         "проверяющий агент отклонил план как нарушающий правила",
@@ -570,7 +632,156 @@ def _resume_text(body: dict[str, Any]) -> str:
     return f"Пауза снята, статус проекта: {_status_ru(str(status))}." if status else "Пауза снята."
 
 
+_BOARD_LINES = 30
+
+
+def _board_text(body: dict[str, Any]) -> str:
+    """Доска монтажа строками «кадр N: текст»: модель без списка писала «кадры не предоставлены»."""
+    frames = [f for f in body.get("frames") or [] if isinstance(f, dict)]
+    count = body.get("frame_count") or len(frames)
+    lines = [f"На доске монтажа {count} {_plural(int(count), 'кадр', 'кадра', 'кадров')}."]
+    for frame in frames[:_BOARD_LINES]:
+        text = " ".join(str(frame.get("voiceover_text") or "").split())
+        two = ", два шота" if frame.get("has_shot2") else ""
+        media = [name for name, key in (("картинка", "has_image"), ("видео", "has_video")) if frame.get(key)]
+        have = f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
+        lines.append(f"• кадр {frame.get('number')}{two}{have}: {text[:90] or 'без текста'}")
+    if "frames_with_image" in body:
+        lines.append(
+            f"Картинки есть у {body['frames_with_image']} из {count}, видео у {body.get('frames_with_video', 0)} из {count}."
+        )
+    if len(frames) > _BOARD_LINES or body.get("frames_truncated"):
+        lines.append(f"…и ещё {max(int(count) - _BOARD_LINES, 0)}.")
+    pending = body.get("pending_ops") or []
+    if pending:
+        lines.append(f"В очереди правок {len(pending)}, они ещё не применены.")
+    else:
+        lines.append("Очередь правок пуста.")
+    stale = body.get("stale_videos") or []
+    if stale:
+        lines.append(f"Устаревших видео {len(stale)}: их нужно пересобрать.")
+    return "\n".join(lines)
+
+
+def _voiceover_text(body: dict[str, Any]) -> str:
+    text = " ".join(str(body.get("voiceover_text") or "").split())
+    return f"Закадровый текст кадра {body.get('number')} теперь «{text}»." if text else ""
+
+
+_COVERAGE_RU = {
+    "coverage_plan": "крупность",
+    "coverage_angle": "ракурс",
+    "coverage_move": "движение камеры",
+    "coverage_stitch": "склейка",
+    "coverage_light": "свет",
+    "coverage_action": "действие",
+    "coverage_kind": "тип кадра",
+}
+
+
+def _coverage_text(body: dict[str, Any]) -> str:
+    if not body.get("ok"):
+        return ""
+    what = _COVERAGE_RU.get(str(body.get("type") or ""), "покрытие")
+    value = body.get("value")
+    if body.get("type") == "coverage_kind":
+        value = _ROLE_RU.get(str(value or "").lower(), value)
+    tail = f" — {value}" if value not in (None, "") else " изменено"
+    return f"Кадр {body.get('frame_number')}: {what}{tail}."
+
+
+_ROLE_RU = {"child": "дочерний", "parent": "родитель"}
+
+
+def _insert_frame_text(body: dict[str, Any]) -> str:
+    if not body.get("number"):
+        return ""
+    # Доска не перенумеровывает кадры: новый встаёт на место, но получает номер max+1.
+    return f"Добавил кадр на нужное место, его номер на доске {body['number']}: номера других кадров не меняются."
+
+
+def _swap_shots_text(body: dict[str, Any]) -> str:
+    what = [
+        name
+        for key, name in (("images_swapped", "картинки"), ("videos_swapped", "видео"), ("prompts_swapped", "промты"))
+        if body.get(key)
+    ]
+    if not what:
+        return ""
+    return f"В кадре {body.get('frame_number')} шоты поменяны местами: " + ", ".join(what) + "."
+
+
+def _queue_ops_text(body: dict[str, Any]) -> str:
+    n = body.get("queued")
+    if not n:
+        return ""
+    total = body.get("total_in_queue") or n
+    return (
+        f"Поставил в очередь правок монтажа {n}, всего в очереди {total}.{_APPLY_QUEUE_HINT}"
+    )
+
+
+def _merge_scenes_text(body: dict[str, Any]) -> str:
+    if not body.get("parent_number"):
+        return ""
+    size = body.get("vo_scene_size")
+    tail = f", в ней теперь {size} {_plural(int(size), 'кадр', 'кадра', 'кадров')}" if size else ""
+    return f"Сцены объединены в одну, она начинается с кадра {body['parent_number']}{tail}."
+
+
+def _cancel_queue_text(body: dict[str, Any]) -> str:
+    if "removed" not in body:
+        return ""
+    removed, left = int(body.get("removed") or 0), int(body.get("left_in_queue") or 0)
+    if not removed:
+        return f"Таких правок в очереди не было, ничего не убрал. В очереди {left}."
+    return f"Убрал из очереди правок {removed}, осталось {left}."
+
+
+
+def _video_trim_text(body: dict[str, Any]) -> str:
+    key = str(body.get("key") or "")
+    if ":" not in key:
+        return ""
+    frame, shot = key.split(":", 1)
+    trim = body.get("trim")
+    if not trim:
+        return f"Обрезка видео снята: кадр {frame}, шот {shot}."
+    end = trim.get("end")
+    span = f"с {trim.get('start', 0):g} по {end:g} с" if end is not None else f"с {trim.get('start', 0):g} с до конца"
+    return f"Обрезка видео задана: кадр {frame}, шот {shot}, {span}."
+
+
+def _move_image_text(body: dict[str, Any]) -> str:
+    if not body.get("ok") or body.get("to_frame") is None:
+        return ""
+    return (
+        f"Картинка перенесена: из кадра {body['from_frame']} (шот {body['from_shot']}) "
+        f"в кадр {body['to_frame']} (шот {body['to_shot']})."
+    )
+
+
+def _swap_slots_text(body: dict[str, Any]) -> str:
+    if not body.get("ok") or body.get("b_frame") is None:
+        return ""
+    what = "видео" if body.get("kind") == "video" else "картинки"
+    return (
+        f"Поменял местами {what}: кадр {body['a_frame']} (шот {body['a_shot']}) "
+        f"и кадр {body['b_frame']} (шот {body['b_shot']})."
+    )
+
 _KNOWN_TEXT = {
+    "montage.get_board": _board_text,
+    "montage.cancel_queue_ops": _cancel_queue_text,
+    "montage.set_video_trim": _video_trim_text,
+    "montage.move_image": _move_image_text,
+    "montage.swap_slots": _swap_slots_text,
+    "montage.merge_scenes": _merge_scenes_text,
+    "montage.queue_ops": _queue_ops_text,
+    "montage.set_voiceover": _voiceover_text,
+    "montage.set_coverage": _coverage_text,
+    "montage.insert_frame": _insert_frame_text,
+    "montage.swap_shots": _swap_shots_text,
     "project.create_batch": _batch_text,
     "queue.enqueue_many": _queue_text,
     "queue.set_parallel": _parallel_text,
@@ -604,6 +815,7 @@ _KNOWN_TEXT = {
     "report.gpt_data": _own_text,
     "projects.overview": _overview_text,
     "project.status": _own_text,
+    "diag.node_failure": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
     "publish.send": _own_text,
@@ -614,8 +826,27 @@ _KNOWN_TEXT = {
 }
 
 
+def _montage_done_text(action: str, body: dict[str, Any]) -> str:
+    """Правка монтажа без своего текста: название шага и кадр, а не поля «frame number: 5»."""
+    if body.get("ok") is False or body.get("success") is False:
+        return ""
+    from app.services.action_layer.spec import RISK_READ, registry
+
+    spec = registry.find(action)
+    if spec is None or spec.risk == RISK_READ:
+        return ""
+    frame = body.get("frame_number") or body.get("number")
+    where = f" (кадр {frame})" if frame not in (None, "") else ""
+    return f"Готово: {step_title(action).rstrip('.')}{where}."
+
+
 def known_text(action: str, body: dict[str, Any]) -> str:
     fn = _KNOWN_TEXT.get(action)
+    if fn is None and action.startswith("montage.") and action != "montage.get_board":
+        try:
+            return _montage_done_text(action, body)
+        except Exception:
+            return ""
     if fn is None:
         return ""
     try:
@@ -884,8 +1115,21 @@ def _project_tally(facts: TaskFacts) -> list[str]:
     return [line + "."]
 
 
+_APPLY_QUEUE_HINT = " Сами правки ещё не сделаны: напишите «примени очередь», когда будете готовы."
+
+
 def _superseded(notes: list[StepNote]) -> list[StepNote]:
-    """Правку промта подготовили и тут же применили: итог — применение, без «промт пока не изменён»."""
+    """Правку промта подготовили и тут же применили: итог — применение, без «промт пока не изменён».
+
+    Так же очередь монтажа: поставили и в той же задаче применили — без «напишите «примени очередь»».
+    """
+    if any(note.action == "montage.apply_queue" and note.ok for note in notes):
+        notes = [
+            replace(note, text=note.text.replace(_APPLY_QUEUE_HINT, ""))
+            if note.action == "montage.queue_ops"
+            else note
+            for note in notes
+        ]
     if not any(note.action == "change.apply" and note.ok for note in notes):
         return notes
     return [note for note in notes if not (note.action == "prompt.edit_text" and note.ok)]
@@ -1023,10 +1267,33 @@ def _echo_sentence(sentence: str, goal: str) -> bool:
     return bool(word) and word == asked and asked.endswith(("й", "и", "ь"))
 
 
+# «Проверь проект #12: он стоит на паузе…» — приказ-пересказ перед сутью: срезаем до двоеточия.
+_ORDER_PREFIX = re.compile(
+    r"^(?P<lead>[ \t*_>#•\-–—]*)(?:проверь|покажи|посмотри|глянь|найди|выведи|расскажи|дай)(?:те)?"
+    r"(?![а-яё])[^:\n.!?«»]{0,80}:\s*(?P<rest>\S.*)$",
+    re.IGNORECASE,
+)
+
+
+def strip_order_prefix(text: str) -> str:
+    """Убирает «Проверь…: », «Покажи…: » в начале строк, суть после двоеточия оставляет."""
+    out = []
+    for line in (text or "").splitlines():
+        m = _ORDER_PREFIX.match(line)
+        if m:
+            rest = m.group("rest")
+            named = re.search(r"проект\w*\s*#?(\d+)", line[: m.start("rest")], re.IGNORECASE)
+            if named and re.match(r"(?:он|она)\s", rest, re.IGNORECASE):
+                rest = f"проект #{named.group(1)}" + rest[rest.index(" ") :]
+            line = m.group("lead") + rest[:1].upper() + rest[1:]
+        out.append(line)
+    return "\n".join(out)
+
+
 def drop_echo(text: str, goal: str) -> str:
     """Убирает предложения, которые пересказывают просьбу как приказ; пусто — итога не осталось."""
     out: list[str] = []
-    for line in (text or "").splitlines():
+    for line in strip_order_prefix(text).splitlines():
         if _LINK_LINE.match(line) or line.lstrip().startswith("|") or "](" in line:
             out.append(line)
             continue

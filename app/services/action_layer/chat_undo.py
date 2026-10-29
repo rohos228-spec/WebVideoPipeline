@@ -64,7 +64,9 @@ _RESTORE = re.compile(r"^восстанов\w*$")
 _FILLER = re.compile(
     r"^(?:в|во|на|у|для|с|со|из|к|по|и|а|же|что|только|это|эту|этот|его|ее|все|"
     r"пожалуйста|плиз|давай|мне|мою|мое|мой|мои|свою|свое|чат\w*|журнал\w*|"
-    r"нод\w*|проект\w*|n|ctrl|z)$"
+    r"нод\w*|проект\w*|n|ctrl|z|"
+    # «не, верни обратно», «блин, откати»: междометие перед просьбой, а не что вернуть.
+    r"не|нет|неа|ну|ой|блин|слушай|короче|ладно|лучше|таки|все-таки|всетаки|тогда|опять|снова)$"
 )
 _KINDS = (
     (re.compile(r"^модел\w*$"), ("node_model",)),
@@ -481,6 +483,101 @@ SnapshotsOf = Callable[[int | None], Awaitable[list[Any]]]
 ChangesOf = Callable[[int | None], Awaitable[list[Any]]]
 MetaOf = Callable[[int | None], Awaitable[Any]]
 CurrentOf = Callable[[Any], Awaitable[bool]]
+StepsOf = Callable[[int | None], Awaitable[list[Any]]]
+
+# Сами откаты и чтения — не правка, после которой «верни как было» должно молчать.
+_NOT_EDIT_STEPS = frozenset({"history.rollback", "change.rollback"})
+
+
+async def chat_steps(
+    project_id: int | None = None, *, operators: list[str] | None = None, limit: int = _MAX_ROWS
+) -> list[Any]:
+    """Сделанные шаги правок чата, самые свежие первыми: и те, что снимка «до» не оставили."""
+    from sqlalchemy import or_, select
+
+    from app.services.action_layer.spec import RISK_READ, ensure_builtin_actions, registry
+
+    if operators is not None and not operators:
+        return []
+    q = (
+        select(store.ActionPlanStep)
+        .join(store.ActionPlan, store.ActionPlan.id == store.ActionPlanStep.plan_id)
+        .where(store.ActionPlanStep.status == store.STEP_SUCCEEDED)
+        .order_by(store.ActionPlanStep.id.desc())
+        .limit(limit)
+    )
+    q = _by_operator(q, operators)
+    if project_id is not None:
+        # Шаг на всю студию («одновременно 2 проекта») без проекта: при открытом проекте он тоже свой.
+        q = q.where(
+            or_(store.ActionPlan.project_id == int(project_id), store.ActionPlan.project_id.is_(None))
+        )
+    async with store.sessions()() as s:
+        rows = list((await s.scalars(q)).all())
+        plan_ids = {row.plan_id for row in rows}
+        # План с откатываемым снимком (даже уже откатанным) отменяет журнал снимков, это не «без снимка».
+        with_snapshot = (
+            set(
+                (
+                    await s.scalars(
+                        select(store.ActionSnapshot.plan_id).where(
+                            store.ActionSnapshot.plan_id.in_(plan_ids),
+                            store.ActionSnapshot.restorable.is_(True),
+                        )
+                    )
+                ).all()
+            )
+            if plan_ids
+            else set()
+        )
+    ensure_builtin_actions()
+    out = []
+    for row in rows:
+        spec = registry.find(row.action_id)
+        if row.plan_id in with_snapshot:
+            continue
+        if spec is None or spec.risk == RISK_READ or row.action_id in _NOT_EDIT_STEPS:
+            continue
+        out.append(row)
+    return out
+
+
+def _no_snapshot_text(step: Any, older: Described | None) -> str:
+    """Последняя правка чата без снимка «до»: вернуть её нечем, старую правку молча не трогаем."""
+    from app.services.action_layer.spec import registry
+
+    spec = registry.find(step.action_id)
+    title = (spec.title_ru if spec else step.action_id).rstrip(".")
+    frame = (step.params or {}).get("frame_number")
+    where = f" (кадр {frame})" if frame not in (None, "") else ""
+    text = (
+        f"Последнюю правку «{title}»{where} автоматически вернуть нельзя: прежнее значение не "
+        "сохранялось. Напишите, что поставить обратно, обычной командой"
+    )
+    # Голое «верни как было» снова упрётся в эту правку: подсказываем только точную фразу.
+    if older is not None and older.example and older.example != UNDO_PHRASE:
+        text += (
+            f". Более раннюю правку можно вернуть: «{older.example}» — {older.title.lower()}"
+        )
+    return text
+
+
+def _parallel_back(step: Any) -> dict[str, Any] | None:
+    """«Верни как было» после смены параллели: прежнее число шаг сам записал в результат (before)."""
+    if getattr(step, "action_id", None) != "queue.set_parallel":
+        return None
+    result = step.result if isinstance(getattr(step, "result", None), dict) else {}
+    before = result.get("before")
+    if not isinstance(before, int) or isinstance(before, bool) or before < 1 or before == result.get("worker_max_parallel"):
+        return None
+    return {
+        "action": "queue.set_parallel",
+        "params": {"workers": before},
+        "expected": f"Вернуть {before} проектов одновременно в очереди генерации",
+        "paid": False,
+        "mutating": True,
+        "risk": "low",
+    }
 
 
 def _alias(word: str) -> str:
@@ -554,6 +651,7 @@ async def resolve(
     meta_of: MetaOf | None = None,
     current_of: CurrentOf | None = None,
     changes_of: ChangesOf | None = None,
+    steps_of: StepsOf | None = None,
 ) -> UndoPlan | None:
     """План отката по словам человека. None — это не просьба об откате, решает планёр.
 
@@ -578,7 +676,15 @@ async def resolve(
     async def no_changes(project_id: int | None) -> list[Any]:
         return []
 
+    async def own_steps(project_id: int | None) -> list[Any]:
+        try:
+            return await chat_steps(project_id, operators=operators)
+        except Exception:
+            logger.exception("chat undo: chat steps not read")
+            return []
+
     # Свой журнал снимков (тест, особый вызов) — и версии берутся только явно переданные.
+    steps_of = steps_of or (own_steps if snapshots_of is None else no_changes)
     changes_of = changes_of or (own_changes if snapshots_of is None else no_changes)
     snapshots_of = snapshots_of or own_snapshots
     meta_of = meta_of or _meta_of
@@ -618,6 +724,19 @@ async def resolve(
         if found is not None and await current_of(row):
             chosen = (row, found)
             break
+    if not free and not kinds:
+        # «Верни как было» после правки без снимка (покрытие, перенос картинки): раньше молча
+        # откатывалась более старая правка закадра.
+        steps = await steps_of(project_id)
+        newest = steps[0] if steps else None
+        if newest is not None:
+            since = getattr(chosen[0], "created_at", None) if chosen else None
+            done = newest.finished_at or newest.started_at
+            if since is None or (done is not None and done > since):
+                back = _parallel_back(newest)
+                if back is not None:
+                    return UndoPlan([back])
+                return UndoPlan([], _no_snapshot_text(newest, chosen[1] if chosen else None))
     if chosen is None:
         if free:
             return None

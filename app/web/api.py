@@ -543,6 +543,14 @@ def create_app() -> FastAPI:
     from app.web.routers import chat_notices as chat_notices_router
 
     app.include_router(chat_notices_router.router, prefix=API_PREFIX)
+
+    from app.web.routers import node_edit as node_edit_router
+
+    app.include_router(node_edit_router.router, prefix=API_PREFIX)
+
+    from app.web.routers import media_recovery as media_recovery_router
+
+    app.include_router(media_recovery_router.router, prefix=API_PREFIX)
     app_ref.bind(app)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])

@@ -122,7 +122,9 @@ FINISH_RULE = (
     "звуки - sound_credits оттуда, музыка - нужен потолок ceiling_credits не ниже цены трека. Своя "
     "озвучка или музыка с компьютера - montage.upload_voice / montage.upload_music, тогда шаг их не "
     "генерирует. Пересобрать собранный ролик без новых генераций - montage.run_montage, настройки "
-    "сборки (громкость музыки, субтитры) - montage.set_assemble_params. Публикация - только "
+    "сборки (громкость музыки, субтитры) - montage.set_assemble_params. «Собери / смонтируй ролик» без "
+    "слов про музыку, озвучку или генерацию - это montage.run_montage: он собирает из того, что уже есть, "
+    "и денег не тратит; генерацию музыки ради этого не начинай. Публикация - только "
     "publish.send и только после статуса assembled."
 )
 _FINISH_WORDS = (
@@ -195,7 +197,7 @@ def _same(a: str, b: str) -> bool:
     return min(len(a), len(b)) >= 5 and (a.startswith(b) or b.startswith(a))
 
 
-def roster(meta: Any) -> list[dict[str, Any]]:
+def roster(meta: Any, image_generator: str | None = None) -> list[dict[str, Any]]:
     from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
     from app.services import node_edit as ne
     from app.services.action_layer import builtin_insight as bi
@@ -214,6 +216,8 @@ def roster(meta: Any) -> list[dict[str, Any]]:
             model = bi._model_for(meta, key, node, raw, eff)
         except Exception:
             model = ""
+        if typ in bi._IMAGE_TYPES and image_generator and not _own_model(node):
+            model = _project_image_model(image_generator)
         rows.append(
             {
                 "key": key,
@@ -240,11 +244,21 @@ def _score(row: dict[str, Any], words: set[str], stems: list[str]) -> int:
     return best
 
 
+# «Текст озвучки» — это закадровый текст, а не нода озвучки: у той текста результата нет.
+_TYPE_PHRASES = {"script": ("текст озвуч", "текст для озвуч", "текст закадр", "для озвуч")}
+
+
 def match_nodes(rows: list[dict[str, Any]], text: str) -> list[str]:
     norm = _norm(text)
     words = set(_WORD.findall(norm))
     stems = _stems(norm)
-    scored = [(_score(row, words, stems), str(row["key"])) for row in rows]
+    scored = [
+        (
+            10 if any(p in norm for p in _TYPE_PHRASES.get(str(row.get("type") or ""), ())) else _score(row, words, stems),
+            str(row["key"]),
+        )
+        for row in rows
+    ]
     top = max((score for score, _key in scored), default=0)
     if top <= 0:
         return []
@@ -416,6 +430,53 @@ def model_options_text(meta: Any, key: str) -> str:
             mark = "прежняя модель этой ноды, " + mark
         lines.append(f"- {option['id']} ({option['label']}): {mark}, {option['price_ru']}; {action}")
     return "\n".join(lines)
+
+
+def _own_model(node: Any) -> bool:
+    from app.services.vibecode_catalog import read_node_model_fields
+
+    mid, _channel = read_node_model_fields(node)
+    return bool(mid)
+
+
+def _project_image_model(gid: str) -> str:
+    """Нода картинок без своей модели идёт на генераторе проекта (как считает шаг картинок)."""
+    from app.generation_options import IMAGE_GENERATORS_BY_ID
+
+    gen = IMAGE_GENERATORS_BY_ID.get(gid)
+    if gen is None:
+        return f"{gid} из настроек проекта; такого генератора нет в каталоге студии, шаг с ним не пойдёт"
+    return f"{gen.label} из настроек проекта"
+
+
+async def load_image_generator(project_id: int) -> str | None:
+    from app.models import Project
+    from app.services.action_layer.builtin_insight import _sessions
+
+    async with _sessions()() as session:
+        row = await session.get(Project, project_id)
+        gid = getattr(row, "image_generator", None) if row is not None else None
+        return str(gid).strip() or None if gid else None
+
+
+async def _next_gpt_line(project_id: int, rows: list[dict[str, Any]], text: str) -> str:
+    """«Запусти работу с gpt» без номера при двух нодах: следующая неготовая, а не вопрос «какую»."""
+    gpt = [str(row["key"]) for row in rows if row.get("step_code") == "excel_gpt"]
+    if len(gpt) < 2 or not any(word in _norm(text) for word in ("gpt", "гпт")):
+        return ""
+    from app.orchestrator.actions.executor import _done_nodes
+
+    try:
+        done = await _done_nodes(int(project_id))
+    except Exception:
+        return ""
+    left = [key for key in gpt if key not in done]
+    if not left:
+        return ""
+    return (
+        f"«Работа с GPT» без номера в просьбе — следующая неготовая нода {left[0]}; "
+        "переспрашивать, какую из них, не нужно."
+    )
 
 
 async def _meta_from_db(project_id: int) -> Any:
@@ -792,7 +853,11 @@ class ProjectNodes:
 
     async def rows(self, project_id: int) -> list[dict[str, Any]]:
         try:
-            return roster(await self._meta(project_id))
+            try:
+                gid = await load_image_generator(int(project_id))
+            except Exception:
+                gid = None
+            return roster(await self._meta(project_id), gid)
         except Exception:
             logger.exception("orch project nodes failed for project {}", project_id)
             return []
@@ -893,6 +958,9 @@ class ProjectNodes:
                         lines.extend(variants)
             if any(word in _norm(text) for word in _AGENT_WORDS):
                 lines.extend(agents_text(meta, rows, hits))
+            gpt_next = await _next_gpt_line(project_id, rows, text)
+            if gpt_next:
+                lines.append(gpt_next)
         if finish_words(text):
             lines.append(FINISH_RULE)
         if await self.frames(project_id) == 0:

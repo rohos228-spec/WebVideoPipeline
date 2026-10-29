@@ -1,147 +1,139 @@
-"""Оценка рисков запуска шага пайплайна (reset downstream, busy, user_stop, auto_chain)."""
-
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
-EARLY_STEPS: frozenset[str] = frozenset({"plan", "script", "split"})
-STOP_HINT: str = "Остановить можно кнопкой ⏹ Стоп."
+EARLY_STEPS: tuple[str, ...] = ("plan", "script", "split")
+EXCEL_GPT_TITLE = "Работа с GPT"
 
-_TITLES: dict[str, str] = {
-    "plan": "План",
-    "script": "Сценарий",
-    "split": "Разбивка",
-    "scene_d": "Дизайн сцен",
-    "scene_design": "Дизайн сцен",
-    "sd_agent": "Дизайн сцен",
-    "sd_assemble": "Сборка сцен",
-    "hero": "Герои",
-    "items": "Предметы",
-    "image_prompts": "Промты картинок",
-    "images": "Картинки",
-    "img": "Картинки",
-    "animation_prompts": "Промты анимаций",
-    "video": "Видео",
-    "videos": "Видео",
-    "audio": "Озвучка",
-    "music": "Музыка",
-    "sfx_plan": "План SFX",
-    "sfx_gen": "Генерация SFX",
-    "assemble": "Монтаж",
-    "publish": "Публикация",
-}
-
-_ORDER: tuple[str, ...] = (
-    "plan",
-    "script",
-    "split",
-    "scene_design",
-    "sd_agent",
-    "sd_assemble",
-    "hero",
-    "items",
-    "enrich_1",
-    "enrich_2",
-    "enrich_3",
-    "enrich_4",
-    "enrich_5",
-    "image_prompts",
-    "images",
-    "img",
-    "animation_prompts",
-    "video",
-    "videos",
-    "audio",
-    "music",
-    "sfx_plan",
-    "sfx_gen",
-    "assemble",
-    "publish",
-)
+RISK_RESET = "reset_downstream"
+RISK_BUSY = "busy"
+RISK_USER_STOP = "user_stop"
+RISK_AUTO_CHAIN = "auto_chain"
+RISK_NO_FRAMES = "no_frames"
+STOP_HINT = "Остановить: кнопка «Стоп задачи» или аварийный стоп в «Регистраторе»."
 
 
-def step_title(step_code: str | None) -> str:
-    if not step_code:
-        return ""
-    return _TITLES.get(step_code, str(step_code))
+def step_title(step_code: str) -> str:
+    from app.orchestrator.pipeline_steps import step_by_code
+
+    if step_code == "excel_gpt":
+        return EXCEL_GPT_TITLE
+    step = step_by_code(step_code)
+    return step.title if step is not None else step_code
 
 
-def is_running(status: str | None) -> bool:
-    if not status:
-        return False
-    s = str(status).strip()
-    return s.endswith("_running") or s.startswith("generating_") or s in {
-        "planning",
-        "scripting",
-        "splitting",
-        "scene_designing",
-        "scene_assembling",
-        "assembling",
-        "publishing",
-        "running",
-    }
+def _node_title(node_type: str) -> str:
+    from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+
+    if node_type == "excel_gpt":
+        return EXCEL_GPT_TITLE
+    code = NODE_TYPE_TO_STEP_CODE.get(node_type)
+    return step_title(code) if code else node_type
+
+
+def downstream_ready(step_code: str, node_runs: Iterable[dict]) -> list[str]:
+    from app.orchestrator.node_registry import STEP_CODE_TO_NODE_TYPE
+    from app.services.run_sync import NODE_TYPE_ORDER
+
+    if step_code not in EARLY_STEPS:
+        return []
+    start = NODE_TYPE_ORDER.index(STEP_CODE_TO_NODE_TYPE[step_code])
+    titles: list[str] = []
+    for nr in node_runs or []:
+        if not isinstance(nr, dict) or str(nr.get("status") or "") != "done":
+            continue
+        node_type = str(nr.get("node_type") or "")
+        below = node_type == "excel_gpt" or (
+            node_type in NODE_TYPE_ORDER and NODE_TYPE_ORDER.index(node_type) > start
+        )
+        if below:
+            title = _node_title(node_type)
+            if title not in titles:
+                titles.append(title)
+    return titles
 
 
 def user_stopped(meta: Any) -> bool:
-    if not isinstance(meta, dict):
+    meta = meta if isinstance(meta, dict) else {}
+    return meta.get("user_stop") is not None or meta.get("mass_lane_user_stop") is not None
+
+
+def is_running(status: Any) -> bool:
+    from app.models import ProjectStatus
+    from app.services.project_state import is_running_status
+
+    try:
+        return is_running_status(ProjectStatus(getattr(status, "value", status)))
+    except ValueError:
         return False
-    return bool(meta.get("user_stop"))
 
 
 def launch_risks(
     *,
     step_code: str,
-    status: str | None = None,
-    auto_mode: bool = False,
-    meta: dict[str, Any] | None = None,
-    node_runs: list[dict[str, Any]] | None = None,
-    **kwargs: Any,
-) -> list[dict[str, str]]:
-    risks: list[dict[str, str]] = []
+    status: Any,
+    auto_mode: bool,
+    meta: Any,
+    node_runs: Iterable[dict],
+    frames: int | None = None,
+) -> list[dict]:
+    from app.services.launch_inputs import needs_frames, no_frames_text
 
-    # Downstream reset risk: only checked for early steps
-    if step_code in EARLY_STEPS and node_runs:
-        try:
-            curr_idx = _ORDER.index(step_code)
-        except ValueError:
-            curr_idx = -1
-        if curr_idx >= 0:
-            downstream: list[str] = []
-            for nr in node_runs:
-                if nr.get("status") == "done":
-                    nt = nr.get("node_type")
-                    if not nt:
-                        continue
-                    try:
-                        n_idx = _ORDER.index(nt)
-                    except ValueError:
-                        n_idx = -1
-                    if n_idx > curr_idx:
-                        title = step_title(nt)
-                        if title and title not in downstream:
-                            downstream.append(title)
-            if downstream:
-                risks.append({
-                    "code": "reset_downstream",
-                    "text": f"Перезапуск сбросит готовые шаги: {', '.join(downstream)}.",
-                })
-
+    title = step_title(step_code)
+    out: list[dict] = []
+    if frames == 0 and needs_frames(step_code):
+        out.append({"code": RISK_NO_FRAMES, "text": no_frames_text(step_code)})
+    ready = downstream_ready(step_code, node_runs)
+    if ready:
+        out.append(
+            {
+                "code": RISK_RESET,
+                "text": (
+                    f"Шаг «{title}» сбросит готовые ноды ниже по цепочке ({', '.join(ready)}): их результат "
+                    "пропадёт, и повторный прогон этих нод будет оплачен заново."
+                ),
+            }
+        )
     if is_running(status):
-        risks.append({
-            "code": "busy",
-            "text": "Проект уже выполняет другой шаг.",
-        })
-
+        out.append(
+            {
+                "code": RISK_BUSY,
+                "text": (
+                    f"В проекте сейчас идёт другой шаг (статус {getattr(status, 'value', status)}): запуск "
+                    "прервёт его, уже потраченное на него не вернётся."
+                ),
+            }
+        )
     if user_stopped(meta):
-        risks.append({
-            "code": "user_stop",
-            "text": "Проект был остановлен пользователем.",
-        })
-
+        out.append(
+            {
+                "code": RISK_USER_STOP,
+                "text": ("Проект остановлен человеком кнопкой «Стоп»: запуск снимет эту остановку."),
+            }
+        )
     if auto_mode:
-        risks.append({
-            "code": "auto_chain",
-            "text": "Включено автопродвижение: после этого шага цепочка продолжится автоматически.",
-        })
+        out.append(
+            {
+                "code": RISK_AUTO_CHAIN,
+                "text": (
+                    "Включено автопродвижение: после этого шага воркер сам запустит все следующие шаги, "
+                    "в том числе платные."
+                ),
+            }
+        )
+    return out
 
-    return risks
+
+def node_runs_as_dicts(node_runs: Iterable[Any]) -> list[dict]:
+    rows: list[dict] = []
+    for nr in node_runs or []:
+        status = getattr(nr, "status", None)
+        rows.append(
+            {
+                "node_key": getattr(nr, "node_key", None),
+                "node_type": getattr(nr, "node_type", None),
+                "status": getattr(status, "value", status),
+            }
+        )
+    return rows

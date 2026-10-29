@@ -369,7 +369,7 @@ export function orchAuthHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-async function http<T>(
+export async function http<T>(
   path: string,
   options: RequestInit = {},
   timeoutMs = 30_000,
