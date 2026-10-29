@@ -39,6 +39,7 @@ def project_to_summary(
         sidebar_folder_id=sidebar_folder_id,
         sidebar_order=sidebar_order,
         gen_queue_position=gen_queue_position,
+        tenant_id=str(project.tenant_id) if getattr(project, "tenant_id", None) is not None else None,
     )
 
 

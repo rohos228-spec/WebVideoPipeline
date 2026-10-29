@@ -118,9 +118,35 @@ export function ProjectSidebar({
   const { width: sidebarWidth, setWidth: setSidebarWidth, minWidth, maxWidth } =
     useSidebarWidth();
 
+  const adminAccess = useQuery({
+    queryKey: ["admin-access"],
+    queryFn: async () => {
+      const res = await fetch("/api/admin/access");
+      if (!res.ok) return null;
+      return (await res.json()) as { is_admin?: boolean };
+    },
+    staleTime: 60_000,
+  });
+  const isAdmin = adminAccess.data?.is_admin === true;
+
+  const [adminScope, setAdminScope] = useState<"all" | "mine">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("vp_admin_projects_scope");
+      if (saved === "mine" || saved === "all") return saved;
+    }
+    return "all";
+  });
+
+  const handleScopeChange = (scope: "all" | "mine") => {
+    setAdminScope(scope);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("vp_admin_projects_scope", scope);
+    }
+  };
+
   const projects = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.listProjects,
+    queryKey: ["projects", { mineOnly: isAdmin && adminScope === "mine" }],
+    queryFn: () => api.listProjects({ mineOnly: isAdmin && adminScope === "mine" }),
     // Не чаще 10с; не стакуем poll, пока предыдущий ещё в полёте.
     refetchInterval: (q) => (q.state.fetchStatus === "fetching" ? false : 10_000),
     staleTime: 5_000,
@@ -203,7 +229,7 @@ export function ProjectSidebar({
     mutationFn: (projectId: number) => api.toggleGenQueue(projectId),
     onSuccess: (data) => {
       const positions = (data.gen_queue_positions || {}) as Record<string, number>;
-      qc.setQueryData<ProjectSummary[]>(["projects"], (old) => {
+      qc.setQueriesData<ProjectSummary[]>({ queryKey: ["projects"] }, (old) => {
         if (!old) return old;
         return old.map((p) => {
           const raw = positions[p.id] ?? positions[String(p.id)];
@@ -532,6 +558,7 @@ export function ProjectSidebar({
             {projects.data && (
               <span className="text-[13px] text-zinc-400 font-medium">
                 {roots.length} {roots.length === 1 ? "проект" : roots.length > 1 && roots.length < 5 ? "проекта" : "проектов"}
+                {isAdmin ? (adminScope === "all" ? " · все" : " · мои") : ""}
               </span>
             )}
           </div>
@@ -618,6 +645,37 @@ export function ProjectSidebar({
           />
         </div>
       </div>
+
+      {isAdmin && (
+        <div className="px-3 pb-2.5">
+          <div className="flex rounded border border-white/10 bg-[#16161a] p-0.5 text-[12px]">
+            <button
+              type="button"
+              onClick={() => handleScopeChange("mine")}
+              className={cn(
+                "flex-1 rounded py-1 text-center font-medium transition-all",
+                adminScope === "mine"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold"
+                  : "text-zinc-400 hover:text-zinc-200 border border-transparent",
+              )}
+            >
+              Мои проекты
+            </button>
+            <button
+              type="button"
+              onClick={() => handleScopeChange("all")}
+              className={cn(
+                "flex-1 rounded py-1 text-center font-medium transition-all",
+                adminScope === "all"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold"
+                  : "text-zinc-400 hover:text-zinc-200 border border-transparent",
+              )}
+            >
+              Все проекты
+            </button>
+          </div>
+        </div>
+      )}
 
       <ScrollArea className="min-h-0 flex-1">
         <div

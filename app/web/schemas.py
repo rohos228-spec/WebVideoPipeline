@@ -40,6 +40,7 @@ class ProjectSummary(_ORM):
     sidebar_folder_id: str | None = None
     sidebar_order: int | None = None
     gen_queue_position: int | None = None
+    tenant_id: str | None = None
 
 
 class ProjectDetail(ProjectSummary):

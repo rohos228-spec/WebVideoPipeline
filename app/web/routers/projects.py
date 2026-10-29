@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
@@ -93,6 +93,7 @@ def _slugify(s: str) -> str:
 async def list_projects(
     session: AsyncSession = Depends(get_session),
     pipeline_mode: str | None = Query(default=None),
+    mine_only: bool = Query(default=False),
 ) -> list[ProjectSummary]:
     """Лёгкий список для сайдбара: без recompute/disk-recover.
 
@@ -114,6 +115,16 @@ async def list_projects(
     query = select(Project)
     if mode is not None:
         query = query.where(Project.pipeline_mode == mode)
+    if mine_only:
+        from app.services.studio_auth import current_identity
+
+        identity = current_identity()
+        if identity and identity.is_admin:
+            tid = identity.tenant_id
+            if tid:
+                query = query.where(or_(Project.tenant_id == tid, Project.tenant_id.is_(None)))
+            else:
+                query = query.where(Project.tenant_id.is_(None))
     rows = (
         (
             await session.execute(

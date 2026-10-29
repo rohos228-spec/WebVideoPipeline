@@ -1117,7 +1117,11 @@ export const api = {
     }),
 
   // ── Projects ─────────────────────────────────────────────────────
-  listProjects: () => http<ProjectSummary[]>(`/api/projects`),
+  listProjects: (opts?: { mineOnly?: boolean }) => {
+    const isMine = typeof opts === "object" && opts !== null && "mineOnly" in opts ? Boolean(opts.mineOnly) : false;
+    const q = isMine ? "?mine_only=true" : "";
+    return http<ProjectSummary[]>(`/api/projects${q}`);
+  },
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
   getProjectRun: (projectId: number) =>
     http<WorkflowRunDetail>(`/api/projects/${projectId}/run`),
