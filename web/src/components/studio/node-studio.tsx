@@ -832,7 +832,7 @@ export function NodeStudio({
           style={{ backgroundImage: `url(${getNodeCustomBg(nodeKey) || nodeBgFor(nodeKey, hasPrompts ? promptBgFor(headPrompt.id, headPrompt.label, nodeKey) : null)})`, backgroundPosition: "center top" }}
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
-            <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : (stepCode && projectId ? "pr-[340px]" : "pr-14"))}>
+            <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : "pr-14")}>
               <span className="truncate">
                 {hasPrompts
                   ? (excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")
@@ -848,51 +848,6 @@ export function NodeStudio({
               >
                 ← Назад к каталогу
               </button>
-            ) : null}
-            {stepCode && projectId && !detailOpen ? (
-              <div className="nodrag absolute right-12 top-1/2 z-[1] -translate-y-1/2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => runStep.mutate({ mode: "resume", forceWipe: true })}
-                  disabled={!projectId || isThisNodeRunning || nodeDisabled}
-                  className={cn(
-                    "flex h-8 items-center gap-1.5 rounded-lg border border-emerald-300/40 bg-gradient-to-r from-emerald-500 to-teal-500 px-3 text-xs font-semibold text-white shadow-md shadow-emerald-500/25 transition-all hover:from-emerald-400 hover:to-teal-400 active:scale-[0.98] disabled:opacity-50",
-                    isThisNodeRunning &&
-                      "animate-pulse border-emerald-400/80 bg-emerald-500/25 font-medium text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.35)]",
-                  )}
-                  title={
-                    nodeDisabled
-                      ? "Нода отключена"
-                      : isThisNodeRunning
-                        ? "Шаг уже выполняется..."
-                        : "Запустить шаг: сбросить статус и запустить заново"
-                  }
-                >
-                  {isThisNodeRunning ? (
-                    <>
-                      <SpinIcon className="h-3.5 w-3.5 animate-spin text-emerald-200" />
-                      <span>Выполняется...</span>
-                    </>
-                  ) : (
-                    <>
-                      <PlayIcon className="h-3.5 w-3.5 fill-current" />
-                      <span>Запустить шаг</span>
-                    </>
-                  )}
-                </button>
-                {!isThisNodeRunning && !["plan", "script", "split", "assemble", "publish"].includes(nodeType) ? (
-                  <button
-                    type="button"
-                    onClick={() => runStep.mutate({ mode: "resume" })}
-                    disabled={!projectId || isThisNodeRunning || nodeDisabled}
-                    className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-200/60 bg-gradient-to-r from-amber-400 to-yellow-400 px-3 text-xs font-semibold text-amber-950 shadow-md shadow-amber-500/20 transition-all hover:from-amber-300 hover:to-yellow-300 active:scale-[0.98] disabled:opacity-50"
-                    title="Продолжить: досчитать недостающие кадры/элементы"
-                  >
-                    <PlayIcon className="h-3.5 w-3.5 fill-current text-amber-950" />
-                    <span>Продолжить / Доделать</span>
-                  </button>
-                ) : null}
-              </div>
             ) : null}
             <button
               type="button"
