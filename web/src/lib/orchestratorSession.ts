@@ -461,7 +461,11 @@ function approvalDecision(value: unknown): "approved" | "rejected" | null {
   return null;
 }
 
-function closeServerApproval(state: OrchScreenState, id: string, decision: "approved" | "rejected"): void {
+function closeServerApproval(
+  state: OrchScreenState,
+  id: string,
+  decision: "approved" | "rejected" | "closed",
+): void {
   const item = state.approvals.find((entry) => entry.id === id && entry.serverId);
   if (!item || item.resolved) return;
   item.resolved = decision;
@@ -1143,6 +1147,10 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
   if (event.type === "task_done" && taskId) {
     const task = ensureTask(next.tasks, taskId, undefined, event.seq);
     task.status = "done";
+    // Задача завершена — её подтверждения уже не ждут решения.
+    for (const item of next.approvals) {
+      if (item.taskId === taskId && item.serverId && item.resolved == null) item.resolved = "closed";
+    }
     task.summary = str(payload.summary);
     placeOutcome(next, event.seq, taskId, "done");
     return next;
@@ -1179,7 +1187,11 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
 
   if (event.type === "approval_decided") {
     const id = approvalServerKey(payload);
-    const decided = approvalDecision(payload.decision) ?? (payload.decision === "deny" ? "rejected" : null);
+    // decision: null — сервер закрыл подтверждение без решения (заменено, задача снята):
+    // без этого после перезапуска старая карточка вставала из истории с живыми кнопками.
+    const decided =
+      approvalDecision(payload.decision) ??
+      (payload.decision === "deny" ? "rejected" : payload.decision == null ? "closed" : null);
     if (id && decided) closeServerApproval(next, id, decided);
     if (taskId) {
       const task = ensureTask(next.tasks, taskId, undefined, event.seq);
