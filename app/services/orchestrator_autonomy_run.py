@@ -91,7 +91,7 @@ async def diagnose(app: Any, project_id: int, operator: str) -> dict | None:
     from app.services.action_layer.context import ActionContext
 
     try:
-        ctx = ActionContext(app=app, operator=operator or "system", read_only=True)
+        ctx = ActionContext(app=_app(app), operator=operator or "system", read_only=True)
         return await nf._diag_node_failure(ctx, {"project_id": int(project_id)})
     except Exception as exc:  # noqa: BLE001
         logger.warning("orchestrator_autonomy: diag #{} failed: {}: {}", project_id, type(exc).__name__, exc)
