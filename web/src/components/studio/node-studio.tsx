@@ -1080,24 +1080,7 @@ export function NodeStudio({
   );
 }
 
-function SfxPlanSettingsPanel({ projectId }: { projectId: number }) {
-  const project = useQuery({
-    queryKey: ["project", projectId],
-    queryFn: () => api.getProject(projectId),
-  });
-
-  const meta = (project.data?.meta || {}) as Record<string, unknown>;
-  const aiJobs = (meta.ai_jobs || {}) as Record<string, unknown>;
-  const sfxPlan = (aiJobs.sfx_plan || meta.sfx_plan) as
-    | {
-        total_duration?: number;
-        events?: unknown[];
-      }
-    | undefined;
-
-  const count = sfxPlan?.events?.length ?? 0;
-  const duration = sfxPlan?.total_duration;
-
+function SfxPlanSettingsPanel({ projectId: _projectId }: { projectId: number }) {
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-white/10 bg-white/[0.02] p-5">
       <div>
@@ -1105,33 +1088,6 @@ function SfxPlanSettingsPanel({ projectId }: { projectId: number }) {
         <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
           ИИ-агент автоматически планирует акцентные звуки и переходы по хронометражу дикторского текста.
         </p>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-          <div className="text-[11px] font-medium text-zinc-400">Статус плана звуков</div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full",
-                count > 0 ? "bg-emerald-400" : "bg-amber-400",
-              )}
-            />
-            <span className="text-sm font-medium text-foreground">
-              {count > 0 ? `Составлен (${count} событий)` : "Ожидает запуска"}
-            </span>
-            {duration ? (
-              <span className="text-xs text-muted-foreground">· {duration} с</span>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="rounded-lg border border-white/10 bg-white/[0.02] p-3">
-          <div className="text-[11px] font-medium text-zinc-400">Провайдер генерации SFX</div>
-          <div className="mt-1.5 text-sm font-medium text-foreground">
-            ElevenLabs SFX API + Локальный синтез
-          </div>
-        </div>
       </div>
 
       <div className="rounded-lg border border-white/10 bg-black/20 p-3.5">
