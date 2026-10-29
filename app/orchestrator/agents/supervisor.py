@@ -67,7 +67,7 @@ from app.orchestrator.agents.executor import effective_risk, run_many, step_is_p
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.light_scope import light_as_coverage
-from app.orchestrator.agents.failure_scope import failure_reads, fix_after_diag_goal
+from app.orchestrator.agents.failure_scope import failure_reads, fix_after_diag_goal, plan_fix_from_diag
 from app.orchestrator.agents.upload_scope import upload_source_from_goal
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
@@ -2800,10 +2800,14 @@ class Supervisor:
         if self._status(task_id) is not TaskStatus.planning:
             await self._set_status(task_id, TaskStatus.planning, session_id=session_id)
         # «Почини» сразу после разбора сбоя: без проекта и ноды планировщик отвечал «уточните».
-        goal = fix_after_diag_goal(goal, self._last_diag_project(session_id))
+        last_diag = self._last_diag_project(session_id)
+        bare_fix = fix_after_diag_goal(goal, last_diag) != goal
+        goal = fix_after_diag_goal(goal, last_diag)
         token = _LLM_TASK.set(int(task_id))
         try:
-            drafted = await self._draft_plan(task_id, session_id, goal, context)
+            # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
+            fixed = await plan_fix_from_diag(last_diag) if bare_fix and last_diag else None
+            drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
                 drafted = await self._draft_plan(

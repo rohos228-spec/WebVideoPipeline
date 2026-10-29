@@ -321,3 +321,21 @@ def test_bare_fix_after_diag_names_project():
         assert "проекте 30" in fix_after_diag_goal(goal, 30), goal
     assert fix_after_diag_goal("почини", None) == "почини"
     assert fix_after_diag_goal("почини картинку кадра 3 в проекте 4", 30) == "почини картинку кадра 3 в проекте 4"
+
+
+def test_plan_fix_from_diag_takes_first_action(monkeypatch):
+    import asyncio
+
+    from app.orchestrator.agents import failure_scope
+    from app.services import orchestrator_autonomy_run as run
+
+    async def fake(app, pid, op):
+        return {"fix_options": [
+            {"action": "node.output", "params": {"project_id": pid}, "title_ru": "проверить"},
+            {"action": "step.run_step", "params": {"project_id": pid, "step_code": "split"}, "title_ru": "довести"},
+        ]}
+
+    monkeypatch.setattr(run, "diagnose", fake)
+    plan = asyncio.run(failure_scope.plan_fix_from_diag(30))
+    assert [s.action for s in plan] == ["step.run_step"]
+    assert plan[0].params == {"project_id": 30, "step_code": "split"}

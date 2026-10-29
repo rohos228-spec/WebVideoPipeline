@@ -34,6 +34,30 @@ def fix_after_diag_goal(goal: str, last_project: int | None) -> str:
     )
 
 
+_READ_ONLY = frozenset({"node.output", "logs.tail", "diag.node_failure", "diag.incidents"})
+
+
+async def plan_fix_from_diag(project_id: int) -> list[PlanStep] | None:
+    """Первое исправление из свежего разбора сбоя — шагом плана (карточку решает риск действия)."""
+    from app.services.orchestrator_autonomy_run import diagnose
+
+    diag = await diagnose(None, int(project_id), "system")
+    fixes = (diag or {}).get("fix_options") or []
+    for fix in fixes:
+        action = fix.get("action")
+        if not action or action in _READ_ONLY:
+            continue
+        return [
+            PlanStep(
+                action=str(action),
+                params=dict(fix.get("params") or {}),
+                expected=str(fix.get("title_ru") or "Исправление сбоя ноды"),
+                mutating=True,
+            )
+        ]
+    return None
+
+
 def failure_reads(
     plan: list[PlanStep], goal: str, project_id: int | None, fallback_project: int | None = None
 ) -> list[PlanStep]:
