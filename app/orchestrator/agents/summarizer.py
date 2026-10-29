@@ -1432,6 +1432,31 @@ def _squash(text: str) -> str:
     return re.sub(r"[\s>*_`#«»\"]+", "", text).lower()
 
 
+_QUOTE = re.compile(r"«([^«»]+)»")
+
+
+def drop_goal_quote(text: str, goal: str) -> str:
+    """Цитата самой просьбы («проверь промты картинок в проекте 26») в конце итога — не совет.
+
+    Предложение, где кроме цитаты почти ничего нет, уходит целиком; иначе — только цитата.
+    """
+    asked = _squash(goal or "")
+    if not asked:
+        return text
+    out: list[str] = []
+    for line in text.splitlines():
+        kept: list[str] = []
+        for part in _SENTENCE.split(line):
+            if not any(_squash(q) == asked for q in _QUOTE.findall(part)):
+                kept.append(part)
+                continue
+            rest = _QUOTE.sub(lambda m: "" if _squash(m.group(1)) == asked else m.group(0), part)
+            if len(re.sub(r"[\W_]+", "", rest)) >= 25:
+                kept.append(re.sub(r"\s+([,.:;!?])", r"\1", " ".join(rest.split())))
+        out.append(" ".join(kept).rstrip())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
 def ensure_prompt_quoted(text: str, facts: TaskFacts) -> str:
     """Модель пересказала промт вместо цитаты: дописываем показанный текст цитатой сами."""
     items, more = prompt_quotes(facts)
@@ -1561,6 +1586,7 @@ class TaskSummarizer:
             # «сверь промты картинок с героями в проекте 12» в кавычках — сама просьба, не итог.
             logger.info("orch summary is the request itself, code text used")
             return fallback
+        text = drop_goal_quote(text, facts.goal) or fallback
         text = ensure_prompt_quoted(text, facts)
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.
         links = [

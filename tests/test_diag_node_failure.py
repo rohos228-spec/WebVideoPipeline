@@ -419,3 +419,13 @@ def test_check_prompts_replaces_report_marked_mutating():
     report = [PlanStep(action="report.gpt_data", params={"project_id": 26}, expected="x", mutating=True)]
     out = content_check_scope(report, "проверь промты картинок в проекте 26")
     assert out[0].action == "diag.content_checks"
+
+
+def test_summary_drops_quoted_request():
+    from app.orchestrator.agents.summarizer import drop_goal_quote
+
+    goal = "проверь промты картинок в проекте 26"
+    text = "Проверка промтов картинок в проекте #26 завершилась: расхождений нет.  «проверь промты картинок в проекте 26»"
+    assert drop_goal_quote(text, goal) == "Проверка промтов картинок в проекте #26 завершилась: расхождений нет."
+    advice = "Расхождений нет. Чтобы проверить снова, напишите «проверь промты картинок в проекте 7»."
+    assert drop_goal_quote(advice, goal) == advice

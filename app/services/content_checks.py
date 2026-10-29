@@ -729,9 +729,20 @@ def feedback_text(report: dict[str, Any]) -> str:
 
 def summary_text(report: dict[str, Any]) -> str:
     step_ru = STEP_RU.get(report.get("step"), report.get("step"))
+    # Вопрос про промты: итог по героям — первым, даже если нашлось расхождение закадра.
+    heroes = ""
+    if report.get("step") == "img_pr":
+        bad = [f for f in report.get("findings") or [] if f.get("check") == "prompt_characters"]
+        heroes = (
+            f"Герои в промтах картинок не совпали с кадрами (находок: {len(bad)})."
+            if bad
+            else "Герои в промтах картинок совпадают с персонажами кадров."
+        )
     if report.get("ok"):
-        return f"Шаг «{step_ru}»: проверка содержания прошла, расхождений нет."
-    parts = [f"Шаг «{step_ru}»: проверка содержания нашла ошибки (находок: {len(report['findings'])})."]
-    for f in report["findings"][:6]:
+        return " ".join(p for p in (heroes, f"Шаг «{step_ru}»: проверка содержания прошла, расхождений нет.") if p)
+    parts = [p for p in (heroes,) if p]
+    parts.append(f"Шаг «{step_ru}»: проверка содержания нашла ошибки (находок: {len(report['findings'])}).")
+    ordered = sorted(report["findings"], key=lambda f: f.get("check") != "prompt_characters")
+    for f in ordered[:6]:
         parts.append(f"{f['title_ru']}. {f.get('detail_ru') or ''}".strip())
     return " ".join(parts)

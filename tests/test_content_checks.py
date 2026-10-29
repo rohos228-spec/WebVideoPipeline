@@ -548,3 +548,15 @@ async def test_auto_rerun_supersedes_cell_edits_and_gets_feedback(wired, monkeyp
     assert "Кадров 4, а в сценарии просили ровно 3" in seen["feedback"]
     assert oa.read_feedback(tmp_path, "split") == ""
     assert oa.retries_done(27, ccr.retry_key("split")) == 0
+
+
+def test_summary_text_prompts_names_heroes_first():
+    from app.services.content_checks import summary_text
+
+    vo = {"check": "vo_concat", "title_ru": "Закадр кадров не сходится", "detail_ru": ""}
+    hero = {"check": "prompt_characters", "title_ru": "Кадр 3: в промте герой c07", "detail_ru": ""}
+    text = summary_text({"step": "img_pr", "ok": False, "findings": [vo]})
+    assert text.startswith("Герои в промтах картинок совпадают")
+    text = summary_text({"step": "img_pr", "ok": False, "findings": [vo, hero]})
+    assert text.startswith("Герои в промтах картинок не совпали") and text.index("c07") < text.index("Закадр")
+    assert "Герои" not in summary_text({"step": "split", "ok": True, "findings": []})
