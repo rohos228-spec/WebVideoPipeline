@@ -124,7 +124,10 @@ function ChatPane({
     if (!text.trim()) return;
     setDraft("");
     setMobileView("chat");
-    void chat.sendMessage(text, taskMode ? "task" : undefined);
+    void chat.sendMessage(text, taskMode ? "task" : undefined).then((sent) => {
+      // Не отправилось — текст человека не теряется: возвращаем, если поле ещё пустое.
+      if (!sent) setDraft((current) => current || text);
+    });
   };
 
   const noticesAt = (index: number, last: boolean): ChatNotice[] =>

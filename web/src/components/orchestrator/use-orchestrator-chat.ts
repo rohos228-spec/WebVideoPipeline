@@ -214,9 +214,9 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
   }, []);
 
   const sendMessage = useCallback(
-    async (text: string, mode?: "task") => {
+    async (text: string, mode?: "task"): Promise<boolean> => {
       const trimmed = text.trim();
-      if (!trimmed || !ready || blocked) return;
+      if (!trimmed || !ready || blocked) return false;
       const localId = `user-${Date.now()}-${state.messages.length}`;
       dispatch({
         type: "user-message",
@@ -237,11 +237,20 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
       try {
         await postOrchMessage(cfg, body);
         setSendError("");
+        return true;
       } catch (error) {
         dispatch({ type: "user-message-unsent", id: localId });
         if (!noteAuth(error)) {
-          setSendError(error instanceof Error ? error.message : "Сообщение не отправлено. Повторите.");
+          // «Failed to fetch»: сервер перезапускается или недоступен — текст возвращается в поле.
+          setSendError(
+            error instanceof TypeError
+              ? "Сервер не ответил, сообщение не отправлено. Текст оставлен в поле — отправьте ещё раз."
+              : error instanceof Error
+                ? error.message
+                : "Сообщение не отправлено. Повторите.",
+          );
         }
+        return false;
       } finally {
         setPending(false);
       }

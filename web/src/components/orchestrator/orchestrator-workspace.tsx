@@ -172,7 +172,10 @@ export function OrchestratorWorkspace() {
     const text = draft;
     if (!text.trim()) return;
     setDraft("");
-    void chat.sendMessage(text, orchTaskModeEnabled() && taskMode ? "task" : undefined);
+    void chat.sendMessage(text, orchTaskModeEnabled() && taskMode ? "task" : undefined).then((sent) => {
+      // Не отправилось — текст человека не теряется: возвращаем, если поле ещё пустое.
+      if (!sent) setDraft((current) => current || text);
+    });
   };
 
   return (
