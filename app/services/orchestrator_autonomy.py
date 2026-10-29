@@ -11,6 +11,8 @@
   текущей; дороже или цена неизвестна — карточка.
 
 Потолок ``auto_spend_limit_usd`` — на один автозапуск: оценка выше или неизвестна — карточка.
+Бесплатная однозначная правка данных по находке проверки содержания (``content_checks``:
+закадр ячейки из voiceover.txt, канон героя) — без карточки при ``auto_fix_on_failure``.
 Правка промтов, удаление, мастер-промты и всё прочее — всегда карточка.
 
 Хранение — ``data/orchestrator_autonomy.json``, свой раздел у каждого арендатора (как
@@ -45,8 +47,12 @@ MAX_RETRIES_CAP = 5
 SPEND_LIMIT_CAP_USD = 20.0
 OWNER = "_owner"
 
+# Правки данных, правильное значение которых известно из самого проекта (закадр ячейки
+# из voiceover.txt, канон героя из паспорта — ``content_checks``): бесплатны и однозначны.
+# Без карточки — только с отметкой ``deterministic`` и при включённом автоисправлении.
+DATA_FIX_ACTIONS = frozenset({"shot.edit_cell_voiceover", "shot.edit_field"})
 # Только эти действия бывают без карточки; всё прочее из разбора — кнопка с подтверждением.
-AUTO_ACTIONS = frozenset({"step.run_step", "node.set_model"})
+AUTO_ACTIONS = frozenset({"step.run_step", "node.set_model", *DATA_FIX_ACTIONS})
 # Повтор с той же причиной даст тот же ответ: на входе нет кадров.
 NO_AUTO_RETRY_CAUSES = frozenset({"empty_input"})
 
@@ -280,7 +286,9 @@ def price_not_higher(current: Any, new: Any) -> bool | None:
         return None
 
 
-_READ_ONLY_FIXES = frozenset({"node.output", "logs.tail", "diag.node_failure", "diag.incidents"})
+_READ_ONLY_FIXES = frozenset(
+    {"node.output", "logs.tail", "diag.node_failure", "diag.incidents", "diag.content_checks"}
+)
 
 def decide_fix(
     *,
@@ -364,6 +372,10 @@ def decide_fix(
             elif not fix_on:
                 why = "автоисправление выключено"
             runs.append(FixStep(action, params, title, not why, why))
+            continue
+        if action in DATA_FIX_ACTIONS and opt.get("deterministic"):
+            why = "" if fix_on else (blocked_reason or "автоисправление выключено")
+            others.append(FixStep(action, params, title, not why, why))
             continue
         # Правка промта, вариант промта, мастер-промты, удаление — всегда через человека.
         # Чтение (node.output, logs.tail) ничего не меняет: так и пишем, а не «меняет промт».

@@ -327,6 +327,7 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
             if db_locked_err is not None:
                 raise db_locked_err
             assert result is not None
+            content_report = None
             async with session_scope() as s:
                 p = await s.get(Project, project_id)
                 if p is not None:
@@ -334,7 +335,24 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
                     from app.services.run_sync import update_active_node_progress_text
 
                     await update_active_node_progress_text(s, p, None)
+                    if p.status.value != prev_status_value:
+                        # Шаг завершён: замечания ревьюера использованы, а результат
+                        # проверяется по содержанию (склейка закадра, герои в промтах).
+                        # Здесь, в сессии воркера: следующий шаг проекта ещё не начат,
+                        # и запись в meta с ним не гоняется.
+                        from app.services.content_checks import check_after_step
+                        from app.services.retry_feedback import clear_review_hints
+
+                        clear_review_hints(p, prev_status_value)
+                        content_report = await check_after_step(s, p, prev_status_value)
                     await s.commit()
+            if content_report is not None:
+                try:
+                    from app.services.content_checks_run import on_report
+
+                    on_report(project_id, content_report)
+                except Exception:  # noqa: BLE001
+                    logger.exception("content check hook failed for #{}", project_id)
             fail_counts.pop(key, None)
             if result.new_status is not None:
                 try:

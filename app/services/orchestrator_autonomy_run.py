@@ -535,9 +535,14 @@ async def _fix(
 async def _retry(app: Any, project_id: int, node_key: str, diag: dict, plan_id: str, operator: str) -> dict:
     project = await _project(project_id)
     data_dir = getattr(project, "data_dir", None) if project is not None else None
+    # «Работа с GPT» читает файл по ключу ноды, план/закадр/разбивка/промты — по коду
+    # шага (retry_feedback): пишем под обоими, иначе повтор разбивки шёл бы вслепую.
+    step = str(diag.get("step") or "")
+    keys = [node_key, *([step] if step and step not in ("excel_gpt", node_key) else [])]
     if data_dir is not None:
         # Модель увидит, почему прошлый ответ отклонён: тот же раздел, что у повтора контракта.
-        oa.write_feedback(data_dir, node_key, _feedback_text(diag))
+        for key in keys:
+            oa.write_feedback(data_dir, key, _feedback_text(diag))
     # Счёт до запуска: упавший посреди прогона сервер не даёт лишнего бесплатного повтора.
     before = oa.retries_done(project_id, node_key)
     oa.set_retries(project_id, node_key, before + 1)
@@ -545,7 +550,8 @@ async def _retry(app: Any, project_id: int, node_key: str, diag: dict, plan_id: 
         res = await _launch(app, plan_id, operator, approve=True)
     finally:
         if data_dir is not None:
-            oa.clear_feedback(data_dir, node_key)
+            for key in keys:
+                oa.clear_feedback(data_dir, key)
     if not res.get("started"):
         oa.set_retries(project_id, node_key, before)
     if res["ok"] and not await node_done(project_id, node_key):

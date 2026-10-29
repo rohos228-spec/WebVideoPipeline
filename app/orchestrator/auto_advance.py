@@ -1139,11 +1139,14 @@ async def _apply_regen(
         await _prepare_node_run_for_status(session, project, back_to, allow_restart=True)
         project.status = back_to
 
-    # Передаём fix_hints в gpt_text_override, чтобы шаг увидел их и
-    # передал в промт.
+    # Передаём fix_hints шагу: план, закадр и разбивка дописывают их в промт
+    # блоком «ЗАМЕЧАНИЯ РЕВЬЮЕРА» (retry_feedback), после успеха шага снимаются.
     meta = dict(project.meta or {})
     if result.fix_hints:
         meta["auto_fix_hints"] = result.fix_hints
+        # Чей это список: замечания к сценарию не должны уйти в промт разбивки.
+        if back_to is not None:
+            meta["auto_fix_hints_for"] = back_to.value
     project.meta = meta
     await session.flush()
     logger.info(

@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
@@ -247,6 +248,10 @@ class XlsxRoundtripResult:
     # Этап 5: результат получен локальным fallback БЕЗ LLM (спека «Запрет
     # тихого частичного успеха» — деградация только с явным маркером).
     degraded_no_llm: bool = False
+    # split: склейка закадра кадров сверена с voiceover.txt (content_checks).
+    # False — кадры не пишутся (split_frames); None — сверки не было.
+    split_verified: bool | None = None
+    split_source: str | None = None
 
 
 def _ts() -> str:
@@ -398,6 +403,10 @@ async def run_plan_xlsx(
     prompt_file = cx.write_plan_prompt_file(project, tmp_dir, topic=actual_topic, ts=ts)
     chat_msg = cx.chat_message(project, "plan", topic=actual_topic, prompt_file_name=prompt_file.name)
     chat_msg = f"{chat_msg}{_PLAN_DB_HINT}"
+    # Повтор после сбоя или переделка по ревью: модель видит, что было не так.
+    from app.services.retry_feedback import prompt_addendum
+
+    chat_msg += prompt_addendum(project, "plan", "planning")
 
     logger.info(
         "plan_db: prompt_file={} ({} байт), chat_len={} (без xlsx-download)",
@@ -468,6 +477,9 @@ async def run_script_xlsx(
         cx.chat_message(project, "script", prompt_file_name=prompt_file.name)
     )
     chat_msg = f"{chat_msg}{_SCRIPT_DB_HINT}"
+    from app.services.retry_feedback import prompt_addendum
+
+    chat_msg += prompt_addendum(project, "script", "scripting")
     attach_files: list[Path] = [prompt_file]
     # Контекст: общий план / прошлый закадр — без ожидания скачивания xlsx.
     if (project.general_plan or "").strip():
@@ -707,6 +719,9 @@ async def run_split_xlsx(
     tmp_dir = cx.tmp_gpt_dir(project)
     prompt_file = cx.write_split_prompt_file(project, tmp_dir, ts=ts)
     chat_msg = cx.chat_message(project, "split", prompt_file_name=prompt_file.name) + _SPLIT_DB_HINT
+    from app.services.retry_feedback import prompt_addendum
+
+    chat_msg += prompt_addendum(project, "split", "splitting")
     attach_files: list[Path] = [prompt_file, voiceover]
     if (project.general_plan or "").strip():
         gp = tmp_dir / f"general_plan_{ts}.txt"
@@ -751,19 +766,46 @@ async def run_split_xlsx(
     except Exception:  # noqa: BLE001 — учёт возьмёт fallback из gpt_api
         split_prompt_hash = None
 
+    # Схема видит только форму. Склейка кадров обязана дать закадр слово в слово —
+    # иначе repair с перечнем потерь и дублей (модель видит, что именно потеряла).
+    # Число кадров по сценарию — тоже repair, но ответ с верной склейкой и не тем
+    # числом лучше локальной нарезки: он принимается с мягкой находкой.
+    from app.services import content_checks as cc
+
+    vo_text = voiceover.read_text(encoding="utf-8", errors="replace")
+    requested = cc.requested_frame_count(project)
+    concat_ok: dict[str, Any] = {}
+
+    def _validate(payload: Any) -> list[str]:
+        frames = [item.model_dump(exclude_none=True) for item in payload.frames]
+        problems = cc.split_contract_problems(vo_text, frames)
+        if problems:
+            return problems
+        n = len(clamp_parent_frames(frames))
+        if requested is not None and n != requested:
+            concat_ok["frames"] = frames
+            return [f"кадров {n}, а в сценарии просили ровно {requested}: соедини или раздели соседние фразы"]
+        return []
+
     degraded = False
     try:
         with llm_ledger.bind_prompt_hash(split_prompt_hash):
             policy_res = await run_with_contract(
                 contract=FRAME_SPLIT,
                 call=_call,
+                validate=_validate,
                 reject_dir=project.data_dir / "llm_rejects",
                 label="split",
             )
         reply = policy_res.reply_text
         frames_spec = [item.model_dump(exclude_none=True) for item in policy_res.payload.frames]
     except LlmContractError as e:
-        blocks = split_voiceover_locally(voiceover.read_text(encoding="utf-8", errors="replace"))
+        if concat_ok.get("frames"):
+            # Склейка верна, не сошлось только число кадров: берём ответ модели,
+            # находку «число кадров» запишет проверка после шага (content_checks).
+            logger.warning("split_db: число кадров не как в сценарии — ответ принят: {}", str(e)[:200])
+            return _split_result(proj_xlsx, f"[frame_count_mismatch] {e}", concat_ok["frames"], vo_text, degraded=False)
+        blocks = split_voiceover_locally(vo_text)
         blocks = [b.strip() for b in blocks if b.strip()]
         if len(blocks) < 2:
             raise
@@ -777,8 +819,25 @@ async def run_split_xlsx(
         reply = f"[degraded_no_llm] {e}"
         frames_spec = [{"закадр": b} for b in blocks]
 
+    return _split_result(proj_xlsx, reply, frames_spec, vo_text, degraded=degraded)
+
+
+def _split_result(
+    proj_xlsx: Path,
+    reply: str,
+    frames_spec: list[dict],
+    vo_text: str,
+    *,
+    degraded: bool,
+) -> XlsxRoundtripResult:
+    from app.services import content_checks as cc
+
     # Контракт держит только нижнюю границу (≥2 кадра), верхнюю ставим здесь.
     frames_spec = clamp_parent_frames(frames_spec)
+    # Последняя сверка того, что уйдёт в кадры (после крышки и на деградации тоже).
+    problems = cc.split_contract_problems(vo_text, frames_spec)
+    if problems:
+        logger.warning("split_db: склейка кадров не сходится с закадром: {}", problems[0][:300])
     logger.info("split_db: кадров={} degraded_no_llm={}", len(frames_spec), degraded)
     return XlsxRoundtripResult(
         reply_text=reply,
@@ -788,6 +847,8 @@ async def run_split_xlsx(
         frames_spec=frames_spec,
         apply_ops=[{"target": "replace_frames", "frames": frames_spec}],
         degraded_no_llm=degraded,
+        split_verified=not problems,
+        split_source="local" if degraded else "llm",
     )
 
 
@@ -1149,6 +1210,10 @@ async def run_img_pr_xlsx(
     # Этап 5 (C.4): провал батча больше не глотается — копим и валим шаг
     # в конце гейтом покрытия N/N (прогресс других батчей уже в чекпоинте).
     failed_notes: list[str] = []
+    # Повтор шага после сбоя или находки проверки: каждый батч видит прошлую ошибку.
+    from app.services.retry_feedback import prompt_addendum
+
+    retry_note = prompt_addendum(project, "img_pr", "generating_image_prompts")
 
     async def _ask_batch_ops(
         *,
@@ -1185,7 +1250,7 @@ async def run_img_pr_xlsx(
             prompt_file_name=prompt_file.name,
             n_frames=len(batch),
         )
-        chat_msg = f"{chat_msg}{img_pr_hint}\n{footer}\nАдресация:\n{uuid_lines}\n"
+        chat_msg = f"{chat_msg}{img_pr_hint}\n{footer}\nАдресация:\n{uuid_lines}\n{retry_note}"
         if uuid_map_text.strip():
             chat_msg = f"{chat_msg}\n# uuid map (справочно)\n{uuid_map_text.strip()[:2000]}\n"
         attach = ipb.batch_attach_files(

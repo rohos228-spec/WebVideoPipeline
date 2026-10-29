@@ -41,6 +41,7 @@ CAUSE_RU = {
     "refusal": "модель отказалась отвечать",
     "provider_error": "сбой у провайдера модели",
     "schema_other": "ответ модели не прошёл проверку формата",
+    "content_mismatch": "закадр кадров не сходится с закадровым текстом",
     "unknown": "причина по данным не видна",
 }
 
@@ -62,6 +63,8 @@ _REFUSAL = re.compile(
 )
 _UNKNOWN_FIELDS = re.compile(r"неизвестн\w* пол\w*\s*\[([^\]]*)\]", re.I)
 _EMPTY_OPS = re.compile(r"пуст\w* ops|ops.{0,20}пуст|нечего применять|empty ops", re.I)
+# Проверка содержания разбивки (content_checks): форма верна, текст кадров не тот.
+_CONTENT = re.compile(r"склейк\w*[^\n]{0,40}закадр|дословно совпадать с закадровым", re.I)
 _EMPTY_INPUT = re.compile(r"нет кадров|кадров нет|0 кадров|no frames|пуст\w* (?:вход|таблиц)", re.I)
 
 
@@ -381,6 +384,12 @@ def classify(
                 "что писать, или она решила, что всё уже заполнено."
             )
         found["check_node"] = is_check
+    elif _CONTENT.search(all_err):
+        code = "content_mismatch"
+        explain = (
+            "Формат ответа верный, но склейка закадра кадров не совпала с закадровым текстом: "
+            "модель потеряла, задвоила или пересказала часть текста."
+        )
     elif _PROVIDER.search(all_err):
         code = "provider_error"
         explain = "В ошибке сбой провайдера модели: таймаут, 5xx или квота."
@@ -505,6 +514,17 @@ def fix_options(
         ]
     if code == "refusal":
         return [models, variant, retry]
+    if code == "content_mismatch":
+        return [
+            {
+                "action": "diag.content_checks",
+                "params": {"project_id": pid, "step": "split"},
+                "title_ru": "Показать, какой текст потерян или задвоен",
+                "phrase_ru": f"проверь результат разбивки в проекте {pid}",
+            },
+            dict(retry, title_ru="Повторить разбивку: модель получит список расхождений"),
+            models,
+        ]
     if code == "provider_error":
         return [dict(retry, title_ru="Повторить позже: сбой был у провайдера"), models]
     if code == "schema_other":
@@ -778,8 +798,9 @@ def node_failure_spec() -> ActionSpec:
         "полный текст ошибки, отклонённые ответы модели (что она вернула и что написала в "
         "report), сколько кадров было на входе, ошибка пачки из дневника. Причина правилами: "
         "пустой вход, пустой список правок, неизвестные поля, оборванный ответ, отказ, сбой "
-        "провайдера, прочий формат; и варианты исправления существующими действиями. Без "
-        "node_key — сама берёт упавшую ноду проекта. Только чтение.",
+        "провайдера, закадр кадров не сходится с текстом, прочий формат; и варианты "
+        "исправления существующими действиями. Без node_key — сама берёт упавшую ноду "
+        "проекта. Только чтение.",
         params_schema=bi._schema({"project_id": _PID, "node_key": _NODE_KEY}, ["project_id"]),
         executor=_diag_node_failure,
         risk=RISK_READ,

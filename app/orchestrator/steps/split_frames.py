@@ -111,11 +111,13 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         meta["split_degraded_no_llm"] = True
         project.meta = meta
     # Перенос из int/chat-v1 (30921a90): ответ разбивки, не прошедший
-    # предпроверку, не пишем в кадры. getattr — в новой линии раннер пока
-    # не выставляет split_verified, тогда проверка молчит.
+    # предпроверку, не пишем в кадры. split_verified ставит раннер: склейка
+    # закадра кадров сверена с voiceover.txt (content_checks). None — сверки
+    # не было (старый раннер, тесты) — тогда проверка молчит.
     if getattr(result, "split_verified", None) is False:
         raise RuntimeError(
-            "split_frames: ответ разбивки не прошёл предпроверку "
+            "split_frames: склейка закадра кадров не совпала с закадровым текстом — "
+            "потерян или задвоен текст "
             f"(источник={getattr(result, 'split_source', None)}); кадры не записаны"
         )
     ops = list(result.apply_ops or [])

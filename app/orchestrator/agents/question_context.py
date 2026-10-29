@@ -19,6 +19,8 @@ _FACT_LIMITS = {
     "report.gpt_data": 7000,
     # Разбор падения: ошибка, отклонённые ответы модели и варианты исправления — целиком.
     "diag.node_failure": 6000,
+    # Находки проверки содержания с цитатами расхождений и фразами исправления.
+    "diag.content_checks": 6000,
 }
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
@@ -85,6 +87,34 @@ FAILURE_RULE = (
     "Ты ничего не запускаешь и не меняешь; в конце можно дать одну фразу исправления из "
     "«Что можно сделать» в кавычках «…»."
 )
+# «Проверь результат разбивки», «всё ли сходится в кадрах», «проверь промты картинок»:
+# ответ по смыслу шага, а не статус ноды — проверка содержания (diag.content_checks).
+_CHECK_VERB = ("провер", "сверь", "сверить", "сходит", "сходят", "совпада", "не потерял", "потерял")
+_CHECK_OBJECT = ("разбивк", "кадр", "закадр", "промт", "результат", "герои", "персонаж")
+CONTENT_TITLE = "Проверка результата по содержанию"
+CONTENT_RULE = (
+    f"Факт «{CONTENT_TITLE}» — проверка кодом по данным студии: скажи, сходится ли результат, "
+    "и перечисли расхождения из него (какие кадры, что потеряно или лишнее, какие герои не "
+    "совпали). Ты ничего не запускаешь и не меняешь; в конце можно дать одну фразу "
+    "исправления из «Что можно сделать» в кавычках «…»."
+)
+
+
+def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
+    """Параметры diag.content_checks, если просят проверить результат шага; иначе None."""
+    if not (_has(norm, _CHECK_VERB) and _has(norm, _CHECK_OBJECT)) or _NODE_RE.search(norm):
+        # Названа нода — «проверь результат n_excel_gpt_1» читает её выход (node.output).
+        return None
+    params: dict[str, Any] = {"project_id": int(pid)}
+    if "промт" in norm and ("картин" in norm or "изображ" in norm):
+        params["step"] = "img_pr"
+    elif _has(norm, ("разбивк",)):
+        params["step"] = "split"
+    elif _has(norm, ("работ", "gpt", "гпт", "обогащ")) and not _has(norm, ("кадр",)):
+        params["step"] = "enrich"
+    return params
+
+
 _SPEND = (
     "трат",
     "потрат",
@@ -181,6 +211,7 @@ _TITLES = {
     "project.status": "Статус проекта",
     "diag.incidents": "Инциденты и ошибки",
     "diag.node_failure": "Почему упала нода",
+    "diag.content_checks": CONTENT_TITLE,
     "logs.tail": "Логи",
     "node.output": "Результат ноды",
     "spend.summary": "Траты",
@@ -361,6 +392,11 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
         if pid is not None:
             return _allowed([("montage.get_board", {"project_id": int(pid)})])
+    checks = content_check_params(norm, pid) if pid is not None else None
+    if checks is not None:
+        # Без проверки содержания чат отвечал статусом ноды «готово» — а склейка закадра
+        # или герои в промтах могли не сходиться.
+        return _allowed([("diag.content_checks", checks), ("project.status", {"project_id": int(pid)})])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
     node_failure = _has(norm, _NODE_FAILURE) or (_has(norm, ("почему",)) and (bool(nodes) or _has(norm, ("нод",))))
@@ -734,6 +770,8 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
         lines.append(GLOSSARY_RULE)
     if any(fact.action == "diag.node_failure" and fact.ok for fact in facts):
         lines.append(FAILURE_RULE)
+    if any(fact.action == "diag.content_checks" and fact.ok for fact in facts):
+        lines.append(CONTENT_RULE)
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
     used = 0
     for fact in facts:

@@ -12,6 +12,8 @@ BASE_READ_IDS: tuple[str, ...] = (
     "diag.incidents",
     # «Разберись, почему упала нода»: разбор до причины всегда в каталоге, до любой правки.
     "diag.node_failure",
+    # «Проверь результат разбивки / всё ли сходится в кадрах»: проверка содержания шага.
+    "diag.content_checks",
     "logs.tail",
     "node.output",
     "spend.summary",
