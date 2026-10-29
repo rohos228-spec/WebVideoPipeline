@@ -450,6 +450,16 @@ def fix_options(
                     "phrase_ru": f"что выдала нода {upstream} в проекте {pid}",
                 }
             )
+        # Кадров нет, потому что не дошли шаги до разбивки: повтор этой ноды ничего не даст.
+        out.insert(
+            0,
+            {
+                "action": "step.run_step",
+                "params": {"project_id": pid, "step_code": "split"},
+                "title_ru": "Довести проект до разбивки на кадры (сценарий, закадр, разбивка — платно)",
+                "phrase_ru": f"доведи проект {pid} до разбивки на кадры",
+            },
+        )
         out.append(dict(retry, title_ru="Перезапустить ноду, когда у источника появятся кадры"))
         return out
     if code == "empty_ops":
