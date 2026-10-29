@@ -201,7 +201,8 @@ export function PipelineNode({ data, selected }: NodeProps) {
   const Icon = getNodeIcon(spec.iconKey);
   const actions = useCanvasActionsOptional();
   const qc = useQueryClient();
-  const disabled = actions?.disabledNodes.has(d.nodeKey) ?? false;
+  const isPublish = d.type === "publish" || d.nodeKey === "publish";
+  const disabled = (actions?.disabledNodes.has(d.nodeKey) ?? false) || isPublish;
 
   const statusConfig = STATUS_CONFIG[d.status];
   const StatusIcon = statusConfig.icon;
@@ -344,9 +345,10 @@ export function PipelineNode({ data, selected }: NodeProps) {
               "group relative overflow-visible rounded-lg border backdrop-blur-md bg-[#0d0d10]/90",
               isStorage || isShotMenu || isStyleExtract || isHitlStyle || showNii67 ? "w-[384px]" : "w-[336px]",
               "transition-[border-color,background-color] duration-200",
-              d.status === "failed" ? "border-red-500/80" : "border-white/[0.12] hover:border-white/30",
+              d.status === "failed" ? "border-red-500/80" : isPublish ? "border-amber-500/25" : "border-white/[0.12] hover:border-white/30",
               selected && "border-white/80 outline outline-1 outline-white/40",
-              disabled && "opacity-40 grayscale",
+              disabled && !isPublish && "opacity-40 grayscale",
+              isPublish && "bg-[#0d0d10]/95 opacity-65 hover:opacity-85 select-none transition-opacity",
             )}
           >
             {/* Вход/выход без точек: связь с левого и правого края по всей высоте */}
@@ -444,8 +446,9 @@ export function PipelineNode({ data, selected }: NodeProps) {
               groupId={d.groupId}
               groupTitle={d.groupTitle}
               disabled={disabled}
+              isPublish={isPublish}
               model={
-                !isShotMenu && !isHitlStyle && d.type !== "topic" ? (
+                !isShotMenu && !isHitlStyle && d.type !== "topic" && !isPublish ? (
                   <NodeModelPicker
                     nodeKey={d.nodeKey}
                     nodeType={d.type}
@@ -458,12 +461,12 @@ export function PipelineNode({ data, selected }: NodeProps) {
                 ) : null
               }
               onView={
-                actions && resultSnapshot && !hideResultBadgeForNodeType(d.type)
+                !isPublish && actions && resultSnapshot && !hideResultBadgeForNodeType(d.type)
                   ? () => actions.onOpenNodeResult(d.nodeKey, d.type)
                   : undefined
               }
-              onRetry={actions ? () => actions.onRunNode(d.nodeKey, d.type) : undefined}
-              onRun={actions ? () => actions.onRunNode(d.nodeKey, d.type) : undefined}
+              onRetry={isPublish ? undefined : (actions ? () => actions.onRunNode(d.nodeKey, d.type) : undefined)}
+              onRun={isPublish ? undefined : (actions ? () => actions.onRunNode(d.nodeKey, d.type) : undefined)}
               onStop={
                 actions?.projectId
                   ? async () => {
@@ -485,7 +488,7 @@ export function PipelineNode({ data, selected }: NodeProps) {
                   : undefined
               }
               description={(d.description && d.description.trim()) || spec.description || fallbackDescription(d.type, title)}
-              settingsLines={buildSettingsLines(d, slots, isExcelGpt, isSdAgent, agentName)}
+              settingsLines={isPublish ? [] : buildSettingsLines(d, slots, isExcelGpt, isSdAgent, agentName)}
               nodeKey={d.nodeKey}
               onOpenSettings={openSettings}
             />
@@ -915,6 +918,7 @@ function PosterTile({
   groupId,
   groupTitle,
   disabled,
+  isPublish,
   onView,
   onRun,
   onStop,
@@ -939,6 +943,7 @@ function PosterTile({
   groupId?: string;
   groupTitle?: string;
   disabled: boolean;
+  isPublish?: boolean;
   onView?: () => void;
   onRetry?: () => void;
   onRun?: () => void;
@@ -971,9 +976,9 @@ function PosterTile({
   const running = status === "running";
   const failed = status === "failed";
   const items = snapshot?.items ?? [];
-  const has = !!snapshot?.hasResult && items.length > 0;
-  const media = has ? items.filter((i) => i.previewUrl && (i.kind === "image" || isVideoItem(i) || i.kind === "frames")) : [];
-  const audio = has ? items.filter((i) => i.kind === "audio" && (i.previewUrl || i.downloadUrl)) : [];
+  const has = !isPublish && !!snapshot?.hasResult && items.length > 0;
+  const media = isPublish ? [] : (has ? items.filter((i) => i.previewUrl && (i.kind === "image" || isVideoItem(i) || i.kind === "frames")) : []);
+  const audio = isPublish ? [] : (has ? items.filter((i) => i.kind === "audio" && (i.previewUrl || i.downloadUrl)) : []);
   const text = has && !media.length && !audio.length
     ? (items.map((i) => i.content).filter(Boolean).join("\n\n") || snapshot?.summary || "").trim()
     : "";
@@ -992,7 +997,16 @@ function PosterTile({
   const shown = media.slice(0, 4);
   const blur = running ? "blur-md opacity-70" : "";
   let body: React.ReactNode;
-  if (media.length) {
+  if (isPublish) {
+    body = (
+      <div className="absolute inset-x-0 bottom-0 top-10 flex flex-col justify-end px-3 pb-2.5">
+        <div className="rounded-md border border-amber-500/25 bg-black/75 p-2 text-center backdrop-blur-md">
+          <div className="text-[11px] font-medium text-amber-300">Модуль в разработке</div>
+          <div className="mt-0.5 text-[10px] text-zinc-400">Публикация в соцсети скоро</div>
+        </div>
+      </div>
+    );
+  } else if (media.length) {
     body = (
       <div className={cn("absolute inset-0 grid gap-px bg-black", shown.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
         {shown.map((m) =>
@@ -1052,6 +1066,8 @@ function PosterTile({
           </>
         {media.length ? (
           body
+        ) : isPublish ? (
+          <div data-vp-tile-mid className="absolute inset-0">{body}</div>
         ) : (
           <div data-vp-tile-mid className="absolute inset-0 opacity-0 transition-opacity duration-[120ms] ease-out group-hover:opacity-100">{body}</div>
         )}
@@ -1081,7 +1097,14 @@ function PosterTile({
                 onBlur={() => setRenaming(false)}
               />
             ) : (
-              <span className="vp-hl">{title}</span>
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="vp-hl">{title}</span>
+                {isPublish && (
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 border border-amber-500/40">
+                    В разработке
+                  </span>
+                )}
+              </span>
             )}</span>
           <span
             className="relative flex shrink-0 items-center gap-1.5 text-[12px] text-white/85"
@@ -1137,8 +1160,8 @@ function PosterTile({
                 />
               </span>
             <span
-              data-status-icon={disabled ? "disabled" : status}
-              title={disabled ? "Отключена" : cfg.label}
+              data-status-icon={isPublish ? "in_dev" : disabled ? "disabled" : status}
+              title={isPublish ? "В разработке" : disabled ? "Отключена" : cfg.label}
               className="group/st nodrag nopan relative flex h-7 w-7 items-center justify-center"
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
@@ -1146,6 +1169,7 @@ function PosterTile({
             >
               {(() => {
                 const hide = (running ? onStop : onRun) ? "transition-opacity duration-150 group-hover/st:opacity-0" : "";
+                if (isPublish) return <Clock strokeWidth={2.4} className={cn("h-[21px] w-[21px] text-amber-400/80", hide)} />;
                 if (disabled) return <Ban className={cn("h-7 w-7 text-zinc-500", hide)} />;
                 if (status === "done") return <CheckCircle2 className={cn("h-7 w-7 text-emerald-400", hide)} />;
                 if (failed) return <XCircle className={cn("h-7 w-7 text-red-500", hide)} />;
@@ -1223,7 +1247,16 @@ function PosterTile({
             title={`Группа: ${groupTitle ?? groupId}`}
           />
         ) : null}
-        <div className="nodrag min-w-0 flex-1 font-mono text-[14px] text-white/85 [&_*]:!rounded-none [&_*]:!font-mono [&_*]:!text-[14px] [&_button]:!mt-0 [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!px-0 [&_button]:!shadow-none [&_button:hover]:!text-white"><span className="vp-hl inline-block max-w-full">{model}</span></div>
+        <div className="nodrag min-w-0 flex-1 font-mono text-[14px] text-white/85 [&_*]:!rounded-none [&_*]:!font-mono [&_*]:!text-[14px] [&_button]:!mt-0 [&_button]:!border-0 [&_button]:!bg-transparent [&_button]:!px-0 [&_button]:!shadow-none [&_button:hover]:!text-white">
+          {isPublish ? (
+            <span className="inline-flex items-center gap-1.5 font-sans text-[11px] text-zinc-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400/70" />
+              В разработке
+            </span>
+          ) : (
+            <span className="vp-hl inline-block max-w-full">{model}</span>
+          )}
+        </div>
 
         {onView ? (
           <button

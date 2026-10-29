@@ -480,6 +480,10 @@ export function StudioWorkspace({
       },
       onRunNode: async (nodeKey: string, nodeType: string, mode: "full" | "resume" = "resume") => {
         if (!projectId) return;
+        if (nodeType === "publish" || nodeKey === "publish") {
+          toast.message("Публикация находится в разработке");
+          return;
+        }
         if (disabledNodes.has(nodeKey)) {
           toast.error("Нода отключена — включите её в настройках ноды");
           return;

@@ -831,9 +831,7 @@ function computeNodeResult(
           viewMode: "default",
         };
       }
-      const final = ctx.assets.filter((a) => a.kind.includes("final"));
-      if (final.length) return ready(assetItems(final), "Готово к публикации", "assets");
-      return empty("Публикация ещё не выполнена", "none");
+      return empty("В разработке", "none");
     }
 
     default: {

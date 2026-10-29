@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Clock,
   Download,
   FileSpreadsheet,
   FileText,
@@ -787,6 +788,7 @@ export function NodeStudio({
   if (!nodeKey || !mounted || !open) return null;
 
   const hasSettings =
+    nodeType === "publish" ||
     (isExcelGptNode(nodeType) && !!projectId) ||
     !!showStepParams ||
     ((nodeType === "items" ||
@@ -842,10 +844,17 @@ export function NodeStudio({
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/60 via-black/15 to-black/30" />
             <div className={cn("absolute inset-0 flex items-center px-4 text-[16px] font-medium leading-[1.2] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]", detailOpen ? "pr-56" : "pr-14")}>
-              <span className="truncate">
-                {hasPrompts
-                  ? (excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")
-                  : (excelConfig.label?.trim() || spec.label)}
+              <span className="truncate flex items-center gap-2">
+                <span>
+                  {hasPrompts
+                    ? (excelConfig.label?.trim() || spec.label) + ": " + headPrompt.label.replace(/\.(md|txt)$/i, "")
+                    : (excelConfig.label?.trim() || spec.label)}
+                </span>
+                {nodeType === "publish" && (
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 border border-amber-500/40">
+                    В разработке
+                  </span>
+                )}
               </span>
             </div>
             {detailOpen ? (
@@ -932,6 +941,22 @@ export function NodeStudio({
                 {nodeType === "script" && projectId && projectUsesNii67Script(project.data ?? null) ? <Nii67CardPanel projectId={projectId} /> : null}
                 {nodeType === "sfx_plan" && projectId ? <SfxPlanSettingsPanel projectId={projectId} /> : null}
                 {(nodeType === "sfx_gen" || nodeType === "sfx") && projectId ? <SfxGenSettingsPanel projectId={projectId} /> : null}
+                {nodeType === "publish" ? (
+                  <section className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-amber-500/30 bg-amber-500/[0.04] p-8 text-center">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 text-amber-400">
+                      <Clock className="h-6 w-6" />
+                    </div>
+                    <div className="max-w-md">
+                      <h4 className="text-base font-semibold text-foreground">Публикация в разработке</h4>
+                      <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                        Автоматический постинг роликов в социальные сети (TikTok, YouTube Shorts, Reels, VK Клипы) находится в активной разработке.
+                      </p>
+                    </div>
+                    <span className="mt-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-3 py-1 text-[11px] font-medium text-amber-300">
+                      Скоро появится
+                    </span>
+                  </section>
+                ) : null}
               </div>
             ) : null}
             {promptStepCode && projectId && nodeKey ? (
@@ -1027,7 +1052,9 @@ export function NodeStudio({
                   ) : (
                     <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
                       <p className="text-[15px]">
-                        {inlineResult?.summary || "Результаты ещё не сформированы. Запустите шаг для генерации."}
+                        {nodeType === "publish"
+                          ? "Публикация находится в разработке"
+                          : (inlineResult?.summary || "Результаты ещё не сформированы. Запустите шаг для генерации.")}
                       </p>
                     </div>
                   )}
