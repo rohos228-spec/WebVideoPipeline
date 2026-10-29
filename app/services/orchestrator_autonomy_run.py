@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 from loguru import logger
@@ -57,7 +58,8 @@ def on_step_failure(project_id: int, step_action: str) -> asyncio.Task | None:
 
 async def _guarded(project_id: int, step_action: str) -> None:
     try:
-        await handle_failure(project_id, step_action)
+        report = await handle_failure(project_id, step_action)
+        logger.info("orchestrator_autonomy: failure #{} ({}) → {}", project_id, step_action, report)
     except Exception:  # noqa: BLE001
         logger.exception("orchestrator_autonomy: failure hook #{} crashed", project_id)
 
@@ -310,23 +312,33 @@ def diagnosis_text(diag: dict, decision: oa.FixDecision) -> str:
     if diag.get("model"):
         parts.append(f"Модель: {diag['model']}.")
     errors = [str(e) for e in diag.get("errors") or [] if e]
-    if errors:
-        parts.append("Ошибка: " + errors[0][:400])
-    parts += [n for n in decision.notes if n]
+    # Причина уже названа словами — сырая строка ошибки с ключами нод («#30 n_excel_gpt_1: …») лишняя.
+    if errors and (cause.get("code") in (None, "", "unknown") or not parts[0]):
+        parts.append("Ошибка: " + _sentence(_NODE_PREFIX.sub("", errors[0])[:400]))
+    parts += [_sentence(n) for n in decision.notes if n]
     if decision.auto_steps:
         parts.append("Чиню сам: " + "; ".join(s.title_ru for s in decision.auto_steps) + ".")
-    cards = decision.card_steps
+    checks = [s for s in decision.card_steps if s.action in oa._READ_ONLY_FIXES]
+    cards = [s for s in decision.card_steps if s.action not in oa._READ_ONLY_FIXES]
     if cards:
         head = "Можно ещё (с подтверждением)" if decision.auto_steps else "Предлагаю (нужно подтверждение)"
         parts.append(
             head
             + ": "
-            + "; ".join(
-                s.title_ru + (f" — без подтверждения нельзя: {s.why_ru}" if s.why_ru else "") for s in cards
-            )
+            + "; ".join(s.title_ru + (f" — сам не запускаю: {s.why_ru}" if s.why_ru else "") for s in cards)
             + "."
         )
-    return " ".join(p for p in parts if p)
+    if checks:
+        parts.append("Проверить можно кнопкой: " + "; ".join(s.title_ru for s in checks) + ".")
+    return " ".join(_sentence(p) for p in parts if p)
+
+
+_NODE_PREFIX = re.compile(r"^\s*#\d+\s+n_[a-z0-9_]+:\s*")
+
+
+def _sentence(text: str) -> str:
+    text = str(text or "").strip()
+    return text if not text or text[-1] in ".!?…»" else text + "."
 
 
 async def _notify(

@@ -414,6 +414,7 @@ def fix_options(
     node_key: str,
     step_code: str,
     upstream: str | None = None,
+    upstream_title: str | None = None,
 ) -> list[dict[str, Any]]:
     """Что можно сделать существующими действиями. Платное и правка промта — через карточку человека."""
     code = cause.get("code")
@@ -455,7 +456,8 @@ def fix_options(
                 {
                     "action": "node.output",
                     "params": {"project_id": pid, "node_key": upstream},
-                    "title_ru": f"Проверить ноду-источник {upstream}: что она отдала",
+                    # В карточке человеку — название ноды, не ключ n_split.
+                    "title_ru": f"Проверить, что отдала нода-источник «{upstream_title or upstream}»",
                     "phrase_ru": f"что выдала нода {upstream} в проекте {pid}",
                 }
             )
@@ -715,7 +717,12 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     metrics = metrics_line(data_dir, key) if data_dir is not None else None
     is_check = _is_check(meta, key)
     cause = classify(errors=errors, rejects=rejects, frames=(size or {}).get("frames"), is_check=is_check)
-    fixes = fix_options(cause, project_id=pid, node_key=key, step_code=step, upstream=_upstream(meta, key))
+    up = _upstream(meta, key)
+    up_node = nodes.get(up) if up else None
+    up_title = (bi._labels(meta).get(up) or bi._node_title(up_node, bi._node_types(up_node, "")[1])) if up else None
+    fixes = fix_options(
+        cause, project_id=pid, node_key=key, step_code=step, upstream=up, upstream_title=up_title
+    )
     model = bi._model_for(meta, key, node, raw, eff) or None
     prompt = bi._prompt_for(detail, key, raw, eff)
 
