@@ -8,8 +8,9 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
-from app.orchestrator.contracts import PlanStep
+from app.orchestrator.contracts import PlanStep, registry_marks_paid
 
 _CAUSE = re.compile(r"причин|разбер|почему.*(?:упал|ошиб|слома)|что не так|в ч[её]м проблем")
 _FAILURE = re.compile(r"ошиб|упал|слома|сбо[йя]|не работ|проблем|падал")
@@ -81,7 +82,29 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
     exact = [f for f in fixes if f.get("deterministic")]
     if exact:
         return [_fix_step(f, "Правка по проверке содержания") for f in exact[:_MAX_EDITS]]
-    return [_fix_step(fixes[0], "Исправление по проверке содержания")] if fixes else None
+    if fixes:
+        return [_fix_step(fixes[0], "Исправление по проверке содержания")]
+    # Исправлять нечего: показать проверку заново, а не отдавать «почини» планировщику.
+    return [PlanStep(action="diag.content_checks", params=params, expected="Проверка содержания заново")]
+
+
+_PROMPTS = re.compile(r"промт|промпт|prompt|картин|изображ|герои|персонаж")
+
+
+def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
+    """«Всё ли сходится в кадрах» — разбивка; промты картинок — только если о них спросили.
+
+    Планировщик ставил step=img_pr на вопрос про кадры, и сверка закадра не шла вовсе.
+    Без step действие проверяет разбивку и, если есть, промты.
+    """
+    if _PROMPTS.search(str(goal or "").lower()):
+        return plan
+    out: list[PlanStep] = []
+    for step in plan:
+        if step.action == "diag.content_checks" and step.params.get("step") == "img_pr":
+            step = step.model_copy(update={"params": {k: v for k, v in step.params.items() if k != "step"}})
+        out.append(step)
+    return out
 
 
 async def plan_fix_from_last(last: tuple[str, dict] | None) -> list[PlanStep] | None:
@@ -97,23 +120,28 @@ async def plan_fix_from_last(last: tuple[str, dict] | None) -> list[PlanStep] | 
     return await plan_fix_from_diag(pid)
 
 
-async def fix_with_diag(plan: list[PlanStep], goal: str) -> list[PlanStep]:
+async def fix_with_diag(plan: list[PlanStep], goal: str, registry: Any | None = None) -> list[PlanStep]:
     """«Найди причину и исправь» одной фразой: исправление — из разбора, а не догадка планировщика.
 
     Планировщик ставил после diag.node_failure перезапуск самой ноды, хотя на входе не было
     кадров: тот же сбой ещё раз. Правки плана заменяются первым исправлением разбора.
+    Флаги paid/mutating у черновика ещё не проставлены — платность смотрим по реестру.
     """
+
+    def change(step: PlanStep) -> bool:
+        return bool(step.mutating or step.paid or registry_marks_paid(step.action, registry))
+
     if not _FIX_VERB.search(str(goal or "").lower()):
         return plan
     diag = next((step for step in plan if step.action == "diag.node_failure"), None)
     if diag is None or not isinstance(diag.params.get("project_id"), int):
         return plan
-    if not any(step.mutating or step.paid for step in plan):
+    if not any(change(step) for step in plan):
         return plan
     fixed = await plan_fix_from_diag(diag.params["project_id"])
     if not fixed:
         return plan
-    return [*(step for step in plan if not (step.mutating or step.paid)), *fixed]
+    return [*(step for step in plan if not change(step)), *fixed]
 
 
 def failure_reads(

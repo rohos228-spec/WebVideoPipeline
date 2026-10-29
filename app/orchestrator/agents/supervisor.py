@@ -68,6 +68,7 @@ from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.light_scope import light_as_coverage
 from app.orchestrator.agents.failure_scope import (
+    content_check_scope,
     failure_reads,
     fix_after_diag_goal,
     fix_with_diag,
@@ -2855,7 +2856,8 @@ class Supervisor:
         drafted = upload_source_from_goal(drafted, goal)
         # «Найди причину ошибки в ИИ-редакторе сцен»: разбор сбоя ноды, а не одно чтение доски.
         drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
-        drafted = await fix_with_diag(list(drafted), goal)
+        drafted = await fix_with_diag(list(drafted), goal, self.actions)
+        drafted = content_check_scope(drafted, goal)
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []

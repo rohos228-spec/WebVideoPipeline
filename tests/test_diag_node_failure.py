@@ -391,3 +391,12 @@ def test_content_fix_takes_exact_cell_edits(monkeypatch):
     out = asyncio.run(fs.plan_fix_from_last(("diag.content_checks", {"project_id": 26, "step": "split"})))
     assert [s.action for s in out] == ["shot.edit_cell_voiceover"]
     assert out[0].mutating
+
+
+def test_content_check_scope_frames_question_checks_split():
+    from app.orchestrator.agents.failure_scope import content_check_scope
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [PlanStep(action="diag.content_checks", params={"project_id": 26, "step": "img_pr"}, expected="x")]
+    assert "step" not in content_check_scope(plan, "всё ли сходится в кадрах проекта 26?")[0].params
+    assert content_check_scope(plan, "проверь промты картинок в проекте 26")[0].params["step"] == "img_pr"
