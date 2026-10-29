@@ -93,6 +93,11 @@ _SHOW = re.compile(r"покажи|выведи|выгрузи|список|та�
 _PROMPTS = re.compile(r"промт|промпт|prompt|картин|изображ|герои|персонаж")
 
 
+def _changes(step: PlanStep) -> bool:
+    # Отчёт пишет файл и бывает помечен mutating, но доску не меняет.
+    return bool(step.paid or (step.mutating and not step.action.startswith("report.")))
+
+
 def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
     """«Всё ли сходится в кадрах» — разбивка; промты картинок — только если о них спросили.
 
@@ -109,7 +114,7 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
             and _CHECK.search(text)
             and not _SHOW.search(text)
             and plan
-            and not any(step.mutating or step.paid or step.action == "diag.content_checks" for step in plan)
+            and not any(_changes(step) or step.action == "diag.content_checks" for step in plan)
         ):
             pid = int(found.group(1) or found.group(2))
             return [

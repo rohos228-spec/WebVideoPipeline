@@ -410,3 +410,12 @@ def test_check_prompts_is_content_check_not_listing():
     out = content_check_scope(listing, "проверь промты картинок в проекте 26")
     assert [(s.action, s.params) for s in out] == [("diag.content_checks", {"project_id": 26, "step": "img_pr"})]
     assert content_check_scope(listing, "покажи промты картинок в проекте 26") == listing
+
+
+def test_check_prompts_replaces_report_marked_mutating():
+    from app.orchestrator.agents.failure_scope import content_check_scope
+    from app.orchestrator.contracts import PlanStep
+
+    report = [PlanStep(action="report.gpt_data", params={"project_id": 26}, expected="x", mutating=True)]
+    out = content_check_scope(report, "проверь промты картинок в проекте 26")
+    assert out[0].action == "diag.content_checks"

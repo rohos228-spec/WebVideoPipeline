@@ -1557,6 +1557,10 @@ class TaskSummarizer:
         text = cleaned
         if not text:
             return fallback
+        if _squash(text) == _squash(facts.goal):
+            # «сверь промты картинок с героями в проекте 12» в кавычках — сама просьба, не итог.
+            logger.info("orch summary is the request itself, code text used")
+            return fallback
         text = ensure_prompt_quoted(text, facts)
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.
         links = [
