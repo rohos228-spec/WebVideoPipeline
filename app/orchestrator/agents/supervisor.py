@@ -64,7 +64,9 @@ from app.orchestrator import app_ref
 from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
+from app.orchestrator.agents.failure_scope import failure_reads
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
+from app.orchestrator.agents.light_scope import light_as_coverage
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
@@ -75,6 +77,7 @@ from app.orchestrator.agents.stubs import (
     UnlinkedValidators,
 )
 from app.orchestrator.agents.task_store import TaskStore
+from app.orchestrator.agents.upload_scope import upload_source_from_goal
 from app.orchestrator.agents.validator_call import run_validator
 from app.orchestrator.checkpoints import CheckpointStore
 from app.orchestrator.contracts import (
@@ -197,6 +200,29 @@ _APPROVAL_NOTE = (
     "Подтверждение человека для платных и изменяющих шагов спросит карточка после плана. "
     "Не отказывай из-за подтверждения: составь план из действий каталога."
 )
+# «Предметы всё-таки включи»: включение отключённой ноды, а не платный запуск шага.
+_ENABLE_RE = re.compile(r"(?<![а-я])включ(?:и|ить|ите|ай)(?![а-я])")
+_ENABLE_NOTE = (
+    "Слово «включи» без «запусти/прогони/сгенерируй» — включить отключённую ноду: "
+    "node.set_disabled с disabled=false. Шаг конвейера не запускай (step.run_step не добавляй)."
+)
+
+
+def _enable_not_launch(goal: str, steps: list[Any]) -> bool:
+    from app.orchestrator.agents.action_catalog import LAUNCH_IDS, wants_launch
+
+    low = (goal or "").lower().replace("ё", "е")
+    if not _ENABLE_RE.search(low) or wants_launch(low) or "сгенер" in low or "генерир" in low:
+        return False
+    return any(_step_action(step) in LAUNCH_IDS for step in steps)
+
+
+def _step_action(step: Any) -> str:
+    if isinstance(step, dict):
+        return str(step.get("action") or "")
+    return str(getattr(step, "action", "") or "")
+
+
 _ASKED_APPROVAL = (
     "Планировщик решил, что сначала нужно ваше подтверждение, но его я спрашиваю сам, "
     "карточкой перед запуском. Напишите просьбу ещё раз и назовите "
@@ -2746,6 +2772,21 @@ class Supervisor:
             if plan is None:
                 return None
 
+    def _last_diag_project(self, session_id: str) -> int | None:
+        # «А можешь найти саму причину?» без номера — тот же проект, что в прошлом разборе сбоя.
+        try:
+            steps = self.tasks.session_steps(session_id, "diag.node_failure")
+        except Exception:
+            return None
+        for row in reversed(steps):
+            try:
+                pid = json.loads(row.get("params_json") or "{}").get("project_id")
+            except (TypeError, ValueError):
+                continue
+            if isinstance(pid, int) and pid > 0:
+                return pid
+        return None
+
     async def _make_plan(
         self,
         task_id: int,
@@ -2766,12 +2807,25 @@ class Supervisor:
                 drafted = await self._draft_plan(
                     task_id, session_id, goal, (context + "\n" + _APPROVAL_NOTE).strip()
                 )
+            if drafted and _enable_not_launch(goal, list(drafted)):
+                self._trace_plan(task_id, "enable_not_launch", list(drafted), "включение ноды, не запуск")
+                drafted = await self._draft_plan(
+                    task_id, session_id, goal, (context + "\n" + _ENABLE_NOTE).strip()
+                )
+                if drafted and _enable_not_launch(goal, list(drafted)):
+                    drafted = [step for step in drafted if _step_action(step) != "step.run_step"]
         finally:
             _LLM_TASK.reset(token)
         if drafted is None:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
         drafted = scope_settings(list(drafted), goal)
+        # «Кадр 8: ночное освещение» — свет на доске, а не платная перерисовка картинки.
+        drafted = light_as_coverage(drafted, goal)
+        # «Музыка для проекта 4 — файл C:\...\bgm.wav»: путь из просьбы, если шаг загрузки без файла.
+        drafted = upload_source_from_goal(drafted, goal)
+        # «Найди причину ошибки в ИИ-редакторе сцен»: разбор сбоя ноды, а не одно чтение доски.
+        drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []
@@ -3140,6 +3194,11 @@ class Supervisor:
         )
         if unknown:
             self._fail_detail[task_id] = unknown
+            self._code_answers.add(task_id)
+            return
+        refused = task_summary.delete_refusal_text(goal)
+        if refused:
+            self._fail_detail[task_id] = refused
             self._code_answers.add(task_id)
             return
         # «В каталоге нет действия для удаления проекта»: просьбу поняли, но чат так не умеет.

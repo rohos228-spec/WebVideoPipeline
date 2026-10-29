@@ -218,6 +218,7 @@ _COVERAGE_CHOICES = {
     "coverage_plan": ("ОБЩИЙ", "ДАЛЬНИЙ", "СРЕДНИЙ", "КРУПНЫЙ", "ДЕТАЛЬ"),
     "coverage_angle": ("фронт", "3/4", "с плеча", "сверху", "снизу", "макро"),
     "coverage_move": ("статика", "наезд", "отъезд", "панорама", "следование", "ручная"),
+    "coverage_light": ("дневной", "ночной", "закат", "рассвет", "контровой", "холодный верхний", "туман"),
 }
 
 
@@ -230,12 +231,21 @@ def _normalize_values(action_id: str, out: dict, notes: list[str]) -> None:
     elif action_id == "montage.set_coverage":
         if out.get("type") != "coverage_kind":
             out.pop("parent_number", None)
+        elif isinstance(out.get("value"), str):
+            # Сервер знает роль только как parent|child: «дочерний» уходил как есть и правка падала.
+            role = _norm(out["value"])
+            if role.startswith(("дочер", "child", "шот")):
+                out["value"] = "child"
+            elif role.startswith(("родит", "parent", "главн", "самостоят")):
+                out["value"] = "parent"
         choices = _COVERAGE_CHOICES.get(out.get("type"))
         value = out.get("value")
         if choices and isinstance(value, str):
             low = _norm(value)
             for c in choices:
-                if low == _norm(c) or _norm(c) in low.split() or low.startswith(_norm(c)):
+                # «ночное» — ночной, «закатный» — закат: у света слово меняет окончание.
+                same_stem = out.get("type") == "coverage_light" and low[:4] == _norm(c)[:4]
+                if low == _norm(c) or _norm(c) in low.split() or low.startswith(_norm(c)) or same_stem:
                     out["value"] = c
                     break
 
@@ -466,6 +476,7 @@ def named_hero_mode(text: str) -> str:
     return ""
 
 
+_RES_WORD_RE = re.compile(r"(?<![\w])(?:\d\s*k|\d\s*к|\d{3,4}\s*p|\d{3,4}\s*р|разрешени)")
 _ASPECT_NUM_RE = re.compile(r"(?<![\d.,:])(\d{1,2})\s*[:x×х]\s*(\d{1,2})(?![\d:])")
 _ASPECT_WORDS = ((re.compile(r"вертикальн"), "9:16"), (re.compile(r"горизонтальн"), "16:9"))
 
@@ -520,6 +531,16 @@ def apply_request_values(action_id: str, params: dict, text: str) -> dict:
         mode = named_hero_mode(text)
         if mode:
             out["hero_mode"] = mode
+    if action_id == "project.create":
+        # Модель дописывала «формат 9:16, герой автоматически», хотя их не называли, а без
+        # них Studio ставит свои значения: формат одного и того же «создай проект» скакал.
+        if "aspect_ratio" in out and not named_aspect(text):
+            out.pop("aspect_ratio")
+        if "hero_mode" in out and not named_hero_mode(text):
+            out.pop("hero_mode")
+        for key in ("image_resolution", "video_resolution"):
+            if key in out and not _RES_WORD_RE.search(_norm(text)):
+                out.pop(key)
     if action_id == "project.create" and "aspect_ratio" not in out:
         aspect = named_aspect(text)
         if aspect:
@@ -886,6 +907,15 @@ _PARAM_LABELS = {
     "shot": "шот",
     "from_shot": "шот",
     "to_shot": "шот",
+    "a_shot": "шот",
+    "b_shot": "шот",
+    "start": "от",
+    "end": "до",
+    "bgm_level": "громкость музыки",
+    "subtitles_enabled": "субтитры",
+    "skip_intro_enabled": "пропуск начала",
+    "skip_intro_seconds": "пропустить секунд",
+    "post_voiceover_tail_seconds": "хвост после озвучки, сек",
     "node_key": "нода",
     "step_code": "шаг",
     "name": "вариант",
@@ -908,6 +938,8 @@ _PARAM_LABELS = {
     "value": "значение",
     "field": "поле",
     "key": "ключ",
+    "file": "файл",
+    "ref_id": "реф",
     "provider": "провайдер",
     "reason": "причина",
     "left_frame_id": "кадр",
@@ -1199,12 +1231,14 @@ def resolve_prompt_target(
 _UPLOAD_NOTE = "Шаг без source_path, data_base64, filename: файл прикрепит человек, сервер спросит сам."
 ACTION_NOTES: dict[str, str] = {
     "montage.move_image": "Перенос картинки между кадрами («отправь/переложи/перекинь/переедет из A в B»; обмен двух слотов местами - swap_slots). from_frame/to_frame - НОМЕРА кадров (кадр 5 = 5), не frame_id из карты кадров. Шот не назван: берётся единственный шот кадра; файлы в обоих шотах исходного кадра и шот не назван - вопрос (шот 1/шот 2), не угадывай.",
+    "montage.set_video_trim": "start/end — секунды из запроса («первые 2 секунды» — 0..2). Шот не назван — не спрашивай и не ставь shot: сервер возьмёт шот с видео.",
     "montage.swap_slots": "Только обмен двух слотов местами («поменяй местами»); перенос одной картинки в другой слот - montage.move_image. Шот не назван: шот 1 у обоих; у обоих по 2 шота с такими файлами - два шага (1-1, 2-2).",
     "montage.swap_shots": "kind не пиши, если не сказано (по умолчанию картинки и видео).",
     "montage.queue_ops": "Постановка в очередь; apply_queue добавь вторым шагом ТОЛЬКО если в запросе сказано "
     "выполнить/применить/запустить очередь. shot не пиши, если у кадра один шот; "
     "файлы в обоих шотах и шот не назван - вопрос (шот 1/шот 2/оба шота).",
-    "montage.cancel_queue_ops": "ops: операции кадра из queue.ops [кадр,тип,шот]; их нет - вопрос. Вся очередь - clear_all, только при словах «всю/все/целиком/очисти/сбрось/обнули», иначе вопрос. Только убрать: «отработай/выполни/примени очередь» - apply_queue. Отмена без названной цели (ни очереди, ни кадра) - вопрос.",
+    "montage.cancel_queue_ops": "ops: операции кадра из queue.ops [кадр,тип,шот]; тип или шот не названы - "
+    "только frame_number (и shot, если назван): уберутся все правки кадра, не спрашивай тип. Вся очередь - clear_all, только при словах «всю/все/целиком/очисти/сбрось/обнули», иначе вопрос. Только убрать: «отработай/выполни/примени очередь» - apply_queue. Отмена без названной цели (ни очереди, ни кадра) - вопрос.",
     "montage.apply_queue": "«Выполни/примени/запусти/отработай очередь» = это действие; «только для кадра N» = frame_numbers. max_*_ops опусти (сервер возьмёт по очереди), кроме названного предела «не больше N».",
     "montage.improve_scene": "max_image_ops опусти. frame_id головы сцены. Только «улучши/прокачай/оживи»; «пересобери/перепиши сцену под запрос X» - generate_scene.",
     "montage.generate_scene": "Пишет текст сцены по заказу: prompt = заказ из запроса. frame_id головы сцены. «Пересобери/перепиши сцену под запрос X» - это действие (картинок нет, improve_scene не нужен).",
@@ -1220,7 +1254,10 @@ ACTION_NOTES: dict[str, str] = {
     "montage.set_coverage": "Крупность/ракурс/движение/свет/стык кадра БЕЗ слов «меню съёмки» - это действие "
     "(крупность = type coverage_plan); с «меню съёмки» - shot.edit_field. plan ОБЩИЙ|ДАЛЬНИЙ|СРЕДНИЙ|КРУПНЫЙ|ДЕТАЛЬ; angle фронт|3/4|с плеча|сверху|снизу|макро; "
     "move статика|наезд|отъезд|панорама|следование|ручная; light дневной|ночной|закат|"
-    "рассвет|контровой|холодный верхний|туман. parent_number только для coverage_kind.",
+    "рассвет|контровой|холодный верхний|туман; «ночное / дневное / закатное освещение кадра» — тоже light через "
+    "set_coverage, не queue_ops. Роль кадра: «сделай кадр N дочерним кадра M» = type coverage_kind, "
+    "value child, parent_number=M; «сделай кадр родителем / самостоятельным» = coverage_kind value parent. "
+    "parent_number только для coverage_kind. «Сними/вид/ракурс сверху или снизу» = angle сверху|снизу через set_coverage, не queue_ops: перерисовка картинки (image_ai_change) только если прямо просят перерисовать/изменить картинку.",
     "project.resume": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай.",
     "project.continue_pipeline": "ceiling_credits только если человек назвал сумму; иначе опусти, не спрашивай. «Пусть дальше идёт само/автоматически» без «продолжи/запусти» - project.set_auto_mode.",
     "publish.send": "caption сервер подставит. platforms только названные (yt_shorts = ютуб/шортс; ig_reels = инстаграм/рилс; vk_clips = вк/клипы); не названы - опусти.",
@@ -1229,7 +1266,7 @@ ACTION_NOTES: dict[str, str] = {
     "step.run_step": "Платный запуск только по «запусти/сгенерируй/прогони»; разрешение без них - project.patch_settings.",
     "montage.set_assemble_params": "Передай только названные настройки. bgm_level: шкала 0..100, доля 0.2 = 20.",
     "montage.set_voiceover_span": "Только «закрепи кусок закадра за сценой»; сменить слова закадра = montage.set_voiceover.",
-    "montage.insert_frame": "Без уточнения kind=parent (новая сцена после кадра), voiceover не нужен.",
+    "montage.insert_frame": "Без уточнения kind=parent (новая сцена после кадра). Текст в кавычках («с закадром/текстом/озвучкой «…»») — это voiceover, передай его дословно; нет текста — voiceover не нужен.",
     "montage.set_scene_chain": "action = цепочка действий из запроса («А → Б»).",
     "montage.set_anchors": "anchors = [{anchor}] по названным якорям; change и main не нужны.",
     "montage.align_audio": "method не спрашивай (по умолчанию nemo_auto).",
@@ -1270,13 +1307,14 @@ ACTION_NOTES: dict[str, str] = {
     "montage.montage_status": "Идёт ли сборка (монтаж) ролика или уже закончилась: без параметров.",
     "report.projects": "Несколько проектов одной таблицей: project_ids = названные номера («5,6,7»), до 20; «по всем проектам» - опусти. Не дроби на report.nodes (он - один проект).",
     "report.gpt_data": "Данные работы с GPT по кадрам, сцены, персонажи, промты: node_key только если нода названа (n_excel_gpt_1 = «гпт 1» / «первая»). «Только сцены и персонажи» - preset=scenes_characters; «с промтами картинок» - preset=image_prompts; «все поля» - full; иначе опусти. Не node.output.",
-    "montage.unlink_ref": "«Убери из ячейки/кадра персонажа или предмет <id>» (hero_1, item_2): kind character|item, ref_id из запроса; shot.edit_field не нужен.",
+    "montage.unlink_ref": "«Убери из ячейки/кадра персонажа или предмет <id>» (hero_1, item_2): kind character|item, ref_id из запроса; shot.edit_field не нужен. Приложенный готовый реф (на доске «linked», приложен через link_ref) — kind linked, ref_id = его имя или id; это не удаление, delete_manual_ref не нужен.",
     "montage.delete_manual_ref": "«Ручной реф <id> у кадра N»: kind всегда manual, тип не спрашивай.",
-    "montage.link_ref": "file и frame_number из запроса; list_ref_assets не нужен.",
+    "montage.link_ref": "file — код или имя рефа из запроса как есть (c01, predmet2); путь не спрашивай, сервер найдёт файл. frame_number из запроса; list_ref_assets не нужен.",
     "montage.suggest_scene_variants": "kind: формат/шаблон сцены = template, действие = action, якоря = anchors; count = названное число. Не переспрашивай.",
     "node.set_config": "Меняются только переданные поля, остальные опусти. Автоисправление = checkFix, режим проверки = checkMode.",
     "group.list": "«Готовые/сохранённые наборы нод, шаблоны, заготовки» = каталог групп; названная группа - group.get.",
     "node.clear_check_agent": "node_key только названная или выбранная нода; не угадывай из списка нод - вопрос, какая нода.",
+    "diag.node_failure": "«Нода упала / разберись / найди причину / почини ноду / что не так с нодой» - сначала этот шаг (node_key только названная нода, иначе опусти - упавшую найдёт сам). Правку (повтор, модель, промт) - только из его fix_options и только если просили исправить; иначе план из одного этого шага.",
 }
 for _aid in UPLOAD_ACTIONS:
     ACTION_NOTES[_aid] = _UPLOAD_NOTE

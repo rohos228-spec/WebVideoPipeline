@@ -62,6 +62,10 @@ _LITERAL = re.compile(r'["`](/api/[A-Za-z0-9/_.-]*)')
 def _front_paths() -> set[str]:
     found: set[str] = set()
     for path in list(WEB_SRC.rglob("*.ts")) + list(WEB_SRC.rglob("*.tsx")):
+        # Юнит-тесты фронта — не вызовы: там адреса нарочно чужие
+        # (`safeHref("/api/settings")` проверяет, что ссылка НЕ откроется).
+        if path.name.endswith((".test.ts", ".test.tsx")):
+            continue
         for match in _LITERAL.findall(path.read_text(encoding="utf-8")):
             clean = match.rstrip("/?")
             if clean and clean not in _NOT_A_PATH:
@@ -79,7 +83,15 @@ def _classified(path: str) -> bool:
     # Схема API открыта владельцу и закрыта в SaaS — решение уже принято.
     if path in DOC_PATHS:
         return True
-    return path.startswith(TENANT_ALLOWED_PREFIXES) or path.startswith(OWNER_UI_PREFIXES)
+    # Константа-база вроде `const BASE = "/api/action-layer"` теряет при разборе
+    # хвостовой слэш, а сервер разрешает именно поддерево `/api/action-layer/`.
+    # Сама база ничего не отдаёт; классифицировано то, что под ней.
+    as_base = path + "/"
+    return (
+        path.startswith(TENANT_ALLOWED_PREFIXES)
+        or as_base.startswith(TENANT_ALLOWED_PREFIXES)
+        or path.startswith(OWNER_UI_PREFIXES)
+    )
 
 
 def test_front_calls_nothing_unclassified() -> None:

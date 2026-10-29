@@ -10,6 +10,8 @@ from loguru import logger
 BASE_READ_IDS: tuple[str, ...] = (
     "project.status",
     "diag.incidents",
+    # «Разберись, почему упала нода»: разбор до причины всегда в каталоге, до любой правки.
+    "diag.node_failure",
     "logs.tail",
     "node.output",
     "spend.summary",
@@ -21,6 +23,9 @@ BASE_READ_IDS: tuple[str, ...] = (
 # «Запусти / прогони / дальше» — запуск шага в каталоге всегда: иначе отбор по словам
 # отдаёт место нодам и группам из той же просьбы, и планировщик отказывает «нет запуска шага».
 LAUNCH_IDS: tuple[str, ...] = ("step.run_step",)
+# «Чем ещё можно генерировать картинки»: без слова «модель» отбор не даёт список моделей,
+# и планировщик берёт node.describe — там только текущая модель.
+MODELS_ID = "node.list_models"
 _LAUNCH_RE = re.compile(r"(?<![a-zа-я0-9_])(?:(?:пере)?запуст|прогон|прогна|стартуй|пусти|дальше)")
 _DESC_LIMIT = 140
 
@@ -59,6 +64,19 @@ def _task_project(task_id: Any) -> int | None:
 
 
 # «Во всех проектах», «каждому проекту», «в нескольких проектах»: планировщику нужны настоящие id.
+# «почему проект 12 стоит» при открытом #25: в запросе явно назван другой проект.
+_NAMED_ONE_RE = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d{1,6})(?![\d\s]*(?:,|и\s+\d|-|–))|(?<![\w#])#(\d{1,6})(?!\d)")
+
+
+def named_other_project(text: str, project_id: int) -> int | None:
+    """Единственный номер проекта во фразе, если он не открытый; иначе None."""
+    found = {int(a or b) for a, b in _NAMED_ONE_RE.findall((text or "").lower())}
+    if len(found) == 1:
+        (pid,) = found
+        return pid if pid != project_id else None
+    return None
+
+
 _MASS_RE = re.compile(r"(?<![a-zа-я])(?:вс(?:е|ех|ем|еми)|кажд\w*|нескольк\w*)\s+(?:\w+\s+)?проект")
 _MASS_LIMIT = 60
 
@@ -248,7 +266,49 @@ def _hints(rows: list[dict[str, Any]]) -> list[str]:
     out: list[str] = []
     if any("image_generator" in str(row.get("p") or "") for row in rows):
         out.extend(media_hints())
-    return out + _step_hints(rows)
+    return out + _step_hints(rows) + _frame_hints(rows) + _montage_notes(rows)
+
+
+def _montage_notes(rows: list[dict[str, Any]]) -> list[str]:
+    """Подсказки к действиям монтажа из старого планировщика: без них чат вставлял шот вместо
+    кадра и на «объедини кадры» только читал доску."""
+    from app.services.action_layer.planner_rules import ACTION_NOTES
+
+    ids = [str(row.get("id") or "") for row in rows]
+    notes = [f"{key}: {ACTION_NOTES[key]}" for key in ids if key.startswith("montage.") and key in ACTION_NOTES]
+    if "montage.insert_frame" in ids and "montage.split_scene" not in ids:
+        # Разбивки сцен в каталоге нет: «раздели сцену» планировщик подменял вставкой пустого кадра.
+        notes.append(
+            "Разделить или разбить сцену в этом каталоге нельзя: insert_frame добавляет новый пустой "
+            "кадр и сцену не делит. На «раздели/отдели/разбей сцену» верни пустой план с причиной "
+            "«нет подходящего действия»."
+        )
+    return notes
+
+
+_FRAME_PARAM = re.compile(r"\b(?:after_|left_|right_)?frame_ids?\b")
+
+
+_SHOT_PARAM = re.compile(r"(?<![a-z_])(?:a_|b_|from_|to_)?shot(?![a-z_])")
+
+
+def _frame_hints(rows: list[dict[str, Any]]) -> list[str]:
+    params = [str(row.get("p") or "") for row in rows]
+    out = []
+    if any(_FRAME_PARAM.search(p) for p in params):
+        out.append(
+            "frame_id, after_frame_id, left_frame_id, right_frame_id и frame_ids в действиях монтажа — "
+            "номер кадра на доске из слов человека: «кадр 9» — 9, «после кадра 12» — after_frame_id=12. "
+            "Сервер сам найдёт кадр по номеру; не спрашивай id кадра и не читай доску ради него."
+        )
+    # У queue_ops шот внутри ops: без этой подсказки чат спрашивал «шот 1, шот 2 или оба»
+    # у кадра, где второго шота нет.
+    if any(_SHOT_PARAM.search(p) for p in params):
+        out.append(
+            "Шот (shot, a_shot, b_shot, from_shot, to_shot, shot в ops) не назван — опусти это поле и не "
+            "спрашивай: сервер возьмёт шот, где есть файл, и сам спросит, если файлы в обоих шотах."
+        )
+    return out
 
 
 def _step_hints(rows: list[dict[str, Any]]) -> list[str]:
@@ -274,11 +334,19 @@ def select_ids(text: str, specs: list[Any], max_catalog: int) -> list[str]:
     base = [key for key in BASE_READ_IDS if view.find(key) is not None]
     if wants_launch(text):
         base += [key for key in LAUNCH_IDS if view.find(key) is not None]
+    if wants_models(text) and view.find(MODELS_ID) is not None:
+        base.append(MODELS_ID)
     return sorted({*picked, *base})
 
 
 def wants_launch(text: str) -> bool:
     return bool(_LAUNCH_RE.search((text or "").lower().replace("ё", "е")))
+
+
+def wants_models(text: str) -> bool:
+    from app.orchestrator.agents.question_context import _OPTIONS, _has, _norm
+
+    return _has(_norm(text), _OPTIONS)
 
 
 class ActionCatalog:
@@ -319,7 +387,14 @@ class ActionCatalog:
         ]
         project_id = self._project_of(task_id)
         if project_id is not None:
-            lines.append(f"Проект задачи: project_id={project_id}. Подставляй его в params.project_id.")
+            other = named_other_project(text, project_id)
+            if other is not None:
+                lines.append(
+                    f"В запросе назван проект #{other}: project_id={other}. Подставляй его в params.project_id "
+                    f"(в Студии открыт #{project_id}, но спрашивают про #{other})."
+                )
+            else:
+                lines.append(f"Проект задачи: project_id={project_id}. Подставляй его в params.project_id.")
         lines.extend(_hints(rows))
         if wants_mass(text) and any(
             str(row.get("id") or "").startswith("project.patch_settings") for row in rows

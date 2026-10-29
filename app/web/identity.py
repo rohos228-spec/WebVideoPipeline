@@ -107,6 +107,9 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/billing/",
     "/api/chat",
     "/api/orchestrator/chat",
+    "/api/orchestrator/chat/",
+    "/api/action-layer/",
+    "/api/change-control/",
     "/api/chat-notices",
     # Промты УЧАСТНИКА: пишут в его область с изоляцией по tenant_id, читают его
     # переопределение.

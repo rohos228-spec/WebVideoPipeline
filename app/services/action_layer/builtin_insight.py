@@ -16,6 +16,7 @@ INSIGHT_IDS: tuple[str, ...] = (
     "project.status",
     "node.output",
     "diag.incidents",
+    "diag.node_failure",
     "logs.tail",
     "spend.summary",
     "projects.overview",
@@ -40,7 +41,7 @@ _STEP_RU = {
     "excel_gpt": "работа с GPT",
     "img_pr": "промты картинок",
     "img": "картинки",
-    "anim_pr": "промты видео",
+    "anim_pr": "промты анимации",
     "video": "видео",
     "audio": "озвучка",
     "music": "музыка",
@@ -166,12 +167,9 @@ def _clip(value: Any, n: int = 200) -> str:
 
 
 def _safe(value: Any) -> Any:
-    try:
-        from app.services.observation import redact
+    from app.services.observation import redact
 
-        return redact(value)
-    except ImportError:
-        return value
+    return redact(value)
 
 
 def _iso(value: Any) -> str | None:
@@ -596,6 +594,28 @@ def _artifacts(project, key: str, *, sample: int = 5) -> dict:
     }
 
 
+_TEXT_SUFFIXES = (".txt", ".md")
+_EXCERPT_CHARS = 1500
+
+
+def _text_excerpt(project, sample: list[str]) -> dict | None:
+    """Начало первого текстового файла результата: «покажи текст озвучки» без него — «в данных нет»."""
+    root = Path(project.data_dir)
+    for rel in sample:
+        path = root / rel
+        if path.suffix.lower() not in _TEXT_SUFFIXES:
+            continue
+        try:
+            if not path.is_file() or path.stat().st_size > 1_000_000:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if text:
+            return {"file": rel, "text": text[:_EXCERPT_CHARS], "cut": len(text) > _EXCERPT_CHARS}
+    return None
+
+
 def _gate(project, meta: dict, key: str, raw: str, *, excerpt: bool) -> dict | None:
     from app.services.excel_gpt_node import is_excel_gpt_node_type, upload_dir
 
@@ -639,10 +659,7 @@ def _gate(project, meta: dict, key: str, raw: str, *, excerpt: bool) -> dict | N
 
 
 def _trace(project, key: str) -> dict | None:
-    try:
-        from app.services.node_trace import _safe_name, read_run, trace_root
-    except ImportError:
-        return None
+    from app.services.node_trace import _safe_name, read_run, trace_root
 
     folder = trace_root(project.data_dir) / _safe_name(key)
     try:
@@ -958,6 +975,12 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Проверки: {checks_text}.")
     arts = card["artifacts"]
     lines.append(f"Файлов результата: {arts['count']}{'+' if arts.get('more') else ''}.")
+    excerpt = _text_excerpt(project, list(arts.get("sample") or [])) if project is not None else None
+    if excerpt:
+        card["text_excerpt"] = excerpt
+        lines.append(
+            f"Текст файла {excerpt['file']}{' (начало)' if excerpt['cut'] else ''}: «{excerpt['text']}»"
+        )
     if card["cost_usd"] is not None:
         lines.append(f"Траты по ноде (оценка): ${card['cost_usd']}.")
     if card["errors"]:
@@ -974,9 +997,11 @@ async def _diag_incidents(ctx: ActionContext, params: dict) -> dict:
     include_closed = params.get("status") == "all"
     row = await _project_row(pid)
     labels = _labels(row.meta if row is not None and isinstance(row.meta, dict) else {})
-    items, total = await _incidents(pid, include_closed=include_closed, limit=limit, labels=labels)
+    # Блокирующие — среди всех, а не только показанных: иначе «16 инцидентов, 5 блокирующих» при limit=5.
+    every, total = await _incidents(pid, include_closed=include_closed, limit=500, labels=labels)
+    items = every[:limit]
     feed = await _feed(pid, limit)
-    blocking = sum(1 for i in items if i["blocking"])
+    blocking = sum(1 for i in every if i["blocking"])
     lines = [
         f"Проект #{pid}: "
         + (f"инцидентов {total}" if total else "открытых инцидентов нет")
@@ -1488,10 +1513,7 @@ def _gpt_markdown(gpt: list[dict], *, full: bool) -> str:
 
 def _trace_runs(data_dir: Any) -> tuple[list[dict], list[dict]]:
     """Прогоны нод из node_trace и дневник правок программы последнего прогона каждой ноды."""
-    try:
-        from app.services.node_trace import latest_diary, list_runs
-    except ImportError:
-        return [], []
+    from app.services.node_trace import latest_diary, list_runs
 
     try:
         runs = list_runs(data_dir)
@@ -1506,13 +1528,10 @@ def _trace_runs(data_dir: Any) -> tuple[list[dict], list[dict]]:
 
 def _has_frames_group(canvas: list[dict]) -> bool:
     """На канвасе есть группа нод «Кадры» (n_excel_gpt_fw_*): в отчёт идут её схема и правила."""
-    try:
-        from app.services.node_rules import NODE_FLOW, node_local_key
+    from app.services.node_rules import NODE_FLOW, node_local_key
 
-        group = {f.key for f in NODE_FLOW}
-        return any(node_local_key(str(n["id"])) in group and str(n["id"]) not in group for n in canvas)
-    except ImportError:
-        return False
+    group = {f.key for f in NODE_FLOW}
+    return any(node_local_key(str(n["id"])) in group and str(n["id"]) not in group for n in canvas)
 
 
 async def _report_nodes(ctx: ActionContext, params: dict) -> dict:
@@ -1947,4 +1966,6 @@ def _gpt_data_spec() -> ActionSpec:
 
 
 def register_insight(registry: ActionRegistry) -> None:
-    registry.register_many([*_specs(), _gpt_data_spec()])
+    from app.services.action_layer.node_failure import node_failure_spec
+
+    registry.register_many([*_specs(), _gpt_data_spec(), node_failure_spec()])

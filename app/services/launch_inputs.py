@@ -1,63 +1,59 @@
-"""Вспомогательные проверки входных данных для запуска шагов (кадры, раскадровка)."""
-
 from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select
-
-from app.db import SessionLocal
-from app.models import Frame
-
-_FRAME_STEPS = frozenset({
-    "image_prompts",
-    "images",
-    "img",
-    "animation_prompts",
-    "video",
-    "videos",
-    "render",
-    "upscale",
-})
+FRAME_STEPS: dict[str, str] = {
+    "img_pr": "промты картинок",
+    "img": "картинки",
+    "anim_pr": "промты анимации",
+    "video": "видео",
+}
+LAUNCH_ACTIONS = frozenset({"step.run_step"})
 
 
-def needs_frames(step_code: str | None) -> bool:
-    if not step_code:
-        return False
-    return step_code in _FRAME_STEPS
+def needs_frames(step_code: Any) -> bool:
+    return str(step_code or "") in FRAME_STEPS
 
 
-def board_frame_count(board: Any) -> int:
-    if not isinstance(board, dict):
-        return 0
-    frames = board.get("frames")
-    if isinstance(frames, list):
-        return len(frames)
-    return 0
+def no_frames_text(step_code: Any) -> str:
+    what = FRAME_STEPS.get(str(step_code or ""), "этот шаг")
+    return f"Кадров нет — {what} делать не из чего, сначала разбивка на кадры (или импорт Excel)."
 
 
-def no_frames_text(step_code: str | None) -> str:
-    title = step_code or "шага"
-    return f"В проекте нет кадров для шага «{title}». Сначала выполните разбивку на кадры."
+def board_frame_count(board: Any) -> int | None:
+    frames = board.get("frames") if isinstance(board, dict) else None
+    if not isinstance(frames, list):
+        return None
+    return sum(1 for frame in frames if isinstance(frame, dict))
 
 
-async def project_frames(project_id: int) -> list[dict[str, Any]]:
-    async with SessionLocal() as session:
-        stmt = select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)
-        res = await session.execute(stmt)
-        frames = res.scalars().all()
-        return [
-            {
-                "id": f.id,
-                "number": f.number,
-                "text": getattr(f, "text", getattr(f, "voiceover_text", "")),
-                "image_prompt": f.image_prompt,
-                "animation_prompt": f.animation_prompt,
-                "status": f.status.value if f.status else None,
-            }
-            for f in frames
-        ]
+async def project_frames(project_id: int) -> int | None:
+    """Сколько кадров у проекта в базе; None — проекта нет или база не ответила."""
+    from app.services.action_layer.builtin_insight import _frame_count, _project_row, _sessions
+
+    if await _project_row(project_id) is None:
+        return None
+    return await _frame_count(_sessions(), project_id)
 
 
-async def plan_refusal(step_spec: Any, project: Any = None) -> str | None:
+def _pid(raw: Any, fallback: int | None) -> int | None:
+    value = raw if raw is not None else fallback
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+async def plan_refusal(plan: list[Any], project_id: int | None, *, frames=project_frames) -> str | None:
+    for step in plan or []:
+        if getattr(step, "action", None) not in LAUNCH_ACTIONS:
+            continue
+        params = getattr(step, "params", None) or {}
+        code = params.get("step_code")
+        if not needs_frames(code):
+            continue
+        pid = _pid(params.get("project_id"), project_id)
+        if pid is None:
+            continue
+        if await frames(pid) == 0:
+            return no_frames_text(code)
     return None

@@ -209,6 +209,7 @@ export function NodeStudio({
     queryKey: ["artifacts", projectId, nodeType],
     queryFn: () => api.listArtifacts({ project_id: projectId! }),
     enabled: open && projectId != null,
+    refetchInterval: open && generationRunning ? 2500 : false,
   });
   const allSlots = useMemo(() => {
     if (promptSlotsProp?.length) return resolvePromptSlots(nodeType, promptSlotsProp, nodeKey ?? undefined);
@@ -528,7 +529,14 @@ export function NodeStudio({
     queryKey: ["project-assets", projectId],
     queryFn: () => api.listProjectAssets(projectId!),
     enabled: open && projectId != null,
+    refetchInterval: open && generationRunning ? 2500 : false,
   });
+
+  useEffect(() => {
+    if (!open) return;
+    artifacts.refetch();
+    assets.refetch();
+  }, [open, project.data?.status, project.data?.generation_active]);
 
   const dbBrowser = useQuery({
     queryKey: ["db-graph-project", projectId],

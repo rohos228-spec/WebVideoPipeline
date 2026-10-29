@@ -17,6 +17,8 @@ _FACT_LIMITS = {
     "node.describe": 4500,
     "report.projects": 6000,
     "report.gpt_data": 7000,
+    # Разбор падения: ошибка, отклонённые ответы модели и варианты исправления — целиком.
+    "diag.node_failure": 6000,
 }
 _TOTAL_LIMIT = 12000
 _LOG_LINES = 15
@@ -73,6 +75,16 @@ _ABOUT = (
 )
 _LOGS = ("лог", "журнал", "traceback", "трейсбек", "стектрейс")
 _FAILURE = ("почему", "ошиб", "упал", "сломал", "встал", "завис", "не работ", "сломан")
+# «Разберись, в чём проблема», «найди саму причину»: без разбора ноды чат пересказывал
+# «схема отклонена» и говорил, что причину установить нельзя.
+_NODE_FAILURE = ("причин", "разбер", "что не так", "в чем проблем", "упал", "сломал", "сломан", "ошиб", "не работ")
+FAILURE_TITLE = "Почему упала нода"
+FAILURE_RULE = (
+    f"Факт «{FAILURE_TITLE}» — разбор падения по данным студии: назови причину из него своими "
+    "словами и чем она подтверждается (что вернула модель, сколько кадров было на входе). "
+    "Ты ничего не запускаешь и не меняешь; в конце можно дать одну фразу исправления из "
+    "«Что можно сделать» в кавычках «…»."
+)
 _SPEND = (
     "трат",
     "потрат",
@@ -96,12 +108,26 @@ _REPORT = ("отчет", "по нодам", "все ноды", "сводк")
 _GPT_WRITES = ("перезапис", "затер", "какие поля", "что записал", "что заполнил", "какие кадры заполнил")
 _GPT = ("gpt", "гпт", "работа с gpt", "работа с гпт")
 _PROJECTS = ("проекты", "проектов", "все проект", "список проект")
-_NODES = ("нод", "модел", "агент", "script")
+# «Текст озвучки» / «закадровый текст» — вопрос о ноде, без слова «нода» список нод не читался.
+_NODES = ("нод", "модел", "агент", "script", "закадров", "текст озвуч", "для озвуч")
+# «Что вообще делает разбивка?»: роль ноды без слова «нода» — список нод и описание ноды.
+_ROLE = ("делает", "отвечает за", "отвечает", "зачем нужн", "для чего")
+# «Сценарий через какой сервис ходит?»: провайдер ноды — маршрут модели, без слова «нода».
+_ROUTE = ("провайдер", "поставщик", "сервис", "через кого", "через как")
+# «На какие модели можно поменять картинки?»: список моделей ноды, иначе чат знал только текущую.
+_OPTIONS = (
+    "какие модел", "какую модел", "каких модел", "можно постав", "на что помен", "список модел", "другие модел",
+    "доступн модел", "чем ещ", "чем еще", "чем другим", "из чего выбр", "выбрать модел",
+)
 _BLOCKED = ("блокир", "заблокир", "неизвестн", "исход")
 # «сколько потрачено на #10»: номер с решёткой - проект и без слова «проект».
 _HASH_NUMBER_RE = re.compile(r"(?<![\w#])#(\d{1,5})(?!\d)")
 # В режиме «Проект» другой проект берём только по явному номеру, не по совпадению слов названия.
-_OTHER_NUMBER_RE = re.compile(r"проект\w*\s+(?:№\s*)?#?\d|(?<![\w#])#\d")
+_OTHER_NUMBER_RE = re.compile(
+    r"проект\w*\s+(?:№\s*)?#?\d|(?<![\w#])#\d|(?<![\w#])(?:на|по|у|в)\s+\d{1,5}\s*[?.!]*$"
+)
+# «сколько ушло денег на 12», «что в 12?»: голый номер в конце фразы — проект, если такой есть.
+_TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в)\s+(\d{1,5})\s*[?.!]*$")
 # Образец команды в правиле ответа: тест сверяет, что чат принимает её как задачу.
 EXAMPLE_COMMAND = "запусти промты картинок в проекте 6"
 # «Что ты сделал / менял сегодня»: свои шаги чата за день, иначе ответ «я ничего не делал».
@@ -136,7 +162,11 @@ ANSWER_RULES = (
     "В этом ответе ты ничего не запускаешь и не меняешь. Просят запуск, правку или отчёт — дай одну "
     "готовую фразу, которую можно отправить в чат как есть: она начинается с глагола и называет "
     f"проект номером, например «{EXAMPLE_COMMAND}». По ней чат покажет карточку, платное и "
-    "удаляющее человек подтверждает кнопкой. Не пиши «напишите задачей».",
+    "удаляющее человек подтверждает кнопкой. Не пиши «напишите задачей». Эту фразу давай только "
+    "на просьбу что-то сделать, в кавычках «…» в конце ответа; сам ответ на вопрос начинай с сути "
+    "(«Да, …», «Нет, …», число, состояние), а не с «Проверь…», «Покажи…» или пересказа вопроса.",
+    "Время событий бери из фактов: если есть дата, назови её; событие старше суток не называй "
+    "свежим или недавним.",
     "Открыть проект в студии ты не можешь: назови его номер и подскажи «откройте проект #N слева "
     "в списке проектов».",
     "Без технических слов: вместо split — «разбивка на кадры», вместо master/project и snapshot — "
@@ -147,8 +177,10 @@ ANSWER_RULES = (
 )
 
 _TITLES = {
+    "node.list_models": "Модели, которые можно поставить на ноду",
     "project.status": "Статус проекта",
     "diag.incidents": "Инциденты и ошибки",
+    "diag.node_failure": "Почему упала нода",
     "logs.tail": "Логи",
     "node.output": "Результат ноды",
     "spend.summary": "Траты",
@@ -234,6 +266,36 @@ def _norm(text: str) -> str:
     return " ".join((text or "").lower().replace("ё", "е").split())
 
 
+_MONTAGE = ("доск", "очередь правок", "очереди правок", "очередь монтаж", "очереди монтаж")
+_MONTAGE_STATUS = (
+    (("применени правок", "применения правок", "применяются правки", "применились"), "montage.apply_status"),
+    (("идет ли монтаж", "идет монтаж", "статус монтажа", "монтаж видео", "смонтировал"), "montage.montage_status"),
+    (("outsee", "галере", "забор правок"), "montage.recover_status"),
+    (("готовые реф", "готовых реф", "готовые референс", "готовых референс"), "montage.list_ref_assets"),
+    (("модель оплат", "как оплачива"), "montage.get_cost_basis"),
+)
+_REF_KIND = {"character": "персонаж", "item": "предмет", "manual": "загруженный"}
+_REF_TO_FRAME = ("привяз", "прилож", "кадр", "доск")
+_FRAMES = ("кадр", "шот")
+_PROJECT_NO = re.compile(r"проект\w*\s+(?:№\s*|#\s*)?(\d{1,6})")
+
+
+# «Какие проекты на паузе»: фильтр по статусу, иначе в 15 последних не попадали старые проекты.
+_OVERVIEW_FILTERS = (
+    (("пауз",), "paused"),
+    (("упал", "ошибк", "сломал", "внимани"), "attention"),
+    (("в очеред", "очередь"), "queue"),
+    (("идут", "работают", "в работе", "запущен", "генерир"), "running"),
+)
+
+
+def _overview(norm: str) -> dict[str, Any]:
+    for words, status in _OVERVIEW_FILTERS:
+        if any(word in norm for word in words):
+            return {"status": status, "limit": 50}
+    return {"limit": 15}
+
+
 def _has(norm: str, words: tuple[str, ...]) -> bool:
     for word in words:
         if not word[:1].isalnum():
@@ -266,9 +328,43 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     from app.orchestrator.agents.data_report import report_params, wants_data_report
 
     norm = _norm(text)
+    named = _PROJECT_NO.search(norm)
+    pid = project_id if project_id is not None else (int(named.group(1)) if named else None)
+    if pid is not None and _has(norm, ("реф",)) and _has(norm, _REF_TO_FRAME):
+        # «Какие рефы можно привязать к кадру»: без списка ref-assets модель отвечала «в данных не указано».
+        return _allowed([("montage.list_ref_assets", {"project_id": int(pid)})])
+    # «Готовые куски схемы, чтобы вставить» — те же группы нод, другими словами.
+    pieces = _has(norm, ("куск", "кусоч", "заготов", "шаблон")) and _has(norm, ("схем", "встав", "нод", "готов"))
+    if pieces or (
+        _has(norm, ("групп",)) and _has(norm, ("нод", "встав", "готов", "каки", "есть", "покаж", "список"))
+    ):
+        # «Какие группы нод есть»: без списка групп модель отвечала «в фактах не указано».
+        return _allowed([("group.list", {})])
+    if (
+        _has(norm, ("сним",))
+        or re.search(r"истори\w*\s+(?:правок|изменени)", norm)
+        # «Что менялось в настройках, какие правки были»: прошлые правки — тот же журнал снимков.
+        or re.search(r"(?:каки\w*|последн\w*)\s+(?:правк|изменени)|что\s+(?:по|из)?мен(?:ял|ил)\w*", norm)
+        or (_has(norm, ("откат",)) and _has(norm, ("можно", "что", "как")))
+    ):
+        # «Что тут можно откатить, какие снимки есть»: без журнала снимков ответ был «данных нет».
+        snap: dict[str, Any] = {"limit": 20}
+        if pid is not None:
+            snap["project_id"] = int(pid)
+        return _allowed([("history.list_snapshots", snap)])
+    status_reads = [action for words, action in _MONTAGE_STATUS if _has(norm, words)]
+    if pid is not None and status_reads:
+        # «Идёт ли монтаж», «статус применения правок», «какие готовые референсы»: без этих
+        # чтений модель отвечала «в данных нет сведений».
+        return _allowed([(action, {"project_id": int(pid)}) for action in dict.fromkeys(status_reads)])
+    if _has(norm, _MONTAGE):
+        # «Что в очереди правок монтажа проекта 10»: без доски модель отвечала пересказом вопроса.
+        if pid is not None:
+            return _allowed([("montage.get_board", {"project_id": int(pid)})])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
-    asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q
+    node_failure = _has(norm, _NODE_FAILURE) or (_has(norm, ("почему",)) and (bool(nodes) or _has(norm, ("нод",))))
+    asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q or node_failure
     if not asked and not wants_data_report(text):
         return []
     logs = _has(norm, _LOGS) or _has(norm, _FAILURE)
@@ -278,6 +374,15 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         reads.append(("project.status", {"project_id": pid}))
         reads.append(("diag.incidents", {"project_id": pid, "limit": 5}))
         reads.extend(("node.output", {"project_id": pid, "node_key": key}) for key in nodes)
+        if node_failure:
+            # Нода не названа — упавшую выберет само чтение (запуск с ошибкой, ошибка шага, отказы).
+            failure: dict[str, Any] = {"project_id": pid}
+            if nodes:
+                failure["node_key"] = nodes[0]
+            reads.append(("diag.node_failure", failure))
+        if _has(norm, _FRAMES):
+            # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
+            reads.append(("montage.get_board", {"project_id": pid}))
         if logs:
             reads.append(("logs.tail", {"project_id": pid, "kind": "errors", "limit": 20}))
         if _has(norm, _SPEND):
@@ -292,13 +397,13 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             # Вопрос о перезаписи полей — ответ текстом, без html и xlsx на диске (kind md файлов не пишет).
             reads.append(("report.nodes", {"project_id": pid, "kind": "md"}))
         if _has(norm, _PROJECTS):
-            reads.append(("projects.overview", {"limit": 15}))
+            reads.append(("projects.overview", _overview(norm)))
         if _has(norm, _BLOCKED):
             reads.append(("media.list_unknown_outcomes", {"project_id": pid}))
         if cost_q:
             reads.append(("step.get_run_cost_basis", {"project_id": pid, "step_code": _cost_step(norm)}))
         return _allowed(reads)
-    reads.append(("projects.overview", {"limit": 15}))
+    reads.append(("projects.overview", _overview(norm)))
     data_report = report_params(text, None)
     if data_report is not None:
         reads.append(("report.gpt_data", data_report))
@@ -420,6 +525,21 @@ def fact_text(action: str, result: Any) -> str:
         parts = [_plain(result) or fields_ru(result)]
     if action == "report.nodes" and result.get("markdown"):
         parts = [str(result["markdown"])]
+    if action == "montage.get_board":
+        from app.orchestrator.agents.summarizer import _board_text
+
+        parts = [_board_text(result)]
+    if action == "montage.list_ref_assets":
+        assets = [a for a in result.get("assets") or [] if isinstance(a, dict)]
+        parts = [f"Готовых рефов {len(assets)}; их можно приложить к любому кадру:"] + [
+            f"- {a.get('name') or a.get('code')} ({_REF_KIND.get(str(a.get('kind')), a.get('kind'))}), файл {a.get('file')}" for a in assets
+        ]
+    if action == "group.list":
+        groups = [g for g in result.get("groups") or [] if isinstance(g, dict)]
+        parts = [f"Готовых групп нод {len(groups)}; любую можно вставить в проект:"] + [
+            f"- {g.get('title') or g.get('id')} ({g.get('id')}): {' '.join(str(g.get('description') or '').split())[:160]}"
+            for g in groups
+        ]
     if action == "logs.tail":
         lines = [str(row.get("text") or "") for row in result.get("lines") or [] if isinstance(row, dict)]
         parts.extend(lines[-_LOG_LINES:])
@@ -481,7 +601,9 @@ class QuestionContext:
         return Fact(action, title, fact_text(action, result))
 
     async def _roster(self, text: str, project_id: int | None) -> list[dict[str, Any]]:
-        if self._nodes is None or project_id is None or not _has(_norm(text), _NODES):
+        norm = _norm(text)
+        asks = any(_has(norm, words) for words in (_NODES, _ROLE, _ROUTE, _OPTIONS))
+        if self._nodes is None or project_id is None or not asks:
             return []
         try:
             return list(await asyncio.wait_for(self._nodes.rows(int(project_id)), self.timeout_s))
@@ -526,8 +648,22 @@ class QuestionContext:
         if rows:
             head.append(Fact("nodes.roster", "Ноды проекта", _clip(roster_text(rows), _FACT_LIMIT)))
             known = {params.get("node_key") for action, params in reads if action == "node.output"}
-            for key in match_nodes(rows, text)[:2]:
-                if key not in known:
+            role = _has(_norm(text), _ROLE)
+            # «Работа с gpt 2»: у всех таких нод одна подпись, номер ноды — из слов вопроса.
+            from app.orchestrator.agents.data_report import named_node
+
+            numbered = named_node(text)
+            keys = [numbered] if numbered in {str(row["key"]) for row in rows} else match_nodes(rows, text)
+            route = _has(_norm(text), _ROUTE)
+            options = _has(_norm(text), _OPTIONS)
+            for key in keys[:2]:
+                if options:
+                    reads.append(("node.list_models", {"project_id": int(project_id), "node_key": key}))
+                elif route:
+                    reads.append(("node.get_llm_route", {"project_id": int(project_id), "node_key": key}))
+                elif role:
+                    reads.append(("node.describe", {"project_id": int(project_id), "node_key": key}))
+                elif key not in known:
                     reads.append(("node.output", {"project_id": int(project_id), "node_key": key}))
         if not reads:
             return head
@@ -559,6 +695,9 @@ class QuestionContext:
         if not numbered:
             known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
             numbered = list(dict.fromkeys(int(n) for n in _HASH_NUMBER_RE.findall(text) if int(n) in known))
+            if not numbered:
+                tail = _TAIL_NUMBER_RE.search(_norm(text))
+                numbered = [int(tail.group(1))] if tail and int(tail.group(1)) in known else []
         return numbered[0] if len(numbered) == 1 else None
 
     async def messages(
@@ -593,6 +732,8 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
         lines.append(DONE_EMPTY_RULE if done.text == _DONE_EMPTY else DONE_RULE)
     if any(fact.action == "glossary" and fact.ok for fact in facts):
         lines.append(GLOSSARY_RULE)
+    if any(fact.action == "diag.node_failure" and fact.ok for fact in facts):
+        lines.append(FAILURE_RULE)
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
     used = 0
     for fact in facts:

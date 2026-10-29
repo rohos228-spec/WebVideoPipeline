@@ -357,8 +357,17 @@ async def _cancel_queue_ops(ctx, params):
         if params.get("clear_all"):
             kept = []
         else:
-            gone = {_op_key({**o, "shot": o.get("shot", 1)}) for o in params["ops"]}
-            kept = [o for o in existing if _op_key(o) not in gone]
+            typed = [o for o in params["ops"] if o.get("type")]
+            gone = {_op_key({**o, "shot": o.get("shot", 1)}) for o in typed}
+            # «Убери правку кадра 8» без типа: все правки кадра (и шота, если назван).
+            whole = {(int(o["frame_number"]), o.get("shot")) for o in params["ops"] if not o.get("type")}
+
+            def _whole(op: dict) -> bool:
+                frame = int(op.get("frame_number") or 0)
+                shot = 2 if op.get("shot") == 2 else 1
+                return (frame, None) in whole or (frame, shot) in whole
+
+            kept = [o for o in existing if _op_key(o) not in gone and not _whole(o)]
         return QueueChange(
             kept,
             {"force_clear": not kept},
@@ -739,14 +748,16 @@ async def _swap_slots(ctx, params):
             "b_shot": params["b_shot"],
         },
     )
-    return {"ok": bool(data.get("ok")), "kind": params["kind"]}
+    slots = {k: params[k] for k in ("a_frame", "a_shot", "b_frame", "b_shot")}
+    return {"ok": bool(data.get("ok")), "kind": params["kind"], **slots}
 
 
 async def _move_image(ctx, params):
     q = {k: params[k] for k in ("from_frame", "from_shot", "to_frame", "to_shot")}
     q["from_slot"], q["to_slot"] = params.get("from_slot", ""), params.get("to_slot", "")
     data = await ctx.call("POST", f"{_base(params['project_id'])}/move-image", params=q)
-    return {"ok": bool(data.get("ok")), "action": data.get("action")}
+    slots = {k: params[k] for k in ("from_frame", "from_shot", "to_frame", "to_shot")}
+    return {"ok": bool(data.get("ok")), "action": data.get("action"), **slots}
 
 
 async def _delete_image(ctx, params):
@@ -777,6 +788,14 @@ async def _set_video_trim(ctx, params):
     key = f"{params['frame_number']}:{params['shot']}"
 
     def build(board: dict) -> QueueChange:
+        if not params.get("clear"):
+            # Обрезка пустого слота молча записывалась, и чат отвечал «Обрезка видео задана».
+            frame = next(
+                (f for f in board.get("frames") or [] if int(f.get("number") or 0) == int(params["frame_number"])),
+                None,
+            )
+            if frame is not None and not frame.get(f"video_shot{params['shot']}_url"):
+                raise ValueError(f"у кадра {params['frame_number']} в шоте {params['shot']} нет видео: обрезать нечего")
         trims = copy.deepcopy((board.get("meta") or {}).get("video_trims") or {})
         if params.get("clear"):
             trims.pop(key, None)
@@ -804,7 +823,30 @@ async def _list_ref_assets(ctx, params):
     }
 
 
+def _ref_stem(ref: dict) -> str:
+    """Имя файла приложенного рефа без расширения: из ``image_url`` (?path=...), иначе имя."""
+    from pathlib import PureWindowsPath
+    from urllib.parse import parse_qs, urlparse
+
+    path = (parse_qs(urlparse(str(ref.get("image_url") or "")).query).get("path") or [""])[0]
+    return (PureWindowsPath(path).stem if path else str(ref.get("name") or "")).lower()
+
+
+async def _frame_refs(ctx, project_id, number: int) -> list[dict]:
+    board = await ctx.call("GET", _base(project_id))
+    frame = next((f for f in board.get("frames") or [] if int(f.get("number") or 0) == number), None)
+    return [r for r in (frame or {}).get("manual_refs") or [] if isinstance(r, dict)]
+
+
 async def _link_ref(ctx, params):
+    from pathlib import PureWindowsPath
+
+    stem = PureWindowsPath(str(params["file"])).stem.lower()
+    refs = await _frame_refs(ctx, params["project_id"], int(params["frame_number"]))
+    if any(r.get("linked") and _ref_stem(r) == stem for r in refs):
+        # Повторная привязка того же файла добавляла второй такой же реф, а отвязка потом
+        # находила два и отказывала.
+        return {"ok": True, "already_linked": True, "refs": refs}
     data = await ctx.call(
         "POST",
         f"{_base(params['project_id'])}/link-ref",
@@ -827,13 +869,49 @@ async def _delete_ref(ctx, params):
     return {"deleted": bool(data.get("ok")), "refs": data.get("refs")}
 
 
+async def _unlink_linked_ref(ctx, params):
+    """Отвязать приложенный готовый реф: файл ассета остаётся, загруженный файл сюда не попадает."""
+    number = int(params["frame_number"])
+    wanted = str(params["ref_id"]).strip().lower()
+    refs = await _frame_refs(ctx, params["project_id"], number)
+    hit = [r for r in refs if wanted in {str(r.get("id") or "").lower(), str(r.get("name") or "").lower()}]
+    if not hit:
+        # Имя приложенного ассета — имя файла («predmet2_b0c165a8»), человек зовёт его «predmet2».
+        hit = [r for r in refs if str(r.get("name") or "").lower().startswith(wanted + "_")]
+    # Один и тот же файл, приложенный дважды (старые дубли), убираем целиком: все копии.
+    same_file = bool(hit) and all(r.get("linked") for r in hit) and len({_ref_stem(r) for r in hit}) == 1
+    if not same_file and len(hit) != 1:
+        raise ValueError(f"у кадра {number} нет приложенного рефа «{params['ref_id']}»")
+    if not hit[0].get("linked"):
+        raise ValueError("это загруженный файл, а не приложенный готовый реф: его убирает delete_manual_ref")
+    for ref in hit:
+        out = await _delete_ref(ctx, {**params, "ref_id": ref["id"], "kind": "manual"})
+    return {**out, "frame_number": number, "name": hit[0].get("name"), "removed": len(hit)}
+
+
+def _names_ref(ref: dict, wanted: str) -> bool:
+    name = str(ref.get("name") or "").lower()
+    return wanted in {str(ref.get("id") or "").lower(), name} or name.startswith(wanted + "_")
+
+
 async def _unlink_ref(ctx, params):
+    if params.get("kind") == "linked":
+        return await _unlink_linked_ref(ctx, params)
     if params.get("kind") not in ("character", "item"):
         raise ValueError(
-            "unlink_ref: допустимы только kind=character|item; "
+            "unlink_ref: допустимы только kind=character|item|linked; "
             "удаление загруженного рефа - отдельное действие delete_manual_ref"
         )
-    return await _delete_ref(ctx, params)
+    # «Отвяжи реф predmet5»: приложенный предмет лежит у кадра с kind=item, и планировщик
+    # звал kind=item — сервер ничего не находил, а чат писал «Готово».
+    wanted = str(params["ref_id"]).strip().lower()
+    refs = await _frame_refs(ctx, params["project_id"], int(params["frame_number"]))
+    if any(ref.get("linked") and _names_ref(ref, wanted) for ref in refs):
+        return await _unlink_linked_ref(ctx, params)
+    out = await _delete_ref(ctx, params)
+    if not out["deleted"]:
+        raise ValueError(f"у кадра {params['frame_number']} нет рефа «{params['ref_id']}»")
+    return out
 
 
 async def _delete_manual_ref(ctx, params):
@@ -964,7 +1042,7 @@ def _specs() -> list[ActionSpec]:
                                 "shot": _SHOT,
                                 "slot": {"type": "string", "enum": ["parent"]},
                             },
-                            "required": ["type", "frame_number"],
+                            "required": ["frame_number"],
                             "additionalProperties": False,
                         },
                     },
@@ -1490,13 +1568,14 @@ def _specs() -> list[ActionSpec]:
         ),
         S(
             id="montage.unlink_ref",
-            title_ru="Убрать авто-реф персонажа или предмета",
-            description_ru="Скрывает персонажа/предмет из рефов ячейки. Файлы проекта не трогает.",
+            title_ru="Убрать реф кадра, файлы остаются",
+            description_ru="Скрывает персонажа/предмет из рефов ячейки (kind character|item) или "
+            "отвязывает приложенный готовый реф (kind linked, ref_id — его id или имя). Файлы проекта не трогает.",
             params_schema=_obj(
                 {
                     "frame_number": _FRAME_NO,
                     "ref_id": {"type": "string", "minLength": 1, "maxLength": 100},
-                    "kind": {"type": "string", "enum": ["character", "item"]},
+                    "kind": {"type": "string", "enum": ["character", "item", "linked"]},
                 },
                 ["frame_number", "ref_id", "kind"],
             ),

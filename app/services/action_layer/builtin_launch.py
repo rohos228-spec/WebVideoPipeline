@@ -142,7 +142,7 @@ async def _pre_runnable(ctx, params):
     code = params["step_code"]
     if code == "excel_gpt":
         if not params.get("node_key"):
-            return "для шага «Работа с GPT» укажите node_key - какую ноду запускать"
+            return "не указано, какую ноду «Работа с GPT» запускать (нужен node_key): напишите, например, «запусти работу с gpt 1»"
         return await _node_is_gpt(ctx, params)
     if params.get("node_key") and code not in NODE_KEY_STEPS:
         return "node_key указывается только для шагов excel_gpt, scene_d и scene_asm"
