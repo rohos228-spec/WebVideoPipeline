@@ -474,9 +474,13 @@ async def test_chat_action_reports_findings_and_phrases(monkeypatch):
 
     monkeypatch.setattr(ccd, "_load", load)
     out = await ccd._diag_content_checks(SimpleNamespace(), {"project_id": 26})
-    assert out["ok"] is False and out["fix_options"][0]["action"] == "shot.edit_cell_voiceover"
+    assert out["clean"] is False and "ok" not in out and out["fix_options"][0]["action"] == "shot.edit_cell_voiceover"
     assert "«рано» вместо «поздно»" in out["text_ru"] and "После шага «разбивка на кадры»" in out["text_ru"]
     assert out["suggested_phrase"].startswith("в проекте 26 поставь закадр кадра 3")
+    from app.orchestrator.actions.executor import _refusal
+
+    # Находки — не отказ: с ok=False чат писал «действие отказалось выполняться».
+    assert _refusal(out) is None
 
 
 async def test_node_failure_retry_feedback_reaches_step_runner(tmp_path, monkeypatch):

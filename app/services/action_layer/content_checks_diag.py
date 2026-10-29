@@ -63,7 +63,7 @@ async def _diag_content_checks(ctx: ActionContext, params: dict) -> dict:
         return {
             "project_id": pid,
             "found": True,
-            "ok": True,
+            "clean": True,
             "reports": reports,
             "fix_options": [],
             "text_ru": f"В проекте #{pid} ещё нет кадров — проверять нечего.",
@@ -98,7 +98,8 @@ async def _diag_content_checks(ctx: ActionContext, params: dict) -> dict:
     out = {
         "project_id": pid,
         "found": True,
-        "ok": all(r["ok"] for r in reports),
+        # Не «ok»: слой действий читает ok=False как отказ действия, а находки — не отказ.
+        "clean": all(r["ok"] for r in reports),
         "reports": reports,
         "fix_options": fixes,
         "suggested_phrase": usable[0]["phrase_ru"] if usable else None,
