@@ -58,6 +58,27 @@ TENANT_TABLES: tuple[str, ...] = (
     "change_proposals",
     "config_versions",
     "config_pointers",
+    # Слой оркестратора v1, решения, диагностика, запуски и медиа
+    "action_execution_controls",
+    "action_node_recoveries",
+    "action_v1_records",
+    "decision_execution_controls",
+    "decision_records",
+    "decision_runtime_bindings",
+    "decision_turns",
+    "managed_launches",
+    "managed_run_allowances",
+    "node_profile_overlays",
+    "observation_commit_uncertainty",
+    "observation_degradations",
+    "observation_diagnosis",
+    "observation_events",
+    "observation_executions",
+    "observation_incidents",
+    "observation_outbox",
+    "orchestrator_media_jobs",
+    "orchestrator_media_requests",
+    "outsee_idempotency",
 )
 
 #: Касса. Отдельно, потому что колонка арендатора у неё не добавляется —
@@ -86,6 +107,9 @@ INFRA_TABLES: frozenset[str] = frozenset(
         # Глобальный рубильник супервизора: без tenant_id, общий на узел.
         "supervisor_kill_switch",
         "supervisor_kill_switch_history",
+        # Учёт расходов и задач провайдеров на уровне узла (без tenant_id)
+        "spend_ledger",
+        "provider_task_ledger",
     }
 )
 
@@ -105,6 +129,27 @@ ENGINE_TENANT_TABLES: tuple[str, ...] = (
     "change_proposals",
     "config_versions",
     "config_pointers",
+    # Слой оркестратора v1, решения, диагностика, запуски и медиа
+    "action_execution_controls",
+    "action_node_recoveries",
+    "action_v1_records",
+    "decision_execution_controls",
+    "decision_records",
+    "decision_runtime_bindings",
+    "decision_turns",
+    "managed_launches",
+    "managed_run_allowances",
+    "node_profile_overlays",
+    "observation_commit_uncertainty",
+    "observation_degradations",
+    "observation_diagnosis",
+    "observation_events",
+    "observation_executions",
+    "observation_incidents",
+    "observation_outbox",
+    "orchestrator_media_jobs",
+    "orchestrator_media_requests",
+    "outsee_idempotency",
 )
 
 #: Маршрутные таблицы: закрыты политикой, но политика **обратная**. Сессия
