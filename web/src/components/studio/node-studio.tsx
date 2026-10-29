@@ -89,6 +89,7 @@ const STREAM_NODE_TYPES = new Set(["images", "videos", "hero"]);
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
 import { GptTextPanel } from "@/components/studio/gpt-text-panel";
+import { ResultAudioCard } from "@/components/canvas/custom-audio-player";
 import { shouldShowStopBar } from "@/lib/project-running";
 
 type StudioTab = "settings" | "prompts" | "results" | "excel";
@@ -983,11 +984,11 @@ export function NodeStudio({
                               src={api.artifactFileUrl(a.uuid)}
                             />
                           ) : a.path.match(/\.(mp3|wav|m4a|ogg|aac|flac)$/i) ? (
-                            <div className="mt-2 flex flex-col gap-1 rounded bg-black/40 p-2">
-                              <audio
-                                controls
-                                className="w-full"
+                            <div className="mt-2">
+                              <ResultAudioCard
                                 src={api.artifactFileUrl(a.uuid)}
+                                label={a.path.split(/[\\/]/).pop()}
+                                downloadUrl={api.artifactFileUrl(a.uuid)}
                               />
                             </div>
                           ) : a.path.match(/\.(json|txt|tsv|md|csv)$/i) ? (

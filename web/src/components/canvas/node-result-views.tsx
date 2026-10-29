@@ -35,6 +35,7 @@ import {
   ROW_VOICEOVER_V8,
   SHEET_PLAN_V8,
 } from "@/lib/xlsx-sheets";
+import { NodeAudioMiniPlayer, ResultAudioCard } from "./custom-audio-player";
 
 export function NodeResultViewBody({
   projectId,
@@ -1468,17 +1469,11 @@ function DefaultResultView({
         </div>
       )}
       {item.previewUrl && item.kind === "audio" && (
-        <div className="space-y-2">
-          <audio src={item.previewUrl} controls className="w-full" />
-          {item.downloadUrl ? (
-            <Button size="sm" variant="outline" asChild>
-              <a href={item.downloadUrl} download>
-                <Download className="h-3.5 w-3.5" />
-                Скачать
-              </a>
-            </Button>
-          ) : null}
-        </div>
+        <ResultAudioCard
+          src={item.previewUrl}
+          label={item.label}
+          downloadUrl={item.downloadUrl}
+        />
       )}
       {item.kind === "file" && (
         <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.02] p-4">
@@ -1938,12 +1933,10 @@ function SfxGenView({
                 </p>
               )}
 
-              <div className="pl-8 pt-0.5">
-                <audio
-                  controls
+              <div className="pl-8 pt-0.5 max-w-xl">
+                <NodeAudioMiniPlayer
                   src={item.audioUrl}
-                  className="h-8 w-full max-w-xl rounded"
-                  preload="none"
+                  label={item.fileName}
                 />
               </div>
             </div>

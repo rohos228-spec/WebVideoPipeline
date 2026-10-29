@@ -34,6 +34,7 @@ export const NO_PROMPTS_NODE_TYPES = new Set([
   "images",
   "videos",
   "audio",
+  "music",
   "sfx_plan",
   "sfx_gen",
   "sfx",

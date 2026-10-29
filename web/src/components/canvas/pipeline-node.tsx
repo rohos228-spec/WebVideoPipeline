@@ -1005,17 +1005,6 @@ function PosterTile({
         )}
       </div>
     );
-  } else if (audio.length) {
-    body = (
-      <div className="nodrag nopan absolute inset-x-3 bottom-4 top-10 flex flex-col justify-center gap-2">
-        {audio.slice(0, 1).map((a) => (
-          <div key={a.id} className="flex flex-col gap-1">
-            <span className="truncate text-[12px] text-white/60"><span className="vp-hl">{a.label}</span></span>
-            <audio controls preload="none" src={(a.previewUrl || a.downloadUrl) ?? undefined} className="h-8 w-full" />
-          </div>
-        ))}
-      </div>
-    );
   } else if (settingsLines.length) {
     body = (
       <div className="absolute inset-x-0 bottom-0 top-10 flex flex-col gap-1 overflow-hidden px-3 pb-2">
@@ -1061,7 +1050,7 @@ function PosterTile({
             <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[35%] bg-gradient-to-b from-black/70 to-transparent" />
             <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-[35%] bg-gradient-to-t from-black/70 to-transparent" />
           </>
-        {media.length || audio.length ? (
+        {media.length ? (
           body
         ) : (
           <div data-vp-tile-mid className="absolute inset-0 opacity-0 transition-opacity duration-[120ms] ease-out group-hover:opacity-100">{body}</div>

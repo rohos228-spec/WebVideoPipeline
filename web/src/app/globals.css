@@ -461,9 +461,9 @@ input[type="text"]:focus-visible {
   outline: none !important;
 }
 .vp-menu button { border-radius: 8px; }
-.vp-menu section, .vp-menu fieldset,
-.vp-menu [class*="bg-amber-"], .vp-menu [class*="bg-cyan-"], .vp-menu [class*="bg-teal-"],
-.vp-menu [class*="bg-sky-"], .vp-menu [class*="bg-violet-"], .vp-menu [class*="bg-emerald-"] {
+.vp-menu section:not([data-keep-bg]), .vp-menu fieldset:not([data-keep-bg]),
+.vp-menu [class*="bg-amber-"]:not([data-keep-bg]), .vp-menu [class*="bg-cyan-"]:not([data-keep-bg]), .vp-menu [class*="bg-teal-"]:not([data-keep-bg]),
+.vp-menu [class*="bg-sky-"]:not([data-keep-bg]), .vp-menu [class*="bg-violet-"]:not([data-keep-bg]), .vp-menu [class*="bg-emerald-"]:not([data-keep-bg]) {
   background-color: rgba(0, 0, 0, 0.28) !important;
   border-radius: 10px !important;
 }
@@ -477,14 +477,14 @@ input[type="text"]:focus-visible {
 .vp-menu [class*="shadow-"] { box-shadow: none !important; }
 .vp-menu .rounded-xl, .vp-menu .rounded-2xl, .vp-menu .rounded-md, .vp-menu .rounded-lg { border-radius: 10px !important; }
 /* primary (colored) action buttons -> neutral light buttons */
-.vp-menu button[class*="bg-cyan-6"], .vp-menu button[class*="bg-sky-6"], .vp-menu button[class*="bg-teal-6"],
-.vp-menu button[class*="bg-emerald-6"], .vp-menu button[class*="bg-amber-6"], .vp-menu button[class*="bg-primary"] {
+.vp-menu button[class*="bg-cyan-6"]:not([data-keep-bg]), .vp-menu button[class*="bg-sky-6"]:not([data-keep-bg]), .vp-menu button[class*="bg-teal-6"]:not([data-keep-bg]),
+.vp-menu button[class*="bg-emerald-6"]:not([data-keep-bg]), .vp-menu button[class*="bg-amber-6"]:not([data-keep-bg]), .vp-menu button[class*="bg-primary"]:not([data-keep-bg]) {
   background: rgba(255, 255, 255, 0.92) !important;
   color: #0b0b0d !important;
   border: 1px solid transparent !important;
 }
-.vp-menu button[class*="bg-cyan-6"]:hover, .vp-menu button[class*="bg-sky-6"]:hover, .vp-menu button[class*="bg-teal-6"]:hover,
-.vp-menu button[class*="bg-emerald-6"]:hover, .vp-menu button[class*="bg-amber-6"]:hover, .vp-menu button[class*="bg-primary"]:hover {
+.vp-menu button[class*="bg-cyan-6"]:not([data-keep-bg]):hover, .vp-menu button[class*="bg-sky-6"]:not([data-keep-bg]):hover, .vp-menu button[class*="bg-teal-6"]:not([data-keep-bg]):hover,
+.vp-menu button[class*="bg-emerald-6"]:not([data-keep-bg]):hover, .vp-menu button[class*="bg-amber-6"]:not([data-keep-bg]):hover, .vp-menu button[class*="bg-primary"]:not([data-keep-bg]):hover {
   background: #ffffff !important;
 }
 /* catalog + results containers follow the translucent card look */
@@ -498,11 +498,11 @@ input[type="text"]:focus-visible {
 .vp-menu .vp-head-img { background-color: #141417; }
 
 /* expanded node menu: dim dark controls; white only for explicit active states */
-[data-inline-studio] :is(button, select, input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, [role=tab], [role=combobox]):not(.bg-white):not([data-state=active]):not([aria-selected=true]):not([aria-checked=true]):not([data-state=checked]) {
+[data-inline-studio] :is(button, select, input:not([type=checkbox]):not([type=radio]):not([type=range]), textarea, [role=tab], [role=combobox]):not([data-keep-bg]):not(.bg-white):not([data-state=active]):not([aria-selected=true]):not([aria-checked=true]):not([data-state=checked]) {
   background-color: rgba(0, 0, 0, 0.62) !important;
   border-color: rgba(255, 255, 255, 0.1);
 }
-[data-inline-studio] :is(button, [role=tab]):not(.bg-white):not([data-state=active]):not([aria-selected=true]):not([aria-checked=true]):not([data-state=checked]):hover {
+[data-inline-studio] :is(button, [role=tab]):not([data-keep-bg]):not(.bg-white):not([data-state=active]):not([aria-selected=true]):not([aria-checked=true]):not([data-state=checked]):hover {
   background-color: rgba(0, 0, 0, 0.5) !important;
 }
 
@@ -514,7 +514,7 @@ input[type="text"]:focus-visible {
 .vp-hl { background: rgba(0,0,0,0.42); padding: 2px 6px; border-radius: 10px; box-shadow: 0 0 10px 7px rgba(0,0,0,0.42); -webkit-box-decoration-break: clone; box-decoration-break: clone; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
 
 /* expanded node menu: one solid black body below the header (no grey layered panels) */
-[data-inline-studio] aside *:not(.bg-white):not([data-state=active]):not([data-state=checked]):not([aria-checked=true]):not([aria-selected=true]):not([role=switch]):not([class*="bg-red"]):not([class*="bg-emerald"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-yellow"]):not(svg):not(svg *):not(img):not(video):not([data-keep-bg]) {
+[data-inline-studio] aside *:not(.bg-white):not([data-state=active]):not([data-state=checked]):not([aria-checked=true]):not([aria-selected=true]):not([role=switch]):not([class*="bg-cyan"]):not([class*="bg-teal"]):not([class*="bg-red"]):not([class*="bg-emerald"]):not([class*="bg-sky"]):not([class*="bg-amber"]):not([class*="bg-yellow"]):not(svg):not(svg *):not(img):not(video):not([data-keep-bg]) {
   background-color: transparent !important;
   border-color: rgba(255, 255, 255, 0.07) !important;
 }
