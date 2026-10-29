@@ -323,6 +323,7 @@ def decide_fix(
     limit = float(cfg["auto_spend_limit_usd"])
     models: list[FixStep] = []
     runs: list[FixStep] = []
+    upstream: list[FixStep] = []
     others: list[FixStep] = []
     for opt in fix_options or []:
         action = opt.get("action")
@@ -357,6 +358,9 @@ def decide_fix(
             name = "node.set_model" if cheaper else "node.set_model_costly"
             models.append(FixStep(name, params, f"Поставить модель «{new_model_id}»", not why, why))
             continue
+        if action == "step.run_step" and opt.get("upstream"):
+            upstream.append(FixStep(action, params, title, False, "это другой платный шаг, не повтор: только с подтверждением"))
+            continue
         if action == "step.run_step":
             why = ""
             if not cfg["auto_retry"]:
@@ -385,7 +389,7 @@ def decide_fix(
             else "меняет промт или данные: только с подтверждением"
         )
         others.append(FixStep(action, params, title, False, why))
-    steps = [*models[:1], *runs[:1], *others]
+    steps = [*models[:1], *upstream, *runs[:1], *others]
     # Страховка от будущих правок правила: вне белого списка без карточки не идёт ничего.
     steps = [
         s if s.action in AUTO_ACTIONS or not s.auto else FixStep(s.action, s.params, s.title_ru, False)

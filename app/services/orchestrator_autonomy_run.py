@@ -211,7 +211,11 @@ def retry_params(diag: dict, limit_usd: float | None) -> dict | None:
     from app.services.action_layer.builtin_launch import with_default_ceiling
     from app.services.kie_catalog import CREDIT_USD
 
-    opt = next((f for f in diag.get("fix_options") or [] if f.get("action") == "step.run_step"), None)
+    # Разбивка перед пустым входом (upstream) — другой шаг, а не перезапуск упавшей ноды.
+    opt = next(
+        (f for f in diag.get("fix_options") or [] if f.get("action") == "step.run_step" and not f.get("upstream")),
+        None,
+    )
     if opt is None:
         return None
     params = dict(opt.get("params") or {})
@@ -224,6 +228,16 @@ def retry_params(diag: dict, limit_usd: float | None) -> dict | None:
         # Иначе Студия после ноды сама пойдёт по стрелкам дальше и потратит больше.
         params["stop_after_node_key"] = params["node_key"]
     return params
+
+
+def _with_run_params(opt: dict, run_card: dict | None) -> dict:
+    if opt.get("action") != "step.run_step":
+        return opt
+    if opt.get("upstream"):
+        from app.services.action_layer.builtin_launch import with_default_ceiling
+
+        return dict(opt, params=with_default_ceiling(dict(opt.get("params") or {})))
+    return dict(opt, params=run_card) if run_card is not None else opt
 
 
 # ---------- слой действий ----------
@@ -397,10 +411,7 @@ async def _incident(project_id: int, step_action: str, app: Any) -> dict:
         ):
             run_auto = retry_params(diag, cfg["auto_spend_limit_usd"])
             run_plan, retry_cost = await _priced_retry(app, run_auto, operator, diag)
-        options = [
-            dict(f, params=run_card) if f.get("action") == "step.run_step" and run_card is not None else f
-            for f in diag.get("fix_options") or []
-        ]
+        options = [_with_run_params(f, run_card) for f in diag.get("fix_options") or []]
         decision = oa.decide_fix(
             cause=diag.get("cause") or {},
             fix_options=options,
