@@ -88,6 +88,8 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
     return [PlanStep(action="diag.content_checks", params=params, expected="Проверка содержания заново")]
 
 
+_CHECK = re.compile(r"провер|сверь|сверить|сходит|совпада")
+_SHOW = re.compile(r"покажи|выведи|выгрузи|список|таблиц|какие\s+промт")
 _PROMPTS = re.compile(r"промт|промпт|prompt|картин|изображ|герои|персонаж")
 
 
@@ -96,8 +98,27 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
 
     Планировщик ставил step=img_pr на вопрос про кадры, и сверка закадра не шла вовсе.
     Без step действие проверяет разбивку и, если есть, промты.
+    «Проверь промты картинок» планировщик читал как «покажи промты» — выдавал таблицу;
+    просьба проверить при плане из одних чтений — это проверка промтов.
     """
-    if _PROMPTS.search(str(goal or "").lower()):
+    text = str(goal or "").lower()
+    if _PROMPTS.search(text):
+        found = _PROJECT.search(text)
+        if (
+            found
+            and _CHECK.search(text)
+            and not _SHOW.search(text)
+            and plan
+            and not any(step.mutating or step.paid or step.action == "diag.content_checks" for step in plan)
+        ):
+            pid = int(found.group(1) or found.group(2))
+            return [
+                PlanStep(
+                    action="diag.content_checks",
+                    params={"project_id": pid, "step": "img_pr"},
+                    expected="Герои cNN в промтах картинок есть в реестре и совпадают с кадрами",
+                )
+            ]
         return plan
     out: list[PlanStep] = []
     for step in plan:

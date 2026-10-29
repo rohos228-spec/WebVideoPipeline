@@ -400,3 +400,13 @@ def test_content_check_scope_frames_question_checks_split():
     plan = [PlanStep(action="diag.content_checks", params={"project_id": 26, "step": "img_pr"}, expected="x")]
     assert "step" not in content_check_scope(plan, "всё ли сходится в кадрах проекта 26?")[0].params
     assert content_check_scope(plan, "проверь промты картинок в проекте 26")[0].params["step"] == "img_pr"
+
+
+def test_check_prompts_is_content_check_not_listing():
+    from app.orchestrator.agents.failure_scope import content_check_scope
+    from app.orchestrator.contracts import PlanStep
+
+    listing = [PlanStep(action="report.gpt_data", params={"project_id": 26, "preset": "image_prompts"}, expected="x")]
+    out = content_check_scope(listing, "проверь промты картинок в проекте 26")
+    assert [(s.action, s.params) for s in out] == [("diag.content_checks", {"project_id": 26, "step": "img_pr"})]
+    assert content_check_scope(listing, "покажи промты картинок в проекте 26") == listing
