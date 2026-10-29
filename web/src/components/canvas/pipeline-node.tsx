@@ -43,6 +43,7 @@ import { StoragePanel } from "./storage-panel";
 import { StyleExtractPanel } from "./style-extract-panel";
 import { HitlStylePanel } from "./hitl-style-panel";
 import { ShotsReportPanel } from "./shots-report-panel";
+import { NodeAudioMiniPlayer } from "./custom-audio-player";
 import { HeroConfigPanel } from "./hero-config-panel";
 import { ItemsConfigPanel } from "./items-config-panel";
 import { AssembleMontageTrigger } from "./assemble-montage-board";
@@ -1007,12 +1008,13 @@ function PosterTile({
     );
   } else if (audio.length) {
     body = (
-      <div className="nodrag nopan absolute inset-x-3 bottom-4 top-10 flex flex-col justify-center gap-2">
+      <div className="nodrag nopan absolute inset-x-2.5 bottom-2.5 z-[1]">
         {audio.slice(0, 1).map((a) => (
-          <div key={a.id} className="flex flex-col gap-1">
-            <span className="truncate text-[12px] text-white/60"><span className="vp-hl">{a.label}</span></span>
-            <audio controls preload="none" src={(a.previewUrl || a.downloadUrl) ?? undefined} className="h-8 w-full" />
-          </div>
+          <NodeAudioMiniPlayer
+            key={a.id}
+            src={(a.previewUrl || a.downloadUrl) ?? ""}
+            label={a.label}
+          />
         ))}
       </div>
     );
