@@ -16,6 +16,23 @@ _FAILURE = re.compile(r"ошиб|упал|слома|сбо[йя]|не рабо�
 _PROJECT = re.compile(r"проект\w*\s*(?:№|#)?\s*(\d+)|(\d+)\s*-?\w*\s+проект")
 
 
+_FIX_ONLY = re.compile(
+    r"^\s*(?:а\s+)?(?:(?:можешь|давай|ну)\s+)?(?:почини|исправь|исправить|починить|чини|поправь|"
+    r"сделай\s+как\s+предлож\w*|сделай\s+это|давай\s+исправ\w*)(?:\s+(?:это|её|ее|его|ноду|ошибку|сбой|"
+    r"сам|пожалуйста|тогда|теперь))*\s*[.!?]*\s*$"
+)
+
+
+def fix_after_diag_goal(goal: str, last_project: int | None) -> str:
+    """«Почини» без подробностей сразу после разбора — исправить сбой из того разбора."""
+    if last_project is None or not _FIX_ONLY.match(str(goal or "").lower()):
+        return goal
+    return (
+        f"{goal} — исправь сбой ноды в проекте {last_project}, который ты только что разбирал: "
+        "сначала diag.node_failure этого проекта, потом исправление из его «Что можно сделать»."
+    )
+
+
 def failure_reads(
     plan: list[PlanStep], goal: str, project_id: int | None, fallback_project: int | None = None
 ) -> list[PlanStep]:

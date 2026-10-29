@@ -67,7 +67,7 @@ from app.orchestrator.agents.executor import effective_risk, run_many, step_is_p
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.light_scope import light_as_coverage
-from app.orchestrator.agents.failure_scope import failure_reads
+from app.orchestrator.agents.failure_scope import failure_reads, fix_after_diag_goal
 from app.orchestrator.agents.upload_scope import upload_source_from_goal
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
@@ -2799,6 +2799,8 @@ class Supervisor:
             return None
         if self._status(task_id) is not TaskStatus.planning:
             await self._set_status(task_id, TaskStatus.planning, session_id=session_id)
+        # «Почини» сразу после разбора сбоя: без проекта и ноды планировщик отвечал «уточните».
+        goal = fix_after_diag_goal(goal, self._last_diag_project(session_id))
         token = _LLM_TASK.set(int(task_id))
         try:
             drafted = await self._draft_plan(task_id, session_id, goal, context)

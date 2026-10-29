@@ -312,3 +312,12 @@ def test_failure_followup_uses_previous_project():
 
     out = failure_reads([], "а можешь найти саму причину почему это случилось", None, 26)
     assert out and out[0].params == {"project_id": 26}
+
+
+def test_bare_fix_after_diag_names_project():
+    from app.orchestrator.agents.failure_scope import fix_after_diag_goal
+
+    for goal in ("почини", "исправь это", "а можешь исправить", "сделай как предложил", "почини сам!"):
+        assert "проекте 30" in fix_after_diag_goal(goal, 30), goal
+    assert fix_after_diag_goal("почини", None) == "почини"
+    assert fix_after_diag_goal("почини картинку кадра 3 в проекте 4", 30) == "почини картинку кадра 3 в проекте 4"
