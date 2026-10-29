@@ -18,8 +18,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "video-pipeline",
-  description: "Node-based короткие ролики 60–75 сек: план → сценарий → видео → публикация",
+  title: "VIA - видеостудия",
+  description: "Нейросетевая видеостудия VIA: план → сценарий → видео → озвучка → публикация",
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },
