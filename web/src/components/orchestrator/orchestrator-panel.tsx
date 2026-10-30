@@ -1941,16 +1941,11 @@ export function OrchestratorPanel({ projectId }: Props) {
                     <button
                       type="button"
                       onClick={() => setIsModeOpen((prev) => !prev)}
-                      className={cn(
-                        "inline-flex items-center gap-1.5 h-7 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer select-none",
-                        actionMode === "auto"
-                          ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
-                          : "border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white",
-                      )}
+                      className="inline-flex items-center gap-1.5 h-7 rounded-lg border border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white px-2 text-[11px] font-medium transition-colors cursor-pointer select-none"
                       title="Режим выполнения действий ИИ-агентом"
                     >
                       {actionMode === "auto" ? (
-                        <Zap className="h-3 w-3 text-amber-400 shrink-0" />
+                        <Zap className="h-3 w-3 text-emerald-400 shrink-0" />
                       ) : (
                         <Shield className="h-3 w-3 text-emerald-400 shrink-0" />
                       )}
@@ -2003,11 +1998,11 @@ export function OrchestratorPanel({ projectId }: Props) {
                           className={cn(
                             "w-full flex items-start gap-2 rounded-lg p-2 text-left transition-colors mt-0.5 cursor-pointer",
                             actionMode === "auto"
-                              ? "bg-amber-500/15 text-amber-200 border border-amber-500/30"
+                              ? "bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
                               : "hover:bg-white/[0.06] text-white/80",
                           )}
                         >
-                          <Zap className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                          <Zap className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium">Автоматически</div>
                             <div className="text-[10px] text-white/45 leading-tight">
