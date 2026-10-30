@@ -1479,7 +1479,7 @@ export function OrchestratorPanel({ projectId }: Props) {
       <div className="flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollContainerRef}
-            className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5 space-y-3.5"
+            className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3.5 space-y-3.5"
           >
             {chatLog.length === 0 && !isStreaming ? (
               <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-300">
@@ -1536,9 +1536,9 @@ export function OrchestratorPanel({ projectId }: Props) {
               }
 
               return (
-                <div key={i} className="flex gap-3 max-w-4xl mx-auto w-full items-start">
+                <div key={i} className="flex gap-3 max-w-4xl mx-auto w-full items-start min-w-0">
                   <OrchestratorAvatar size="md" />
-                  <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-gradient-to-b from-[#161722]/98 to-[#111218]/98 border border-white/[0.12] p-4 shadow-xl backdrop-blur-md">
+                  <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-gradient-to-b from-[#161722]/98 to-[#111218]/98 border border-white/[0.12] p-4 shadow-xl backdrop-blur-md overflow-hidden">
                     <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-emerald-100 to-white/90 bg-clip-text text-transparent">
@@ -1558,7 +1558,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                       </div>
                     </div>
 
-                    <div className="text-xs leading-relaxed text-white/90 space-y-2">
+                    <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
                       <MarkdownRenderer content={cleanOrchestratorText(m.content)} />
                     </div>
 
@@ -1772,9 +1772,9 @@ export function OrchestratorPanel({ projectId }: Props) {
             })}
 
             {isStreaming && (
-              <div className="flex gap-3 max-w-4xl mx-auto w-full items-start animate-in fade-in duration-200">
+              <div className="flex gap-3 max-w-4xl mx-auto w-full items-start min-w-0 animate-in fade-in duration-200">
                 <OrchestratorAvatar size="md" pulse />
-                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-emerald-500/35 p-4 shadow-xl backdrop-blur-xl">
+                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-emerald-500/35 p-4 shadow-xl backdrop-blur-xl overflow-hidden">
                   <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                     <div className="flex items-center gap-2 text-xs font-medium text-emerald-300">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
@@ -1783,7 +1783,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
                   </div>
                   {streamingText ? (
-                    <div className="text-xs leading-relaxed text-white/90 space-y-2">
+                    <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
                       <MarkdownRenderer content={streamingText} />
                       <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
                     </div>
