@@ -187,6 +187,23 @@ export function OrchestratorPanel({ projectId }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const currentRectRef = useRef<WindowRect>(rect);
+  const rafIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    currentRectRef.current = rect;
+  }, [rect]);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current != null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+      document.body.style.userSelect = "";
+      document.body.style.cursor = "";
+    };
+  }, []);
 
   // Синхронизация состояния видимости с левой панелью
   useEffect(() => {
@@ -535,14 +552,8 @@ export function OrchestratorPanel({ projectId }: Props) {
     [],
   );
 
-  // Перетаскивание за заголовок (drag & move)
+  // Перетаскивание за заголовок (drag & move) с аппаратным ускорением и rAF
   const isDraggingRef = useRef(false);
-  const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number }>({
-    mouseX: 0,
-    mouseY: 0,
-    startX: 0,
-    startY: 0,
-  });
 
   const onHeaderMouseDown = useCallback(
     (e: ReactMouseEvent) => {
@@ -553,42 +564,91 @@ export function OrchestratorPanel({ projectId }: Props) {
       e.preventDefault();
 
       isDraggingRef.current = true;
-      dragStartRef.current = {
-        mouseX: e.clientX,
-        mouseY: e.clientY,
-        startX: rect.x,
-        startY: rect.y,
-      };
+      const startMouseX = e.clientX;
+      const startMouseY = e.clientY;
+      const startRectX = currentRectRef.current.x;
+      const startRectY = currentRectRef.current.y;
+
+      let nextX = startRectX;
+      let nextY = startRectY;
+
+      if (panelRef.current) {
+        panelRef.current.style.willChange = "left, top";
+        panelRef.current.style.transition = "none";
+      }
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "grabbing";
 
       const onMouseMove = (ev: MouseEvent) => {
         if (!isDraggingRef.current) return;
-        const dx = ev.clientX - dragStartRef.current.mouseX;
-        const dy = ev.clientY - dragStartRef.current.mouseY;
+        const dx = ev.clientX - startMouseX;
+        const dy = ev.clientY - startMouseY;
 
-        const safeX = Math.max(0, Math.min(window.innerWidth - 120, dragStartRef.current.startX + dx));
-        const safeY = Math.max(0, Math.min(window.innerHeight - 80, dragStartRef.current.startY + dy));
+        nextX = Math.max(0, Math.min(window.innerWidth - 120, startRectX + dx));
+        nextY = Math.max(0, Math.min(window.innerHeight - 80, startRectY + dy));
+        currentRectRef.current.x = nextX;
+        currentRectRef.current.y = nextY;
 
-        setRect((prev) => ({
-          ...prev,
-          x: safeX,
-          y: safeY,
-        }));
+        if (rafIdRef.current == null) {
+          rafIdRef.current = requestAnimationFrame(() => {
+            rafIdRef.current = null;
+            if (panelRef.current) {
+              panelRef.current.style.left = `${currentRectRef.current.x}px`;
+              panelRef.current.style.top = `${currentRectRef.current.y}px`;
+            }
+          });
+        }
       };
 
       const onMouseUp = () => {
         isDraggingRef.current = false;
+        if (rafIdRef.current != null) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        if (panelRef.current) {
+          panelRef.current.style.willChange = "auto";
+        }
         window.removeEventListener("mousemove", onMouseMove);
         window.removeEventListener("mouseup", onMouseUp);
+
+        // Синхронизация со стейтом и localStorage происходит ровно один раз по окончании drag
+        setRect((prev) => ({
+          ...prev,
+          x: nextX,
+          y: nextY,
+        }));
       };
 
-      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mousemove", onMouseMove, { passive: true });
       window.addEventListener("mouseup", onMouseUp);
     },
-    [isMaximized, rect.x, rect.y, setRect],
+    [isMaximized, setRect],
   );
 
-  // Изменение размера окна (resizing) по 4 сторонам и 4 углам
+  // Изменение размера окна (resizing) по 4 сторонам и 4 углам с аппаратным ускорением и rAF
   type ResizeDirection = "e" | "w" | "s" | "n" | "se" | "sw" | "ne" | "nw";
+
+  const getResizeCursor = (dir: ResizeDirection) => {
+    switch (dir) {
+      case "e":
+      case "w":
+        return "ew-resize";
+      case "n":
+      case "s":
+        return "ns-resize";
+      case "se":
+      case "nw":
+        return "nwse-resize";
+      case "ne":
+      case "sw":
+        return "nesw-resize";
+    }
+  };
+
+  const isResizingRef = useRef(false);
 
   const startResize = useCallback(
     (dir: ResizeDirection, e: ReactMouseEvent) => {
@@ -596,23 +656,32 @@ export function OrchestratorPanel({ projectId }: Props) {
       e.preventDefault();
       e.stopPropagation();
 
+      isResizingRef.current = true;
       const startX = e.clientX;
       const startY = e.clientY;
-      const initialRect = { ...rect };
+      const initialRect = { ...currentRectRef.current };
 
       const minW = 380;
       const minH = 340;
       const maxW = window.innerWidth - 10;
       const maxH = window.innerHeight - 10;
 
+      let newW = initialRect.width;
+      let newH = initialRect.height;
+      let newX = initialRect.x;
+      let newY = initialRect.y;
+
+      if (panelRef.current) {
+        panelRef.current.style.willChange = "left, top, width, height";
+        panelRef.current.style.transition = "none";
+      }
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = getResizeCursor(dir);
+
       const onMouseMove = (ev: MouseEvent) => {
+        if (!isResizingRef.current) return;
         const dx = ev.clientX - startX;
         const dy = ev.clientY - startY;
-
-        let newW = initialRect.width;
-        let newH = initialRect.height;
-        let newX = initialRect.x;
-        let newY = initialRect.y;
 
         if (dir.includes("e")) {
           newW = Math.max(minW, Math.min(maxW - initialRect.x, initialRect.width + dx));
@@ -623,18 +692,48 @@ export function OrchestratorPanel({ projectId }: Props) {
         if (dir.includes("w")) {
           const potentialW = initialRect.width - dx;
           if (potentialW >= minW) {
-            newW = potentialW;
+            newW = Math.min(maxW, potentialW);
             newX = Math.max(0, initialRect.x + dx);
           }
         }
         if (dir.includes("n")) {
           const potentialH = initialRect.height - dy;
           if (potentialH >= minH) {
-            newH = potentialH;
+            newH = Math.min(maxH, potentialH);
             newY = Math.max(0, initialRect.y + dy);
           }
         }
 
+        currentRectRef.current = { x: newX, y: newY, width: newW, height: newH };
+
+        if (rafIdRef.current == null) {
+          rafIdRef.current = requestAnimationFrame(() => {
+            rafIdRef.current = null;
+            if (panelRef.current) {
+              panelRef.current.style.left = `${currentRectRef.current.x}px`;
+              panelRef.current.style.top = `${currentRectRef.current.y}px`;
+              panelRef.current.style.width = `${currentRectRef.current.width}px`;
+              panelRef.current.style.height = `${currentRectRef.current.height}px`;
+            }
+          });
+        }
+      };
+
+      const onMouseUp = () => {
+        isResizingRef.current = false;
+        if (rafIdRef.current != null) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = null;
+        }
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        if (panelRef.current) {
+          panelRef.current.style.willChange = "auto";
+        }
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+
+        // Синхронизация со стейтом и localStorage происходит ровно один раз по окончании resize
         setRect({
           x: newX,
           y: newY,
@@ -643,15 +742,10 @@ export function OrchestratorPanel({ projectId }: Props) {
         });
       };
 
-      const onMouseUp = () => {
-        window.removeEventListener("mousemove", onMouseMove);
-        window.removeEventListener("mouseup", onMouseUp);
-      };
-
-      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mousemove", onMouseMove, { passive: true });
       window.addEventListener("mouseup", onMouseUp);
     },
-    [isMaximized, rect, setRect],
+    [isMaximized, setRect],
   );
 
   const withConfirmResolved = useCallback(
@@ -885,6 +979,7 @@ export function OrchestratorPanel({ projectId }: Props) {
 
   return (
     <div
+      ref={panelRef}
       style={
         isMaximized
           ? {
@@ -901,8 +996,8 @@ export function OrchestratorPanel({ projectId }: Props) {
             }
       }
       className={cn(
-        "fixed z-50 flex flex-col bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-purple-500/20 overflow-hidden",
-        isMaximized ? "rounded-none border-l border-y-0 border-r-0" : "rounded-2xl animate-in fade-in zoom-in-95 duration-150",
+        "fixed z-50 flex flex-col bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-purple-500/20 overflow-hidden transition-none",
+        isMaximized ? "rounded-none border-l border-y-0 border-r-0" : "rounded-2xl",
       )}
     >
       {/* Ручки изменения размера (resizing handles) по всем 4 сторонам и 4 углам */}
@@ -1363,21 +1458,8 @@ export function OrchestratorPanel({ projectId }: Props) {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Quick actions toolbar */}
-          <div className="flex items-center justify-between gap-2 px-3.5 pt-2 pb-1.5 border-t border-white/[0.08] bg-black/30">
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                disabled={projectId == null || busy || isStreaming}
-                onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/35 bg-purple-950/40 px-3 py-1 text-[11px] font-medium text-purple-200 hover:bg-purple-500/25 hover:text-white hover:border-purple-400 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
-                title="Показать, какие шаги и операции сейчас доступны для проекта"
-              >
-                <Settings className="h-3 w-3 text-purple-400" />
-                <span>⚙️ Покажи доступные действия</span>
-              </button>
-            </div>
-            {chatLog.length > 0 && (
+          {chatLog.length > 0 && (
+            <div className="flex items-center justify-end px-3.5 pt-1.5 pb-1 border-t border-white/[0.08] bg-black/30">
               <button
                 type="button"
                 onClick={() => setChatLog([])}
@@ -1386,10 +1468,15 @@ export function OrchestratorPanel({ projectId }: Props) {
               >
                 Очистить чат
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
-          <div className="flex shrink-0 items-center gap-2 px-3.5 pb-3 pt-1 bg-black/30">
+          <div
+            className={cn(
+              "flex shrink-0 items-center gap-2 px-3.5 pb-3 bg-black/30",
+              chatLog.length === 0 ? "pt-2 border-t border-white/[0.08]" : "pt-1",
+            )}
+          >
             <input
               ref={inputRef}
               value={chatInput}
