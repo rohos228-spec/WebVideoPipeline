@@ -1619,51 +1619,12 @@ export function OrchestratorPanel({ projectId }: Props) {
               <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300">
                 AI Director
               </span>
-              {editingSessionId === currentSession?.id ? (
-                <div
-                  className="flex items-center gap-1"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <input
-                    // eslint-disable-next-line jsx-a11y/no-autofocus
-                    autoFocus
-                    type="text"
-                    value={editingTitle}
-                    onChange={(e) => setEditingTitle(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && currentSession) handleSaveRename(currentSession.id);
-                      if (e.key === "Escape") setEditingSessionId(null);
-                    }}
-                    className="bg-black/90 border border-emerald-500/60 rounded px-1.5 py-0.5 text-[11px] text-white outline-none w-28 sm:w-36 ring-1 ring-emerald-500/30"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => currentSession && handleSaveRename(currentSession.id)}
-                    className="p-0.5 text-emerald-400 hover:text-emerald-300 rounded cursor-pointer shrink-0"
-                    title="Сохранить"
-                  >
-                    <Check className="h-3 w-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingSessionId(null)}
-                    className="p-0.5 text-white/40 hover:text-white rounded cursor-pointer shrink-0"
-                    title="Отмена"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={(e) => currentSession && handleStartRename(currentSession, e)}
-                  className="group/rename inline-flex items-center gap-1 text-[11px] text-white/40 hover:text-white/80 transition-colors truncate max-w-[150px] cursor-pointer"
-                  title="Нажмите, чтобы переименовать диалог"
-                >
-                  <span className="truncate">· «{currentSession?.title || "Основной чат"}»</span>
-                  <Pencil className="h-2.5 w-2.5 opacity-0 group-hover/rename:opacity-100 text-white/50 shrink-0" />
-                </button>
-              )}
+              <span
+                className="text-[11px] text-white/40 font-normal truncate max-w-[140px] hidden sm:inline"
+                title={currentSession?.title}
+              >
+                · «{currentSession?.title || "Основной чат"}»
+              </span>
             </div>
           </div>
 
