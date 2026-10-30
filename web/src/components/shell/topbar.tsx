@@ -2,6 +2,7 @@
 
 import { useState, useEffect, createContext, useContext } from "react";
 import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
@@ -32,6 +33,31 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   const [framesOpen, setFramesOpen] = useState(false);
   const [framesProjectId, setFramesProjectId] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [orchestratorOpen, setOrchestratorOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("vp-orchestrator-open");
+      if (saved !== null) {
+        setOrchestratorOpen(JSON.parse(saved));
+      }
+    } catch {}
+
+    const onStateChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ open?: boolean }>).detail;
+      if (detail && typeof detail.open === "boolean") {
+        setOrchestratorOpen(detail.open);
+      }
+    };
+    window.addEventListener("studio-orchestrator-state-changed", onStateChange);
+    return () => {
+      window.removeEventListener("studio-orchestrator-state-changed", onStateChange);
+    };
+  }, []);
+
+  const handleToggleOrchestrator = () => {
+    window.dispatchEvent(new CustomEvent("studio-toggle-orchestrator"));
+  };
 
   useEffect(() => {
     let alive = true;
@@ -67,6 +93,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <a href="/home" title="Главная"><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
         <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
         <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
+        <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
         <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
         <BugReportButton />
         {isAdmin ? (
@@ -149,5 +176,75 @@ function AdminRailLink() {
         window.location.href = "/admin";
       }}
     />
+  );
+}
+
+/** Кнопка «ИИ-агент» в левой панели с эффектом пульсирующих фиолетовых круговых волн каждые 2 сек. */
+function OrchestratorRailBtn({
+  active,
+  onClick,
+}: {
+  active?: boolean;
+  onClick: () => void;
+}) {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={active ? "Скрыть ИИ-агент" : "Открыть ИИ-агент"}
+      className={cn(
+        "group relative flex w-[62px] flex-col items-center gap-1.5 py-1.5 text-[11px] tracking-[-0.02em] transition-all rounded-md select-none",
+        active
+          ? "text-purple-300 bg-purple-500/10"
+          : "text-zinc-400 hover:text-purple-200 hover:bg-white/[0.05]",
+      )}
+    >
+      {/* Контейнер иконки с эффектом расходящихся фиолетовых волн */}
+      <div className="relative flex h-7 w-7 items-center justify-center">
+        {/* Круговые фиолетовые волны пульсации раз в 2 сек */}
+        <span
+          className="absolute inset-0 rounded-full border border-purple-500/60 pointer-events-none animate-orch-wave"
+          aria-hidden="true"
+        />
+        <span
+          className="absolute inset-0 rounded-full border border-fuchsia-400/40 pointer-events-none animate-orch-wave-delayed"
+          aria-hidden="true"
+        />
+
+        {/* Круглый аватар / иконка ИИ-агента */}
+        <div
+          className={cn(
+            "relative z-10 flex h-[26px] w-[26px] items-center justify-center rounded-full overflow-hidden transition-all duration-200",
+            "border border-purple-400/50 bg-gradient-to-br from-[#1d1233] to-[#0c0a17]",
+            active
+              ? "ring-2 ring-purple-400 ring-offset-1 ring-offset-[#0e0e10] shadow-[0_0_12px_rgba(168,85,247,0.7)]"
+              : "shadow-[0_0_8px_rgba(168,85,247,0.35)] group-hover:border-purple-300 group-hover:scale-105",
+          )}
+        >
+          {!imgError ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src="/orchestrator-avatar.jpg"
+              alt="ИИ-агент"
+              className="h-full w-full object-cover rounded-full"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            <Bot className="h-3.5 w-3.5 text-purple-300" />
+          )}
+        </div>
+      </div>
+
+      <span
+        className={cn(
+          "leading-none transition-colors",
+          active ? "text-purple-300 font-medium" : "text-zinc-400 group-hover:text-purple-200",
+        )}
+      >
+        ИИ-агент
+      </span>
+    </button>
   );
 }
