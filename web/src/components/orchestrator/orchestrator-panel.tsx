@@ -20,9 +20,11 @@ import {
   Minimize2,
   Play,
   Send,
+  Settings,
   Sparkles,
   Square,
   Trash2,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, type DbOrchestratorChatResult } from "@/lib/api";
@@ -107,6 +109,46 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
     </Button>
+  );
+}
+
+function OrchestratorAvatar({
+  size = "md",
+  pulse = false,
+  className,
+}: {
+  size?: "sm" | "md" | "lg";
+  pulse?: boolean;
+  className?: string;
+}) {
+  const [imgError, setImgError] = useState(false);
+  const sizeClasses = {
+    sm: "h-6 w-6",
+    md: "h-8 w-8",
+    lg: "h-12 w-12",
+  }[size];
+
+  return (
+    <div
+      className={cn(
+        "relative shrink-0 rounded-full overflow-hidden border border-cyan-400/40 bg-gradient-to-br from-[#101726] to-[#0a0a0f] shadow-md shadow-cyan-950/60 flex items-center justify-center select-none ring-1 ring-cyan-500/20",
+        sizeClasses,
+        pulse && "ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0c0c0e] animate-pulse",
+        className,
+      )}
+    >
+      {!imgError ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src="/orchestrator-avatar.jpg"
+          alt="Оркестратор"
+          className="h-full w-full object-cover rounded-full"
+          onError={() => setImgError(true)}
+        />
+      ) : (
+        <Bot className="h-1/2 w-1/2 text-cyan-400" />
+      )}
+    </div>
   );
 }
 
@@ -684,11 +726,19 @@ export function OrchestratorPanel({ projectId }: Props) {
             : "inset-x-0 bottom-0 h-10 rounded-none border-x-0 border-b-0",
       )}
     >
-      <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-white/[0.08] px-2.5 bg-white/[0.02]">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-1 text-[11px] text-white/60">
-          <Bot className="h-4 w-4 shrink-0 text-primary" />
-          <span className="shrink-0 font-semibold text-white/90">Оркестратор</span>
-          <span className="truncate text-white/40">
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3 bg-white/[0.02]">
+        <div className="flex min-w-0 flex-1 items-center gap-2.5 px-0.5 text-[11px]">
+          <div className="relative">
+            <OrchestratorAvatar size="sm" pulse={isStreaming} />
+            <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-semibold text-white/95 text-xs tracking-wide">Оркестратор</span>
+            <span className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.2 text-[9px] font-mono text-cyan-300">
+              AI Director
+            </span>
+          </div>
+          <span className="truncate text-white/40 hidden sm:inline ml-1">
             {projectId == null
               ? "открой проект для начала"
               : isStreaming
@@ -698,6 +748,23 @@ export function OrchestratorPanel({ projectId }: Props) {
                   : "ИИ-режиссёр проекта"}
           </span>
         </div>
+
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={projectId == null || busy || isStreaming}
+          onClick={(e) => {
+            e.stopPropagation();
+            void sendMessage("Покажи доступные действия по проекту");
+          }}
+          className="h-7 gap-1.5 rounded-lg border-cyan-500/35 bg-cyan-950/25 px-2.5 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/20 hover:text-white hover:border-cyan-400 transition-all shadow-sm"
+          title="Показать, какие шаги и операции сейчас доступны для проекта"
+        >
+          <Settings className="h-3 w-3 text-cyan-400" />
+          <span className="hidden md:inline">⚙️ Покажи доступные действия</span>
+          <span className="md:hidden">Действия</span>
+        </Button>
 
         <div
           className="hidden min-w-0 shrink sm:block"
@@ -755,26 +822,54 @@ export function OrchestratorPanel({ projectId }: Props) {
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            expanded ? "min-h-0" : "h-60",
+            expanded ? "min-h-0" : "h-72",
           )}
         >
-          <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3 space-y-3">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5 space-y-3.5">
+            {chatLog.length === 0 && !isStreaming ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-300">
+                <div className="relative mb-3">
+                  <OrchestratorAvatar size="lg" />
+                  <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-400 border-2 border-[#0c0c0e] shadow-[0_0_8px_#34d399]" />
+                </div>
+                <h4 className="text-xs font-semibold text-white tracking-wide mb-1">
+                  ИИ-Оркестратор видеостудии
+                </h4>
+                <p className="text-[11px] text-white/45 max-w-sm mb-3.5 leading-relaxed">
+                  Управление пайплайном, графом нод, генерацией и настройками проекта.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={projectId == null || busy || isStreaming}
+                  onClick={() => void sendMessage("Покажи доступные действия по проекту")}
+                  className="h-7 gap-1.5 rounded-full border border-cyan-500/40 bg-gradient-to-r from-cyan-950/60 to-slate-900/80 px-3.5 text-xs font-medium text-cyan-200 hover:bg-cyan-500/25 hover:text-white hover:border-cyan-400 shadow-md shadow-cyan-950/40 transition-all active:scale-95"
+                >
+                  <Settings className="h-3 w-3 text-cyan-400" />
+                  <span>⚙️ Покажи доступные действия</span>
+                </Button>
+              </div>
+            ) : null}
+
             {chatLog.map((m, i) => {
               const isUser = m.role === "user";
 
               if (isUser) {
                 return (
-                  <div key={i} className="flex justify-end">
-                    <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-white/[0.07] border border-white/[0.12] px-3.5 py-2.5 shadow-sm">
-                      <div className="flex items-center justify-between gap-3 mb-1">
-                        <span className="text-[10px] font-semibold tracking-wider text-primary">Ты</span>
+                  <div key={i} className="flex justify-end max-w-4xl mx-auto w-full">
+                    <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-[#102738] to-[#0c1c28] border border-cyan-500/35 p-3.5 shadow-md shadow-black/40">
+                      <div className="flex items-center justify-between gap-3 mb-1.5 border-b border-cyan-500/15 pb-1">
+                        <div className="flex items-center gap-1.5 text-cyan-300">
+                          <User className="h-3 w-3" />
+                          <span className="text-[10px] font-semibold tracking-wider">Ты</span>
+                        </div>
                         {m.created_at ? (
-                          <span className="text-[10px] text-white/30 font-mono">
+                          <span className="text-[10px] text-cyan-300/40 font-mono">
                             {formatTime(m.created_at)}
                           </span>
                         ) : null}
                       </div>
-                      <div className="text-xs text-white/95 leading-relaxed whitespace-pre-wrap selection:bg-primary/20">
+                      <div className="text-xs text-white/95 leading-relaxed whitespace-pre-wrap selection:bg-cyan-500/30 font-medium">
                         {m.content}
                       </div>
                     </div>
@@ -783,21 +878,21 @@ export function OrchestratorPanel({ projectId }: Props) {
               }
 
               return (
-                <div key={i} className="flex gap-2.5 max-w-[95%]">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/15 border border-primary/30 text-primary shadow-sm mt-0.5">
-                    <Bot className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#121216]/95 border border-white/[0.08] p-3.5 shadow-md">
-                    <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.06] pb-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-semibold text-white/90">Оркестратор</span>
-                        <span className="rounded bg-white/[0.05] px-1.5 py-0.5 text-[9px] text-white/40 font-mono">
-                          ИИ-ассистент
+                <div key={i} className="flex gap-3 max-w-4xl mx-auto w-full items-start">
+                  <OrchestratorAvatar size="md" />
+                  <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-gradient-to-b from-[#161722]/98 to-[#111218]/98 border border-white/[0.12] p-4 shadow-xl backdrop-blur-md">
+                    <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-cyan-100 to-white/90 bg-clip-text text-transparent">
+                          Оркестратор
+                        </span>
+                        <span className="rounded-full bg-cyan-500/10 border border-cyan-500/25 px-2 py-0.2 text-[9px] text-cyan-300 font-mono">
+                          AI Director
                         </span>
                       </div>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-2">
                         {m.created_at ? (
-                          <span className="text-[10px] text-white/30 font-mono mr-1">
+                          <span className="text-[10px] text-white/35 font-mono">
                             {formatTime(m.created_at)}
                           </span>
                         ) : null}
@@ -805,7 +900,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                       </div>
                     </div>
 
-                    <div className="text-xs leading-relaxed text-white/90">
+                    <div className="text-xs leading-relaxed text-white/90 space-y-2">
                       <MarkdownRenderer content={cleanOrchestratorText(m.content)} />
                     </div>
 
@@ -1019,26 +1114,24 @@ export function OrchestratorPanel({ projectId }: Props) {
             })}
 
             {isStreaming && (
-              <div className="flex gap-2.5 max-w-[95%] animate-in fade-in duration-200">
-                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 border border-primary/40 text-primary shadow-sm animate-pulse mt-0.5">
-                  <Bot className="h-4 w-4" />
-                </div>
-                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#121216]/95 border border-primary/30 p-3.5 shadow-lg backdrop-blur-xl">
-                  <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.06] pb-1.5">
-                    <div className="flex items-center gap-2 text-[11px] text-primary font-medium">
-                      <Loader2 className="h-3 w-3 animate-spin text-primary" />
+              <div className="flex gap-3 max-w-4xl mx-auto w-full items-start animate-in fade-in duration-200">
+                <OrchestratorAvatar size="md" pulse />
+                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-cyan-500/35 p-4 shadow-xl backdrop-blur-xl">
+                  <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
+                    <div className="flex items-center gap-2 text-xs font-medium text-cyan-300">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
                       <span>{streamingPhase || "Печатает ответ…"}</span>
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
                   </div>
                   {streamingText ? (
-                    <div className="text-xs leading-relaxed text-white/90">
+                    <div className="text-xs leading-relaxed text-white/90 space-y-2">
                       <MarkdownRenderer content={streamingText} />
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-primary animate-pulse align-middle" />
+                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-cyan-400 animate-pulse align-middle" />
                     </div>
                   ) : (
-                    <div className="flex items-center gap-2 py-1 text-white/40 text-xs italic">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
+                    <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
+                      <span className="inline-block h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
                       <span>Оркестратор формулирует ответ…</span>
                     </div>
                   )}
@@ -1048,7 +1141,33 @@ export function OrchestratorPanel({ projectId }: Props) {
             <div ref={messagesEndRef} />
           </div>
 
-          <div className="flex shrink-0 items-center gap-2 border-t border-white/[0.08] px-3 py-2.5 bg-white/[0.01]">
+          {/* Quick actions toolbar */}
+          <div className="flex items-center justify-between gap-2 px-3.5 pt-2 pb-1.5 border-t border-white/[0.08] bg-black/30">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                disabled={projectId == null || busy || isStreaming}
+                onClick={() => void sendMessage("Покажи доступные действия по проекту")}
+                className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/35 bg-cyan-950/40 px-3 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/25 hover:text-white hover:border-cyan-400 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                title="Показать, какие шаги и операции сейчас доступны для проекта"
+              >
+                <Settings className="h-3 w-3 text-cyan-400" />
+                <span>⚙️ Покажи доступные действия</span>
+              </button>
+            </div>
+            {chatLog.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setChatLog([])}
+                className="text-[10px] text-white/35 hover:text-white/70 transition-colors"
+                title="Очистить историю диалога"
+              >
+                Очистить чат
+              </button>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2 px-3.5 pb-3 pt-1 bg-black/30">
             <input
               ref={inputRef}
               value={chatInput}
@@ -1064,7 +1183,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                       ? "оркестратор думает… жми Отмена"
                       : "сообщение оркестратору…"
               }
-              className="h-9 flex-1 rounded-lg border border-white/10 bg-black/50 px-3 text-xs text-white placeholder:text-white/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40 transition-all"
+              className="h-9 flex-1 rounded-xl border border-white/10 bg-black/60 px-3 text-xs text-white placeholder:text-white/30 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 disabled:opacity-40 transition-all"
             />
             <Button
               type="button"
@@ -1072,7 +1191,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               variant="default"
               disabled={projectId == null || busy || isStreaming || !chatInput.trim()}
               onClick={() => void sendChat()}
-              className="h-9 gap-1.5 text-xs px-3.5"
+              className="h-9 gap-1.5 text-xs px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-md shadow-cyan-900/30 transition-all font-medium"
             >
               <Send className="h-3.5 w-3.5" />
               {isStreaming ? "…" : "Отправить"}
