@@ -239,7 +239,7 @@ function genBgFor(id: string, nodeKey?: string | null): string | null {
 }
 
 /** Per-node backgrounds: /prompt-bg/node/<step>.webp (node image first, prompt image as fallback layer). */
-const NODE_BG_TYPES = new Set(["topic", "plan", "script", "hero", "items", "excel_gpt", "image_prompts", "images", "animation_prompts", "videos", "audio", "music", "sfx_plan", "sfx_gen", "assemble", "publish"]);
+const NODE_BG_TYPES = new Set(["topic", "plan", "script", "split", "hero", "items", "excel_gpt", "image_prompts", "images", "animation_prompts", "videos", "audio", "music", "sfx_plan", "sfx_gen", "assemble", "publish"]);
 export function nodeBgFor(nodeKey: string | null | undefined, fallback: string | null): string | null {
   if (!nodeKey) return fallback;
   const t = nodeTypeFromKey(nodeKey);
