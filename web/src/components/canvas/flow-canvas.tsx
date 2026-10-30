@@ -1236,19 +1236,27 @@ export function FlowCanvas({
           pannable
           zoomable
           position="bottom-left"
-          style={{ width: 168, height: 112 }}
+          style={{ width: 172, height: 116 }}
+          bgColor="#0c0c0e"
+          maskColor="rgba(0, 0, 0, 0.65)"
+          maskStrokeColor="rgba(255, 255, 255, 0.45)"
+          maskStrokeWidth={1.5}
+          nodeStrokeWidth={1.5}
+          nodeBorderRadius={3}
+          nodeStrokeColor={(node) => {
+            const data = node.data as PipelineNodeData;
+            if (data?.status === "done") return "#16a34a";
+            if (data?.status === "running" || data?.status === "waiting_hitl" || data?.status === "queued") return "#d97706";
+            if (data?.status === "failed") return "#dc2626";
+            return "rgba(255, 255, 255, 0.4)";
+          }}
           nodeColor={(node) => {
             const data = node.data as PipelineNodeData;
-            if (data.status === "running") return "hsl(43 96% 56%)";
-            if (data.status === "queued") return "hsl(200 80% 50%)";
-            if (data.status === "done") return "hsl(var(--success))";
-            if (data.status === "failed") return "hsl(var(--destructive))";
-            if (data.status === "waiting_hitl") return "hsl(var(--warning))";
-            return "hsl(var(--muted-foreground) / 0.4)";
+            if (data?.status === "done") return "#22c55e"; // Зеленый (готово)
+            if (data?.status === "running" || data?.status === "waiting_hitl" || data?.status === "queued") return "#f59e0b"; // Оранжевый (в процессе / ожидание)
+            if (data?.status === "failed") return "#ef4444"; // Красный (ошибка)
+            return "#ffffff"; // Белый (по умолчанию / готов к запуску)
           }}
-          nodeStrokeWidth={2}
-          nodeBorderRadius={4}
-          maskColor="hsl(var(--background) / 0.7)"
         />
         <RightButtonMarquee />
       </ReactFlow>
