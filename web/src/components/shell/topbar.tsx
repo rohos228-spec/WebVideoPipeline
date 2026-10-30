@@ -93,8 +93,8 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <a href="/home" title="Главная"><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
         <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
         <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
-        <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
         <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
+        <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
         <BugReportButton />
         {isAdmin ? (
           <RailBtn

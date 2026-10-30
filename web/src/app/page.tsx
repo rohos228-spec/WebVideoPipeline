@@ -112,7 +112,7 @@ function HomePageInner() {
           <StreamsFloat projectId={selectedProjectId} />
         </main>
       </div>
-      <OrchestratorPanel key={selectedProjectId ?? "none"} projectId={selectedProjectId} />
+      <OrchestratorPanel projectId={selectedProjectId} />
       <OutseeCreateWorkspace
         open={outseeOpen}
         onOpenChange={setOutseeOpen}

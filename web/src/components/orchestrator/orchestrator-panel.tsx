@@ -18,11 +18,12 @@ import {
   Clapperboard,
   Copy,
   GitBranch,
-  GripVertical,
   Loader2,
   Maximize2,
   Minimize2,
   MessageSquare,
+  PanelLeftClose,
+  PanelLeftOpen,
   Paperclip,
   Pencil,
   Play,
@@ -182,6 +183,7 @@ interface ChatSession {
   title: string;
   createdAt: number;
   updatedAt: number;
+  projectId?: number | null;
 }
 
 export function OrchestratorPanel({ projectId }: Props) {
@@ -189,9 +191,9 @@ export function OrchestratorPanel({ projectId }: Props) {
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
 
-  // Мульти-чаты проекта
-  const sessionsKey = `vp-ai-agent-sessions-${projectId ?? "none"}`;
-  const activeSessionKey = `vp-ai-agent-active-session-${projectId ?? "none"}`;
+  // Единое хранилище всех сессий и логов чатов по всей Студии (переживает переключение проектов)
+  const sessionsKey = "vp-ai-agent-sessions-unified";
+  const activeSessionKey = "vp-ai-agent-active-session-unified";
   const [sessions, setSessions] = usePersistedState<ChatSession[]>(sessionsKey, [
     { id: "default", title: "Основной чат", createdAt: Date.now(), updatedAt: Date.now() },
   ]);
@@ -217,15 +219,62 @@ export function OrchestratorPanel({ projectId }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Хранилище всех логов чатов по проекту в единой структуре
-  const allLogsKey = `vp-ai-agent-all-logs-${projectId ?? "none"}`;
+  // Хранилище всех логов чатов в единой структуре
+  const allLogsKey = "vp-ai-agent-all-logs-unified";
   const [chatLogsMap, setChatLogsMap] = usePersistedState<Record<string, ChatMsg[]>>(allLogsKey, {});
 
-  // Инициализация/миграция логов из старых ключей при первом рендере
+  // Инициализация/миграция логов и сессий из старых ключей при первом рендере
   useEffect(() => {
+    setSessions((prev) => {
+      let merged = [...(prev || [])];
+      let changed = false;
+      const oldKeys = [
+        `vp-ai-agent-sessions-${projectId ?? "none"}`,
+        "vp-ai-agent-sessions-none",
+      ];
+      for (const k of oldKeys) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              for (const item of parsed) {
+                if (!merged.some((m) => m.id === item.id)) {
+                  merged.push(item);
+                  changed = true;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+      return changed ? merged : prev;
+    });
+
     setChatLogsMap((prev) => {
       let changed = false;
       const updated = { ...prev };
+
+      const oldMapKeys = [
+        `vp-ai-agent-all-logs-${projectId ?? "none"}`,
+        "vp-ai-agent-all-logs-none",
+      ];
+      for (const k of oldMapKeys) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === "object") {
+              for (const [sId, msgs] of Object.entries(parsed)) {
+                if ((!updated[sId] || updated[sId].length === 0) && Array.isArray(msgs) && msgs.length > 0) {
+                  updated[sId] = msgs as ChatMsg[];
+                  changed = true;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
 
       // Миграция default (основного чата)
       const defKey = `vp-orchestrator-log-${projectId ?? "none"}`;
@@ -242,26 +291,9 @@ export function OrchestratorPanel({ projectId }: Props) {
         } catch {}
       }
 
-      // Миграция остальных сессий
-      for (const s of sessions || []) {
-        if (!updated[s.id] || updated[s.id].length === 0) {
-          const sKey = s.id === "default" ? defKey : `vp-orchestrator-log-${projectId ?? "none"}-${s.id}`;
-          try {
-            const raw = localStorage.getItem(sKey);
-            if (raw) {
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                updated[s.id] = parsed;
-                changed = true;
-              }
-            }
-          } catch {}
-        }
-      }
-
       return changed ? updated : prev;
     });
-  }, [projectId, sessions, setChatLogsMap]);
+  }, [projectId, setSessions, setChatLogsMap]);
 
   const chatLog: ChatMsg[] = useMemo(() => {
     return chatLogsMap[activeSessionId] || [];
@@ -291,6 +323,8 @@ export function OrchestratorPanel({ projectId }: Props) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [streamingPhase, setStreamingPhase] = useState<string | null>(null);
+  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
+  const streamingSessionIdRef = useRef<string | null>(null);
   const [elapsedSec, setElapsedSec] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -327,11 +361,12 @@ export function OrchestratorPanel({ projectId }: Props) {
       title: `Чат ${(sessions?.length || 0) + 1}`,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      projectId: projectId ?? null,
     };
     setSessions((prev) => [newSession, ...(prev || [])]);
     setChatLogsMap((prev) => ({ ...prev, [newId]: [] }));
     setActiveSessionId(newId);
-  }, [sessions, setSessions, setChatLogsMap, setActiveSessionId]);
+  }, [projectId, sessions, setSessions, setChatLogsMap, setActiveSessionId]);
 
   const handleSwitchChat = useCallback(
     (id: string) => {
@@ -579,16 +614,44 @@ export function OrchestratorPanel({ projectId }: Props) {
 
   const cancelBusy = useCallback(() => {
     userCancelRef.current = true;
+    const targetId = streamingSessionIdRef.current;
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
     setIsStreaming(false);
     setStreamingText(null);
     setStreamingPhase(null);
-  }, []);
+    setStreamingSessionId(null);
+    streamingSessionIdRef.current = null;
+
+    if (targetId) {
+      setChatLogsMap((prev) => {
+        const existing = prev[targetId] || [];
+        const cancelMsg: ChatMsg = {
+          role: "assistant",
+          content: "Генерация отменена пользователем.",
+          created_at: Date.now(),
+        };
+        const updated = [...existing, cancelMsg];
+        try {
+          const key =
+            targetId === "default"
+              ? `vp-orchestrator-log-${projectId ?? "none"}`
+              : `vp-orchestrator-log-${projectId ?? "none"}-${targetId}`;
+          localStorage.setItem(key, JSON.stringify(updated));
+        } catch {}
+        return { ...prev, [targetId]: updated };
+      });
+    }
+  }, [projectId, setChatLogsMap]);
 
   const handleChatResult = useCallback(
-    (r: DbOrchestratorChatResult, currentChatLog: ChatMsg[]) => {
+    (
+      r: DbOrchestratorChatResult,
+      targetSessionId: string,
+      currentChatLog: ChatMsg[],
+      targetProjectId?: number | null,
+    ) => {
       const notes: string[] = [];
       if (r.applied) {
         notes.push(
@@ -714,17 +777,33 @@ export function OrchestratorPanel({ projectId }: Props) {
       }
 
       const cleanReply = cleanOrchestratorText(r.reply || "");
+      const assistantMsg: ChatMsg = {
+        role: "assistant",
+        content: cleanReply || (notes.length ? "Действие выполнено." : "(пустой ответ)"),
+        notes: notes.length ? notes : undefined,
+        confirms: pendAll.length ? pendAll : undefined,
+        created_at: Date.now(),
+      };
 
-      setChatLog([
-        ...currentChatLog,
-        {
-          role: "assistant",
-          content: cleanReply || (notes.length ? "Действие выполнено." : "(пустой ответ)"),
-          notes: notes.length ? notes : undefined,
-          confirms: pendAll.length ? pendAll : undefined,
-          created_at: Date.now(),
-        },
-      ]);
+      setChatLogsMap((prev) => {
+        const existing = prev[targetSessionId] || currentChatLog;
+        const updated = [...existing, assistantMsg];
+        try {
+          const key =
+            targetSessionId === "default"
+              ? `vp-orchestrator-log-${targetProjectId ?? projectId ?? "none"}`
+              : `vp-orchestrator-log-${targetProjectId ?? projectId ?? "none"}-${targetSessionId}`;
+          localStorage.setItem(key, JSON.stringify(updated));
+        } catch {}
+        return { ...prev, [targetSessionId]: updated };
+      });
+
+      setStreamingSessionId(null);
+      streamingSessionIdRef.current = null;
+      setIsStreaming(false);
+      setStreamingText(null);
+      setStreamingPhase(null);
+      setBusy(false);
 
       if (actionMode === "auto" && pendAll.length > 0) {
         setTimeout(() => {
@@ -732,7 +811,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         }, 300);
       }
     },
-    [projectId, setChatLog, actionMode],
+    [projectId, setChatLogsMap, actionMode],
   );
 
   const sendMessage = useCallback(
@@ -768,20 +847,37 @@ export function OrchestratorPanel({ projectId }: Props) {
         messageForAgent = `[РЕЖИМ: АВТОНОМНЫЙ. Выполняй действия и сохраняй изменения сразу, без ожидания подтверждения]\n\n${messageForAgent}`;
       }
 
+      const targetSessionId = activeSessionId;
+      const targetProjectId = currentSession?.projectId ?? projectId;
+
       userCancelRef.current = false;
       const ac = new AbortController();
       abortRef.current = ac;
       setBusy(true);
       setOpen(true);
+      setStreamingSessionId(targetSessionId);
+      streamingSessionIdRef.current = targetSessionId;
 
       const userMsg: ChatMsg = { role: "user", content: displayContent || cleanInput, created_at: Date.now() };
-      const next: ChatMsg[] = [...chatLog, userMsg];
-      setChatLog(next);
+      const currentLogs = chatLogsMap[targetSessionId] || [];
+      const next: ChatMsg[] = [...currentLogs, userMsg];
+
+      setChatLogsMap((prev) => {
+        const updated = { ...prev, [targetSessionId]: next };
+        try {
+          const key =
+            targetSessionId === "default"
+              ? `vp-orchestrator-log-${targetProjectId ?? "none"}`
+              : `vp-orchestrator-log-${targetProjectId ?? "none"}-${targetSessionId}`;
+          localStorage.setItem(key, JSON.stringify(next));
+        } catch {}
+        return updated;
+      });
 
       if (cleanInput) {
         setSessions((prev) =>
           (prev || []).map((s) =>
-            s.id === activeSessionId && (s.title.startsWith("Чат") || s.title === "Основной чат")
+            s.id === targetSessionId && (s.title.startsWith("Чат") || s.title === "Основной чат")
               ? { ...s, title: cleanInput.slice(0, 26).trim() || s.title, updatedAt: Date.now() }
               : s,
           ),
@@ -797,7 +893,7 @@ export function OrchestratorPanel({ projectId }: Props) {
       try {
         const historyPayload = next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content }));
         const r = await api.dbOrchestratorChatStream(
-          projectId,
+          targetProjectId,
           messageForAgent,
           historyPayload,
           {
@@ -812,17 +908,29 @@ export function OrchestratorPanel({ projectId }: Props) {
               setIsStreaming(false);
               setStreamingText(null);
               setStreamingPhase(null);
-              handleChatResult(result, next);
+              handleChatResult(result, targetSessionId, next, targetProjectId);
             },
             onError: (err) => {
               streamFinished = true;
               setIsStreaming(false);
               setStreamingText(null);
               setStreamingPhase(null);
-              setChatLog([
-                ...next,
-                { role: "assistant", content: `Ошибка: ${err}`, created_at: Date.now() },
-              ]);
+              setStreamingSessionId(null);
+              streamingSessionIdRef.current = null;
+              setBusy(false);
+              const errMsg: ChatMsg = { role: "assistant", content: `Ошибка: ${err}`, created_at: Date.now() };
+              setChatLogsMap((prev) => {
+                const existing = prev[targetSessionId] || next;
+                const updated = [...existing, errMsg];
+                try {
+                  const key =
+                    targetSessionId === "default"
+                      ? `vp-orchestrator-log-${targetProjectId ?? "none"}`
+                      : `vp-orchestrator-log-${targetProjectId ?? "none"}-${targetSessionId}`;
+                  localStorage.setItem(key, JSON.stringify(updated));
+                } catch {}
+                return { ...prev, [targetSessionId]: updated };
+              });
             },
           },
           ac.signal,
@@ -832,51 +940,63 @@ export function OrchestratorPanel({ projectId }: Props) {
           setIsStreaming(false);
           setStreamingText(null);
           setStreamingPhase(null);
-          handleChatResult(r, next);
+          handleChatResult(r, targetSessionId, next, targetProjectId);
         }
       } catch (e: any) {
         if (ac.signal.aborted) {
           if (userCancelRef.current) {
             userCancelRef.current = false;
-            setChatLog([
-              ...next,
-              { role: "assistant", content: "Генерация отменена пользователем.", created_at: Date.now() },
-            ]);
+            const cancelMsg: ChatMsg = {
+              role: "assistant",
+              content: "Генерация отменена пользователем.",
+              created_at: Date.now(),
+            };
+            setChatLogsMap((prev) => {
+              const existing = prev[targetSessionId] || next;
+              return { ...prev, [targetSessionId]: [...existing, cancelMsg] };
+            });
           }
+          setStreamingSessionId(null);
+          streamingSessionIdRef.current = null;
+          setIsStreaming(false);
+          setBusy(false);
           return;
         }
 
         // Graceful fallback to non-streaming if stream endpoint had an issue
         try {
           const fallbackRes = await api.dbOrchestratorChat(
-            projectId,
+            targetProjectId,
             messageForAgent,
             next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content })),
             { signal: ac.signal },
           );
-          handleChatResult(fallbackRes, next);
+          handleChatResult(fallbackRes, targetSessionId, next, targetProjectId);
         } catch (fallbackErr: any) {
           const unauthorized = fallbackErr instanceof ApiError && fallbackErr.status === 401;
-          setChatLog([
-            ...next,
-            {
-              role: "assistant",
-              content: unauthorized
-                ? "Сессия истекла или требуется авторизация в студии."
-                : `Ошибка: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`,
-              created_at: Date.now(),
-            },
-          ]);
+          const errMsg: ChatMsg = {
+            role: "assistant",
+            content: unauthorized
+              ? "Сессия истекла или требуется авторизация в студии."
+              : `Ошибка: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`,
+            created_at: Date.now(),
+          };
+          setChatLogsMap((prev) => {
+            const existing = prev[targetSessionId] || next;
+            return { ...prev, [targetSessionId]: [...existing, errMsg] };
+          });
         }
       } finally {
         if (abortRef.current === ac) abortRef.current = null;
+        setStreamingSessionId(null);
+        streamingSessionIdRef.current = null;
         setBusy(false);
         setIsStreaming(false);
         setStreamingText(null);
         setStreamingPhase(null);
       }
     },
-    [projectId, busy, isStreaming, chatLog, setChatLog, setOpen, handleChatResult],
+    [projectId, currentSession, busy, isStreaming, chatLogsMap, activeSessionId, actionMode, setOpen, setChatLogsMap, setSessions, handleChatResult],
   );
 
   const sendChat = useCallback(async () => {
@@ -1378,7 +1498,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           const hasUnresolved =
             lastMsg?.confirms?.some((c) => !c.resolved) ||
             (lastMsg?.confirm && !lastMsg.confirm.resolved);
-          const isSessionThinking = isActive && (isStreaming || busy);
+          const isSessionThinking = (isStreaming || busy) && s.id === streamingSessionId;
           const isEditing = editingSessionId === s.id;
 
           const snippet = lastMsg
@@ -1607,11 +1727,15 @@ export function OrchestratorPanel({ projectId }: Props) {
               )}
               title={isChatsOpen ? "Скрыть панель диалогов" : "Показать список диалогов (чатов)"}
             >
-              <GripVertical className="h-4 w-4" />
+              {isChatsOpen ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeftOpen className="h-4 w-4" />
+              )}
             </button>
 
             <div className="relative shrink-0">
-              <OrchestratorAvatar size="sm" pulse={isStreaming} />
+              <OrchestratorAvatar size="sm" pulse={isStreaming && streamingSessionId === activeSessionId} />
               <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
@@ -1967,7 +2091,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               );
             })}
 
-            {isStreaming && (
+            {isStreaming && streamingSessionId === activeSessionId && (
               <div className="flex gap-3 max-w-4xl mx-auto w-full items-start min-w-0 animate-in fade-in duration-200">
                 <OrchestratorAvatar size="md" pulse />
                 <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-emerald-500/35 p-4 shadow-xl backdrop-blur-xl overflow-hidden">
@@ -2039,11 +2163,11 @@ export function OrchestratorPanel({ projectId }: Props) {
                 placeholder={
                   projectId == null
                     ? "Сначала открой проект"
-                    : isStreaming
-                      ? "Я думаю, пожалуйста, подождите… жми Отмена для остановки"
-                      : busy
-                        ? "ИИ-агент думает… жми Отмена"
-                        : "Введите сообщение или задачу..."
+                    : isStreaming || busy
+                      ? streamingSessionId === activeSessionId
+                        ? "Я думаю, пожалуйста, подождите… жми Отмена для остановки"
+                        : "ИИ-агент занят в другом диалоге… жми Отмена для остановки"
+                      : "Введите сообщение или задачу..."
                 }
                 style={{ outline: "none", boxShadow: "none" }}
                 className="w-full resize-none bg-transparent px-1 text-xs text-white placeholder:text-white/35 outline-none border-none focus:outline-none focus:border-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 min-h-[28px] max-h-36 leading-relaxed"
