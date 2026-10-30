@@ -55,6 +55,7 @@ class ApiGptClient:
         project_id: int | None = None,
         max_retries: int | None = None,
         response_schema: Any | None = None,
+        on_delta: Any | None = None,
     ) -> str:
         return await self.ask_with_files(
             text,
@@ -64,6 +65,7 @@ class ApiGptClient:
             expect_file_download=False,
             max_retries=max_retries,
             response_schema=response_schema,
+            on_delta=on_delta,
         )
 
     async def ask_with_files(
