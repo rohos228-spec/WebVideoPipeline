@@ -841,6 +841,59 @@ export interface DbGraph {
   harness?: DbHarnessSummary;
 }
 
+export interface DbOrchestratorChatResult {
+  reply: string;
+  applied: { updated: number; exported: { frames: number; cells: number } | null } | null;
+  actions_run: {
+    project_id?: number;
+    inspect_project?: unknown;
+    project_graph?: unknown;
+    error?: string;
+    run_step?: string;
+    status?: string;
+    stop_step?: boolean;
+    set_option?: string;
+    set_prompt?: string;
+    set_text_llm?: string;
+    run_harness?: string;
+    read_file?: string;
+    edit_files?: string;
+    run_tests?: string;
+    git_commit_push?: string;
+    delete_projects?: string;
+    create_project?: string;
+    create_child?: string;
+    add_node?: string;
+    connect_edges?: string;
+    rename_node?: string;
+    repair_graph?: string;
+    hitl_decision?: string;
+    set_topic?: string;
+    create_group?: string;
+  }[];
+  ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
+  pending_confirm: {
+    kind: string;
+    project_id?: number;
+    node_key?: string | null;
+    node_type?: string | null;
+    only?: string | null;
+    count: number;
+    nodes: string[];
+    message?: string;
+    files?: string[];
+    plan_id?: string | number | null;
+    needs_approval?: boolean;
+    cost_low?: number | null;
+    cost_high?: number | null;
+    cost_unknown_steps?: number;
+    risk?: string | null;
+    steps?: { action_id: string }[];
+    step_titles?: string[];
+  }[];
+  error: string | null;
+}
+
 export const api = {
   // ── База (DB v2 browser) ─────────────────────────────────────────
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
@@ -942,60 +995,7 @@ export const api = {
     history: { role: string; content: string }[],
     opts?: { signal?: AbortSignal },
   ) =>
-    http<{
-      reply: string;
-      applied: { updated: number; exported: { frames: number; cells: number } | null } | null;
-      actions_run: {
-        project_id?: number;
-        inspect_project?: unknown;
-        project_graph?: unknown;
-        error?: string;
-        run_step?: string;
-        status?: string;
-        stop_step?: boolean;
-        set_option?: string;
-        set_prompt?: string;
-        set_text_llm?: string;
-        run_harness?: string;
-        read_file?: string;
-        edit_files?: string;
-        run_tests?: string;
-        git_commit_push?: string;
-        delete_projects?: string;
-        create_project?: string;
-        create_child?: string;
-        add_node?: string;
-        connect_edges?: string;
-        rename_node?: string;
-        repair_graph?: string;
-        hitl_decision?: string;
-        set_topic?: string;
-        create_group?: string;
-      }[];
-      ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
-      pending_confirm: {
-        kind: string;
-        project_id?: number;
-        node_key?: string | null;
-        node_type?: string | null;
-        only?: string | null;
-        count: number;
-        nodes: string[];
-        message?: string;
-        files?: string[];
-        /** kind="action_plan" (поток b, A2): план действий из слоя, ждёт кнопки «Запустить». */
-        plan_id?: string | number | null;
-        needs_approval?: boolean;
-        cost_low?: number | null;
-        cost_high?: number | null;
-        cost_unknown_steps?: number;
-        risk?: string | null;
-        steps?: { action_id: string }[];
-        /** A2: title_ru шагов, порядок совпадает со steps. */
-        step_titles?: string[];
-      }[];
-      error: string | null;
-    }>(
+    http<DbOrchestratorChatResult>(
       `/api/db/projects/${projectId}/orchestrator/chat`,
       {
         method: "POST",
@@ -1009,6 +1009,80 @@ export const api = {
       // GPT-вызов длинный (контекст графа + ответ): 10 минут, как ask_fresh.
       600_000,
     ),
+  dbOrchestratorChatStream: async (
+    projectId: number,
+    message: string,
+    history: { role: string; content: string }[],
+    callbacks?: {
+      onDelta?: (delta: string) => void;
+      onPhase?: (phase: string, phaseDetail?: string) => void;
+      onDone?: (result: DbOrchestratorChatResult) => void;
+      onError?: (error: string) => void;
+    },
+    signal?: AbortSignal,
+  ): Promise<DbOrchestratorChatResult | null> => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/db/projects/${projectId}/orchestrator/chat-stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...orchAuthHeaders(),
+        },
+        body: JSON.stringify({ message, history }),
+        signal,
+      });
+    } catch (e: any) {
+      if (e?.name === "AbortError" || signal?.aborted) return null;
+      throw e;
+    }
+
+    if (!res.ok) {
+      const errTxt = await res.text();
+      throw new ApiError(res.status, errTxt);
+    }
+    if (!res.body) return null;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalResult: DbOrchestratorChatResult | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data:")) {
+            try {
+              const data = JSON.parse(trimmed.slice(5).trim());
+              if (data.type === "delta" && data.delta) {
+                callbacks?.onDelta?.(data.delta);
+              } else if (data.type === "phase") {
+                callbacks?.onPhase?.(data.phase, data.detail);
+              } else if (data.type === "done") {
+                finalResult = data as DbOrchestratorChatResult;
+                callbacks?.onDone?.(finalResult);
+              } else if (data.type === "error") {
+                callbacks?.onError?.(data.error || "Ошибка генерации");
+              }
+            } catch {
+              // ignore json parse error on incomplete chunks
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return finalResult;
+  },
   dbOrchestratorConfirmRemove: (projectId: number, body: { node_key?: string | null; node_type?: string | null; only?: string | null }) =>
     http<{ remove_node: string }>(`/api/db/projects/${projectId}/orchestrator/confirm-remove`, {
       method: "POST",

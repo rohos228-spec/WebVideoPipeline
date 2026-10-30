@@ -998,14 +998,7 @@ function PosterTile({
   const blur = running ? "blur-md opacity-70" : "";
   let body: React.ReactNode;
   if (isPublish) {
-    body = (
-      <div className="absolute inset-x-0 bottom-0 top-10 flex flex-col justify-end px-3 pb-2.5">
-        <div className="rounded-md border border-amber-500/25 bg-black/75 p-2 text-center backdrop-blur-md">
-          <div className="text-[11px] font-medium text-amber-300">Модуль в разработке</div>
-          <div className="mt-0.5 text-[10px] text-zinc-400">Публикация в соцсети скоро</div>
-        </div>
-      </div>
-    );
+    body = null;
   } else if (media.length) {
     body = (
       <div className={cn("absolute inset-0 grid gap-px bg-black", shown.length === 1 ? "grid-cols-1" : "grid-cols-2")}>
@@ -1099,11 +1092,6 @@ function PosterTile({
             ) : (
               <span className="flex flex-wrap items-center gap-2">
                 <span className="vp-hl">{title}</span>
-                {isPublish && (
-                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-300 border border-amber-500/40">
-                    В разработке
-                  </span>
-                )}
               </span>
             )}</span>
           <span
