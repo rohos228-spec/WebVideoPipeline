@@ -538,3 +538,38 @@ input[type="text"]:focus-visible {
 [data-vp-settings] *:not(input):not(textarea):not(select):not(button):not([data-keep-bg]) { border-width: 0 !important; box-shadow: none !important; }
 [data-vp-settings] :is(section, div[class*="rounded"]):not(button):not([data-keep-bg]) { padding-left: 0 !important; padding-right: 0 !important; }
 [data-vp-settings] section + section, [data-vp-settings] [data-vp-prompt-block] { border-top: 1px solid rgba(255,255,255,0.07) !important; padding-top: 14px !important; }
+
+/* Orchestrator purple wave pulse animation (left sidebar rail) */
+@keyframes orch-purple-wave {
+  0% {
+    transform: scale(0.92);
+    opacity: 0.85;
+    border-color: rgba(192, 132, 252, 0.85);
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.5);
+  }
+  40% {
+    opacity: 0.5;
+  }
+  75% {
+    transform: scale(2.05);
+    opacity: 0;
+    border-color: rgba(147, 51, 234, 0);
+    box-shadow: 0 0 16px rgba(168, 85, 247, 0);
+  }
+  100% {
+    transform: scale(2.05);
+    opacity: 0;
+    border-color: transparent;
+    box-shadow: none;
+  }
+}
+
+.animate-orch-wave {
+  animation: orch-purple-wave 2s cubic-bezier(0.2, 0.8, 0.25, 1) infinite;
+}
+
+.animate-orch-wave-delayed {
+  animation: orch-purple-wave 2s cubic-bezier(0.2, 0.8, 0.25, 1) infinite;
+  animation-delay: 0.65s;
+}
+

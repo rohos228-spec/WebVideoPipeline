@@ -132,9 +132,9 @@ function OrchestratorAvatar({
   return (
     <div
       className={cn(
-        "relative shrink-0 rounded-full overflow-hidden border border-cyan-400/40 bg-gradient-to-br from-[#101726] to-[#0a0a0f] shadow-md shadow-cyan-950/60 flex items-center justify-center select-none ring-1 ring-cyan-500/20",
+        "relative shrink-0 rounded-full overflow-hidden border border-purple-400/50 bg-gradient-to-br from-[#1b102b] to-[#0a0a0f] shadow-md shadow-purple-950/60 flex items-center justify-center select-none ring-1 ring-purple-500/20",
         sizeClasses,
-        pulse && "ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0c0c0e] animate-pulse",
+        pulse && "ring-2 ring-purple-400 ring-offset-1 ring-offset-[#0c0c0e] animate-pulse",
         className,
       )}
     >
@@ -147,7 +147,7 @@ function OrchestratorAvatar({
           onError={() => setImgError(true)}
         />
       ) : (
-        <Bot className="h-1/2 w-1/2 text-cyan-400" />
+        <Bot className="h-1/2 w-1/2 text-purple-400" />
       )}
     </div>
   );
@@ -170,6 +170,30 @@ export function OrchestratorPanel({ projectId }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Синхронизация состояния видимости с левой панелью
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("studio-orchestrator-state-changed", { detail: { open } })
+    );
+  }, [open]);
+
+  // Слушатель событий переключения/открытия из левой панели (кнопка «Оркестратор»)
+  useEffect(() => {
+    const onToggle = () => setOpen((prev) => !prev);
+    const onOpen = () => setOpen(true);
+    const onClose = () => setOpen(false);
+
+    window.addEventListener("studio-toggle-orchestrator", onToggle);
+    window.addEventListener("studio-open-orchestrator", onOpen);
+    window.addEventListener("studio-close-orchestrator", onClose);
+
+    return () => {
+      window.removeEventListener("studio-toggle-orchestrator", onToggle);
+      window.removeEventListener("studio-open-orchestrator", onOpen);
+      window.removeEventListener("studio-close-orchestrator", onClose);
+    };
+  }, [setOpen]);
 
   useEffect(() => {
     try {
@@ -719,12 +743,10 @@ export function OrchestratorPanel({ projectId }: Props) {
   return (
     <div
       className={cn(
-        "absolute z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0e]/98 shadow-2xl backdrop-blur transition-all duration-200",
-        open && expanded
-          ? "inset-x-0 bottom-0 top-[158px] rounded-t-xl border-x-0 border-b-0"
-          : open
-            ? "inset-x-0 bottom-0 h-72 rounded-none border-x-0 border-b-0"
-            : "inset-x-0 bottom-0 h-10 rounded-none border-x-0 border-b-0",
+        "absolute inset-x-0 bottom-0 z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0e]/98 shadow-2xl backdrop-blur transition-all duration-300 ease-in-out",
+        !open && "pointer-events-none translate-y-full opacity-0 invisible h-0 border-transparent",
+        open && expanded && "top-[158px] rounded-t-xl border-x-0 border-b-0 opacity-100 translate-y-0 visible",
+        open && !expanded && "h-72 rounded-none border-x-0 border-b-0 opacity-100 translate-y-0 visible",
       )}
     >
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3 bg-white/[0.02]">
@@ -735,12 +757,12 @@ export function OrchestratorPanel({ projectId }: Props) {
           </div>
           <div className="flex items-center gap-1.5">
             <span className="font-semibold text-white/95 text-xs tracking-wide">Оркестратор</span>
-            <span className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.2 text-[9px] font-mono text-cyan-300">
+            <span className="rounded-full bg-purple-500/15 border border-purple-500/30 px-2 py-0.2 text-[9px] font-mono text-purple-300">
               AI Director
             </span>
           </div>
           {isStreaming || busy ? (
-            <span className="truncate text-cyan-400/80 hidden sm:inline ml-1">
+            <span className="truncate text-purple-300/80 hidden sm:inline ml-1">
               {isStreaming
                 ? `${streamingPhase || "Печатает ответ…"} (${elapsedSec}с)`
                 : `Анализирует… (${elapsedSec}с)`}
@@ -793,10 +815,10 @@ export function OrchestratorPanel({ projectId }: Props) {
           size="sm"
           variant="ghost"
           className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white"
-          onClick={onToggleOpen}
-          title={open ? "Свернуть панель" : "Открыть панель"}
+          onClick={() => setOpen(false)}
+          title="Скрыть панель (открыть можно из левой панели)"
         >
-          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+          <ChevronDown className="h-4 w-4" />
         </Button>
       </div>
 
@@ -825,9 +847,9 @@ export function OrchestratorPanel({ projectId }: Props) {
                   size="sm"
                   disabled={projectId == null || busy || isStreaming}
                   onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                  className="h-7 gap-1.5 rounded-full border border-cyan-500/40 bg-gradient-to-r from-cyan-950/60 to-slate-900/80 px-3.5 text-xs font-medium text-cyan-200 hover:bg-cyan-500/25 hover:text-white hover:border-cyan-400 shadow-md shadow-cyan-950/40 transition-all active:scale-95"
+                  className="h-7 gap-1.5 rounded-full border border-purple-500/40 bg-gradient-to-r from-purple-950/60 to-slate-900/80 px-3.5 text-xs font-medium text-purple-200 hover:bg-purple-500/25 hover:text-white hover:border-purple-400 shadow-md shadow-purple-950/40 transition-all active:scale-95"
                 >
-                  <Settings className="h-3 w-3 text-cyan-400" />
+                  <Settings className="h-3 w-3 text-purple-400" />
                   <span>⚙️ Покажи доступные действия</span>
                 </Button>
               </div>
@@ -867,10 +889,10 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-gradient-to-b from-[#161722]/98 to-[#111218]/98 border border-white/[0.12] p-4 shadow-xl backdrop-blur-md">
                     <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-cyan-100 to-white/90 bg-clip-text text-transparent">
+                        <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-purple-100 to-white/90 bg-clip-text text-transparent">
                           Оркестратор
                         </span>
-                        <span className="rounded-full bg-cyan-500/10 border border-cyan-500/25 px-2 py-0.2 text-[9px] text-cyan-300 font-mono">
+                        <span className="rounded-full bg-purple-500/10 border border-purple-500/25 px-2 py-0.2 text-[9px] text-purple-300 font-mono">
                           AI Director
                         </span>
                       </div>
@@ -1132,10 +1154,10 @@ export function OrchestratorPanel({ projectId }: Props) {
                 type="button"
                 disabled={projectId == null || busy || isStreaming}
                 onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/35 bg-cyan-950/40 px-3 py-1 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/25 hover:text-white hover:border-cyan-400 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
+                className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/35 bg-purple-950/40 px-3 py-1 text-[11px] font-medium text-purple-200 hover:bg-purple-500/25 hover:text-white hover:border-purple-400 transition-all shadow-sm active:scale-95 disabled:opacity-40 disabled:pointer-events-none"
                 title="Показать, какие шаги и операции сейчас доступны для проекта"
               >
-                <Settings className="h-3 w-3 text-cyan-400" />
+                <Settings className="h-3 w-3 text-purple-400" />
                 <span>⚙️ Покажи доступные действия</span>
               </button>
             </div>
