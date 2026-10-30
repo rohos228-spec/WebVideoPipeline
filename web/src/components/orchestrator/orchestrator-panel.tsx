@@ -719,7 +719,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               setStreamingText((prev) => (prev ?? "") + delta);
             },
             onPhase: (_phase, detail) => {
-              setStreamingPhase(detail || "ИИ-агент печатает ответ…");
+              setStreamingPhase(detail || "Я думаю, пожалуйста, подождите…");
             },
             onDone: (result) => {
               streamFinished = true;
@@ -1426,7 +1426,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           {isStreaming || busy ? (
             <span className="truncate text-emerald-300/80 hidden sm:inline ml-1 text-[11px]">
               {isStreaming
-                ? `${streamingPhase || "ИИ-агент печатает ответ…"} (${elapsedSec}с)`
+                ? `${streamingPhase || "Я думаю, пожалуйста, подождите…"} (${elapsedSec}с)`
                 : `ИИ-агент думает… (${elapsedSec}с)`}
             </span>
           ) : null}
@@ -1778,7 +1778,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                     <div className="flex items-center gap-2 text-xs font-medium text-emerald-300">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                      <span>{streamingPhase || "Печатает ответ…"}</span>
+                      <span>{streamingPhase || "Я думаю, пожалуйста, подождите…"}</span>
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
                   </div>
@@ -1857,7 +1857,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                   projectId == null
                     ? "Сначала открой проект"
                     : isStreaming
-                      ? "ИИ-агент печатает ответ… жми Отмена для остановки"
+                      ? "Я думаю, пожалуйста, подождите… жми Отмена для остановки"
                       : busy
                         ? "ИИ-агент думает… жми Отмена"
                         : "Введите сообщение или задачу..."

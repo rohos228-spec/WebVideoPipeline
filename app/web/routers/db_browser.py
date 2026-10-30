@@ -2636,7 +2636,7 @@ async def orchestrator_chat_stream(
                 if delta:
                     await queue.put(("delta", delta))
 
-            yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'detail': 'Оркестратор печатает ответ…'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'detail': 'Я думаю, пожалуйста, подождите…'}, ensure_ascii=False)}\n\n"
 
             async def _runner() -> None:
                 with tenant_scope(captured_tenant):
