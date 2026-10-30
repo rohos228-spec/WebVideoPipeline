@@ -1611,13 +1611,6 @@ export function OrchestratorPanel({ projectId }: Props) {
                 · «{currentSession?.title || "Основной чат"}»
               </span>
             </div>
-            {isStreaming || busy ? (
-              <span className="truncate text-emerald-300/80 hidden sm:inline ml-1 text-[11px]">
-                {isStreaming
-                  ? `${streamingPhase || "Я думаю, пожалуйста, подождите…"} (${elapsedSec}с)`
-                  : `ИИ-агент думает… (${elapsedSec}с)`}
-              </span>
-            ) : null}
           </div>
 
         {busy || isStreaming ? (
