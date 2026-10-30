@@ -1496,12 +1496,13 @@ export function OrchestratorPanel({ projectId }: Props) {
                 <Button
                   type="button"
                   size="sm"
+                  variant="outline"
                   disabled={projectId == null || busy || isStreaming}
                   onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                  className="h-7 gap-1.5 rounded-full border border-emerald-500/40 bg-gradient-to-r from-emerald-950/60 to-slate-900/80 px-3.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/25 hover:text-white hover:border-emerald-400 shadow-md shadow-emerald-950/40 transition-all active:scale-95"
+                  className="h-7 gap-1.5 rounded-full border border-white/20 hover:border-emerald-400/60 bg-transparent hover:bg-white/[0.06] px-3.5 text-xs font-medium text-white/80 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
                 >
-                  <Settings className="h-3 w-3 text-emerald-400" />
-                  <span>⚙️ Покажи доступные действия</span>
+                  <Settings className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>Покажи доступные действия</span>
                 </Button>
               </div>
             ) : null}
@@ -1861,7 +1862,8 @@ export function OrchestratorPanel({ projectId }: Props) {
                         ? "ИИ-агент думает… жми Отмена"
                         : "Введите сообщение или задачу..."
                 }
-                className="w-full resize-none bg-transparent px-1 text-xs text-white placeholder:text-white/35 focus:outline-none min-h-[28px] max-h-36 leading-relaxed"
+                style={{ outline: "none", boxShadow: "none" }}
+                className="w-full resize-none bg-transparent px-1 text-xs text-white placeholder:text-white/35 outline-none border-none focus:outline-none focus:border-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 min-h-[28px] max-h-36 leading-relaxed"
               />
 
               {/* Controls bar (matches reference screenshot 2) */}

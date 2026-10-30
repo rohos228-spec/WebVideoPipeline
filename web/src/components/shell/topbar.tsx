@@ -134,7 +134,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
                 <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
               </div>
               <div className="mb-3 text-[13px] text-zinc-500">Текстовая модель</div>
-              <TextLlmPicker />
+              <TextLlmPicker className="w-full h-8" side="bottom" align="start" />
               <div className="mt-3 flex items-center gap-2 text-[13px] text-zinc-500">Версия <StudioVersionBadge /></div>
             </div>
           ) : null}
