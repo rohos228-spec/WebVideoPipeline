@@ -1050,29 +1050,24 @@ export function OrchestratorPanel({ projectId }: Props) {
         <>
           <div
             onMouseDown={(e) => startResize("e", e)}
-            className="absolute top-0 right-0 w-2 h-full cursor-ew-resize hover:bg-purple-500/30 transition-colors z-20"
-            title="Потяните для изменения ширины"
+            className="absolute top-0 right-0 w-2 h-full cursor-ew-resize z-20"
           />
           <div
             onMouseDown={(e) => startResize("w", e)}
-            className="absolute top-0 left-0 w-2 h-full cursor-ew-resize hover:bg-purple-500/30 transition-colors z-20"
-            title="Потяните для изменения ширины"
+            className="absolute top-0 left-0 w-2 h-full cursor-ew-resize z-20"
           />
           <div
             onMouseDown={(e) => startResize("s", e)}
-            className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize hover:bg-purple-500/30 transition-colors z-20"
-            title="Потяните для изменения высоты"
+            className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize z-20"
           />
           <div
             onMouseDown={(e) => startResize("n", e)}
-            className="absolute top-0 left-0 w-full h-2 cursor-ns-resize hover:bg-purple-500/30 transition-colors z-20"
-            title="Потяните для изменения высоты"
+            className="absolute top-0 left-0 w-full h-2 cursor-ns-resize z-20"
           />
 
           <div
             onMouseDown={(e) => startResize("se", e)}
             className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-30"
-            title="Потяните за угол для изменения размера"
           />
           <div
             onMouseDown={(e) => startResize("sw", e)}
