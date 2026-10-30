@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -209,12 +210,75 @@ export function OrchestratorPanel({ projectId }: Props) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // Ключ хранения для активного чата (default использует legacy-ключ для 100% совместимости)
-  const storageKey =
-    activeSessionId === "default"
-      ? `vp-orchestrator-log-${projectId ?? "none"}`
-      : `vp-orchestrator-log-${projectId ?? "none"}-${activeSessionId}`;
-  const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
+  // Хранилище всех логов чатов по проекту в единой структуре
+  const allLogsKey = `vp-ai-agent-all-logs-${projectId ?? "none"}`;
+  const [chatLogsMap, setChatLogsMap] = usePersistedState<Record<string, ChatMsg[]>>(allLogsKey, {});
+
+  // Инициализация/миграция логов из старых ключей при первом рендере
+  useEffect(() => {
+    setChatLogsMap((prev) => {
+      let changed = false;
+      const updated = { ...prev };
+
+      // Миграция default (основного чата)
+      const defKey = `vp-orchestrator-log-${projectId ?? "none"}`;
+      if (!updated["default"] || updated["default"].length === 0) {
+        try {
+          const raw = localStorage.getItem(defKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              updated["default"] = parsed;
+              changed = true;
+            }
+          }
+        } catch {}
+      }
+
+      // Миграция остальных сессий
+      for (const s of sessions || []) {
+        if (!updated[s.id] || updated[s.id].length === 0) {
+          const sKey = s.id === "default" ? defKey : `vp-orchestrator-log-${projectId ?? "none"}-${s.id}`;
+          try {
+            const raw = localStorage.getItem(sKey);
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                updated[s.id] = parsed;
+                changed = true;
+              }
+            }
+          } catch {}
+        }
+      }
+
+      return changed ? updated : prev;
+    });
+  }, [projectId, sessions, setChatLogsMap]);
+
+  const chatLog: ChatMsg[] = useMemo(() => {
+    return chatLogsMap[activeSessionId] || [];
+  }, [chatLogsMap, activeSessionId]);
+
+  const setChatLog = useCallback(
+    (next: ChatMsg[] | ((prev: ChatMsg[]) => ChatMsg[])) => {
+      setChatLogsMap((prev) => {
+        const currentList = prev[activeSessionId] || [];
+        const resolved = typeof next === "function" ? next(currentList) : next;
+        const updated = { ...prev, [activeSessionId]: resolved };
+        try {
+          const key =
+            activeSessionId === "default"
+              ? `vp-orchestrator-log-${projectId ?? "none"}`
+              : `vp-orchestrator-log-${projectId ?? "none"}-${activeSessionId}`;
+          localStorage.setItem(key, JSON.stringify(resolved));
+        } catch {}
+        return updated;
+      });
+    },
+    [activeSessionId, projectId, setChatLogsMap],
+  );
+
   const [chatInput, setChatInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -243,27 +307,17 @@ export function OrchestratorPanel({ projectId }: Props) {
       updatedAt: Date.now(),
     };
     setSessions((prev) => [newSession, ...(prev || [])]);
+    setChatLogsMap((prev) => ({ ...prev, [newId]: [] }));
     setActiveSessionId(newId);
-    setChatLog([]);
     setIsChatsOpen(false);
-  }, [sessions, setSessions, setActiveSessionId, setChatLog]);
+  }, [sessions, setSessions, setChatLogsMap, setActiveSessionId]);
 
   const handleSwitchChat = useCallback(
     (id: string) => {
       setActiveSessionId(id);
-      const key =
-        id === "default"
-          ? `vp-orchestrator-log-${projectId ?? "none"}`
-          : `vp-orchestrator-log-${projectId ?? "none"}-${id}`;
-      try {
-        const raw = localStorage.getItem(key);
-        setChatLog(raw ? JSON.parse(raw) : []);
-      } catch {
-        setChatLog([]);
-      }
       setIsChatsOpen(false);
     },
-    [projectId, setActiveSessionId, setChatLog],
+    [setActiveSessionId],
   );
 
   const handleDeleteChat = useCallback(
@@ -278,6 +332,12 @@ export function OrchestratorPanel({ projectId }: Props) {
         localStorage.removeItem(key);
       } catch {}
 
+      setChatLogsMap((prev) => {
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
+
       if (remaining.length === 0) {
         const def: ChatSession = {
           id: "default",
@@ -287,15 +347,14 @@ export function OrchestratorPanel({ projectId }: Props) {
         };
         setSessions([def]);
         setActiveSessionId("default");
-        setChatLog([]);
       } else {
         setSessions(remaining);
         if (activeSessionId === id) {
-          handleSwitchChat(remaining[0].id);
+          setActiveSessionId(remaining[0].id);
         }
       }
     },
-    [sessions, setSessions, activeSessionId, projectId, handleSwitchChat, setChatLog],
+    [sessions, setSessions, activeSessionId, projectId, setActiveSessionId, setChatLogsMap],
   );
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -415,16 +474,6 @@ export function OrchestratorPanel({ projectId }: Props) {
       });
     }
   }, [setRect]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      setChatLog(raw ? JSON.parse(raw) : []);
-    } catch {
-      setChatLog([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey]);
 
   useEffect(() => {
     if (isStreaming || busy) {
