@@ -16,6 +16,7 @@ import {
   Clapperboard,
   Copy,
   GitBranch,
+  GripHorizontal,
   Loader2,
   Maximize2,
   Minimize2,
@@ -154,9 +155,24 @@ function OrchestratorAvatar({
   );
 }
 
+interface WindowRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const DEFAULT_RECT: WindowRect = {
+  x: 72,
+  y: 150,
+  width: 550,
+  height: 640,
+};
+
 export function OrchestratorPanel({ projectId }: Props) {
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
-  const [expanded, setExpanded] = usePersistedState("vp-orchestrator-expanded", true);
+  const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
+  const [isMaximized, setIsMaximized] = useState(false);
   const storageKey = `vp-orchestrator-log-${projectId ?? "none"}`;
   const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
   const [chatInput, setChatInput] = useState("");
@@ -181,16 +197,8 @@ export function OrchestratorPanel({ projectId }: Props) {
 
   // Слушатель событий переключения/открытия из левой панели (кнопка «ИИ-агент»)
   useEffect(() => {
-    const onToggle = () =>
-      setOpen((prev) => {
-        const next = !prev;
-        if (next) setExpanded(true);
-        return next;
-      });
-    const onOpen = () => {
-      setOpen(true);
-      setExpanded(true);
-    };
+    const onToggle = () => setOpen((prev) => !prev);
+    const onOpen = () => setOpen(true);
     const onClose = () => setOpen(false);
 
     window.addEventListener("studio-toggle-orchestrator", onToggle);
@@ -202,7 +210,26 @@ export function OrchestratorPanel({ projectId }: Props) {
       window.removeEventListener("studio-open-orchestrator", onOpen);
       window.removeEventListener("studio-close-orchestrator", onClose);
     };
-  }, [setOpen, setExpanded]);
+  }, [setOpen]);
+
+  // Проверка границ экрана при первом рендере
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setRect((prev) => {
+        const p = prev || DEFAULT_RECT;
+        const maxW = Math.min(p.width ?? DEFAULT_RECT.width, Math.max(380, window.innerWidth - 80));
+        const maxH = Math.min(p.height ?? DEFAULT_RECT.height, Math.max(340, window.innerHeight - 80));
+        const safeX = Math.max(0, Math.min(window.innerWidth - 120, p.x ?? DEFAULT_RECT.x));
+        const safeY = Math.max(0, Math.min(window.innerHeight - 80, p.y ?? DEFAULT_RECT.y));
+        return {
+          x: safeX,
+          y: safeY,
+          width: maxW,
+          height: maxH,
+        };
+      });
+    }
+  }, [setRect]);
 
   useEffect(() => {
     try {
@@ -499,27 +526,132 @@ export function OrchestratorPanel({ projectId }: Props) {
     await sendMessage(chatInput);
   }, [chatInput, sendMessage]);
 
-  const onToggleOpen = useCallback(
+  const onToggleMaximized = useCallback(
     (e: ReactMouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setOpen(!open);
+      setIsMaximized((prev) => !prev);
     },
-    [open, setOpen],
+    [],
   );
 
-  const onToggleExpanded = useCallback(
+  // Перетаскивание за заголовок (drag & move)
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef<{ mouseX: number; mouseY: number; startX: number; startY: number }>({
+    mouseX: 0,
+    mouseY: 0,
+    startX: 0,
+    startY: 0,
+  });
+
+  const onHeaderMouseDown = useCallback(
     (e: ReactMouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!open) {
-        setOpen(true);
-        setExpanded(true);
+      if ((e.target as HTMLElement).closest("button, input, select, textarea, [data-testid], [role]")) {
         return;
       }
-      setExpanded(!expanded);
+      if (isMaximized) return;
+      e.preventDefault();
+
+      isDraggingRef.current = true;
+      dragStartRef.current = {
+        mouseX: e.clientX,
+        mouseY: e.clientY,
+        startX: rect.x,
+        startY: rect.y,
+      };
+
+      const onMouseMove = (ev: MouseEvent) => {
+        if (!isDraggingRef.current) return;
+        const dx = ev.clientX - dragStartRef.current.mouseX;
+        const dy = ev.clientY - dragStartRef.current.mouseY;
+
+        const safeX = Math.max(0, Math.min(window.innerWidth - 120, dragStartRef.current.startX + dx));
+        const safeY = Math.max(0, Math.min(window.innerHeight - 80, dragStartRef.current.startY + dy));
+
+        setRect((prev) => ({
+          ...prev,
+          x: safeX,
+          y: safeY,
+        }));
+      };
+
+      const onMouseUp = () => {
+        isDraggingRef.current = false;
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
     },
-    [open, expanded, setOpen, setExpanded],
+    [isMaximized, rect.x, rect.y, setRect],
+  );
+
+  // Изменение размера окна (resizing) по 4 сторонам и 4 углам
+  type ResizeDirection = "e" | "w" | "s" | "n" | "se" | "sw" | "ne" | "nw";
+
+  const startResize = useCallback(
+    (dir: ResizeDirection, e: ReactMouseEvent) => {
+      if (isMaximized) return;
+      e.preventDefault();
+      e.stopPropagation();
+
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const initialRect = { ...rect };
+
+      const minW = 380;
+      const minH = 340;
+      const maxW = window.innerWidth - 10;
+      const maxH = window.innerHeight - 10;
+
+      const onMouseMove = (ev: MouseEvent) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+
+        let newW = initialRect.width;
+        let newH = initialRect.height;
+        let newX = initialRect.x;
+        let newY = initialRect.y;
+
+        if (dir.includes("e")) {
+          newW = Math.max(minW, Math.min(maxW - initialRect.x, initialRect.width + dx));
+        }
+        if (dir.includes("s")) {
+          newH = Math.max(minH, Math.min(maxH - initialRect.y, initialRect.height + dy));
+        }
+        if (dir.includes("w")) {
+          const potentialW = initialRect.width - dx;
+          if (potentialW >= minW) {
+            newW = potentialW;
+            newX = Math.max(0, initialRect.x + dx);
+          }
+        }
+        if (dir.includes("n")) {
+          const potentialH = initialRect.height - dy;
+          if (potentialH >= minH) {
+            newH = potentialH;
+            newY = Math.max(0, initialRect.y + dy);
+          }
+        }
+
+        setRect({
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH,
+        });
+      };
+
+      const onMouseUp = () => {
+        window.removeEventListener("mousemove", onMouseMove);
+        window.removeEventListener("mouseup", onMouseUp);
+      };
+
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    },
+    [isMaximized, rect, setRect],
   );
 
   const withConfirmResolved = useCallback(
@@ -749,29 +881,109 @@ export function OrchestratorPanel({ projectId }: Props) {
     [projectId, busy, setChatLog, withConfirmResolved],
   );
 
+  if (!open) return null;
+
   return (
     <div
+      style={
+        isMaximized
+          ? {
+              left: "64px",
+              top: 0,
+              width: "calc(100vw - 64px)",
+              height: "100vh",
+            }
+          : {
+              left: `${rect.x}px`,
+              top: `${rect.y}px`,
+              width: `${rect.width}px`,
+              height: `${rect.height}px`,
+            }
+      }
       className={cn(
-        "fixed left-[64px] right-0 z-50 flex flex-col bg-[#0c0c0e]/98 backdrop-blur-2xl border-l border-white/[0.08] shadow-2xl transition-all duration-300 ease-in-out",
-        !open && "pointer-events-none translate-y-full opacity-0 invisible h-0 border-transparent",
-        open && expanded && "top-0 bottom-0 opacity-100 translate-y-0 visible",
-        open && !expanded && "bottom-0 h-[440px] border-t border-white/[0.12] rounded-t-xl opacity-100 translate-y-0 visible",
+        "fixed z-50 flex flex-col bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-purple-500/20 overflow-hidden",
+        isMaximized ? "rounded-none border-l border-y-0 border-r-0" : "rounded-2xl animate-in fade-in zoom-in-95 duration-150",
       )}
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-white/[0.02]">
-        <div className="flex min-w-0 flex-1 items-center gap-2.5 px-0.5 text-[11px]">
-          <div className="relative">
+      {/* Ручки изменения размера (resizing handles) по всем 4 сторонам и 4 углам */}
+      {!isMaximized && (
+        <>
+          <div
+            onMouseDown={(e) => startResize("e", e)}
+            className="absolute top-0 right-0 w-2 h-full cursor-ew-resize hover:bg-purple-500/30 transition-colors z-20"
+            title="Потяните для изменения ширины"
+          />
+          <div
+            onMouseDown={(e) => startResize("w", e)}
+            className="absolute top-0 left-0 w-2 h-full cursor-ew-resize hover:bg-purple-500/30 transition-colors z-20"
+            title="Потяните для изменения ширины"
+          />
+          <div
+            onMouseDown={(e) => startResize("s", e)}
+            className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize hover:bg-purple-500/30 transition-colors z-20"
+            title="Потяните для изменения высоты"
+          />
+          <div
+            onMouseDown={(e) => startResize("n", e)}
+            className="absolute top-0 left-0 w-full h-2 cursor-ns-resize hover:bg-purple-500/30 transition-colors z-20"
+            title="Потяните для изменения высоты"
+          />
+
+          <div
+            onMouseDown={(e) => startResize("se", e)}
+            className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-30"
+            title="Потяните за угол для изменения размера"
+          />
+          <div
+            onMouseDown={(e) => startResize("sw", e)}
+            className="absolute bottom-0 left-0 w-5 h-5 cursor-nesw-resize z-30"
+          />
+          <div
+            onMouseDown={(e) => startResize("ne", e)}
+            className="absolute top-0 right-0 w-5 h-5 cursor-nesw-resize z-30"
+          />
+          <div
+            onMouseDown={(e) => startResize("nw", e)}
+            className="absolute top-0 left-0 w-5 h-5 cursor-nwse-resize z-30"
+          />
+
+          {/* Декоративный уголок-грип в нижнем правом углу */}
+          <div
+            onMouseDown={(e) => startResize("se", e)}
+            className="absolute bottom-1 right-1 w-3.5 h-3.5 cursor-nwse-resize z-30 flex items-center justify-center opacity-40 hover:opacity-100 transition-opacity pointer-events-auto"
+            title="Потяните за угол для изменения размера"
+          >
+            <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-white/60 rounded-br-sm" />
+          </div>
+        </>
+      )}
+
+      {/* Заголовок окна (drag handle для перемещения) */}
+      <div
+        onMouseDown={onHeaderMouseDown}
+        className={cn(
+          "flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-gradient-to-r from-purple-950/40 via-black/50 to-black/50 select-none",
+          !isMaximized ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+        )}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 text-[11px]">
+          {!isMaximized && (
+            <span title="Потяните для перемещения окна" className="inline-flex items-center">
+              <GripHorizontal className="h-4 w-4 text-white/30 shrink-0" />
+            </span>
+          )}
+          <div className="relative shrink-0">
             <OrchestratorAvatar size="sm" pulse={isStreaming} />
             <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
           </div>
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
             <span className="rounded-full bg-purple-500/15 border border-purple-500/30 px-2 py-0.2 text-[9px] font-mono text-purple-300">
               AI Director
             </span>
           </div>
           {isStreaming || busy ? (
-            <span className="truncate text-purple-300/80 hidden sm:inline ml-1">
+            <span className="truncate text-purple-300/80 hidden sm:inline ml-1 text-[11px]">
               {isStreaming
                 ? `${streamingPhase || "ИИ-агент печатает ответ…"} (${elapsedSec}с)`
                 : `ИИ-агент думает… (${elapsedSec}с)`}
@@ -782,9 +994,10 @@ export function OrchestratorPanel({ projectId }: Props) {
         <div
           className="hidden min-w-0 shrink sm:block"
           onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
           data-testid="orch-text-llm-picker"
         >
-          <TextLlmPicker className="max-w-[220px]" />
+          <TextLlmPicker className="max-w-[200px]" />
         </div>
 
         {busy || isStreaming ? (
@@ -809,10 +1022,10 @@ export function OrchestratorPanel({ projectId }: Props) {
           size="sm"
           variant="ghost"
           className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white hover:bg-white/[0.08]"
-          onClick={onToggleExpanded}
-          title={expanded && open ? "Свернуть в компактный вид" : "Развернуть на весь экран"}
+          onClick={onToggleMaximized}
+          title={isMaximized ? "Восстановить плавающее окно" : "Развернуть на весь экран"}
         >
-          {expanded && open ? (
+          {isMaximized ? (
             <Minimize2 className="h-3.5 w-3.5" />
           ) : (
             <Maximize2 className="h-3.5 w-3.5" />
@@ -831,13 +1044,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         </Button>
       </div>
 
-      {open ? (
-        <div
-          className={cn(
-            "flex min-h-0 flex-1 flex-col",
-            expanded ? "min-h-0" : "h-[396px]",
-          )}
-        >
+      <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5 space-y-3.5">
             {chatLog.length === 0 && !isStreaming ? (
               <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-300">
@@ -1213,7 +1420,6 @@ export function OrchestratorPanel({ projectId }: Props) {
             </Button>
           </div>
         </div>
-      ) : null}
     </div>
   );
 }
