@@ -23,8 +23,8 @@ import {
   Maximize2,
   Minimize2,
   MessageSquare,
-  PanelLeftClose,
   Paperclip,
+  Pencil,
   Play,
   Plus,
   Send,
@@ -1365,14 +1365,6 @@ export function OrchestratorPanel({ projectId }: Props) {
             <Plus className="h-3 w-3" />
             <span>Новый</span>
           </button>
-          <button
-            type="button"
-            onClick={() => setIsChatsOpen(false)}
-            className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
-            title="Свернуть список чатов"
-          >
-            <PanelLeftClose className="h-3.5 w-3.5" />
-          </button>
         </div>
       </div>
 
@@ -1406,16 +1398,11 @@ export function OrchestratorPanel({ projectId }: Props) {
               )}
             >
               <div className="flex items-center justify-between gap-1.5">
-                <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                  <span
-                    className={cn(
-                      "h-2 w-2 rounded-full shrink-0 transition-all",
-                      isActive
-                        ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
-                        : "bg-white/20 group-hover:bg-white/40",
-                    )}
-                  />
-                  {isEditing ? (
+                {isEditing ? (
+                  <div
+                    className="flex items-center gap-1 w-full"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <input
                       // eslint-disable-next-line jsx-a11y/no-autofocus
                       autoFocus
@@ -1426,45 +1413,79 @@ export function OrchestratorPanel({ projectId }: Props) {
                         if (e.key === "Enter") handleSaveRename(s.id);
                         if (e.key === "Escape") setEditingSessionId(null);
                       }}
-                      onBlur={() => handleSaveRename(s.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="bg-black/80 border border-emerald-500/50 rounded px-1.5 py-0.5 text-xs text-white outline-none w-full"
+                      className="bg-black/90 border border-emerald-500/60 rounded px-1.5 py-0.5 text-xs text-white outline-none w-full ring-1 ring-emerald-500/30"
                     />
-                  ) : (
-                    <span
-                      onDoubleClick={(e) => handleStartRename(s, e)}
-                      title="Двойной клик для переименования"
-                      className="truncate text-xs font-medium"
-                    >
-                      {s.title}
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1 shrink-0">
-                  {isSessionThinking && (
-                    <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
-                  )}
-                  {hasUnresolved && !isSessionThinking && (
-                    <span
-                      className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"
-                      title="Требует решения"
-                    />
-                  )}
-                  <span className="text-[10px] text-white/40 font-mono">
-                    {msgCount}
-                  </span>
-                  {(sessions || []).length > 1 && (
                     <button
                       type="button"
-                      onClick={(e) => handleDeleteChat(s.id, e)}
-                      className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 p-0.5 rounded transition-all cursor-pointer"
-                      title="Удалить диалог"
+                      onClick={() => handleSaveRename(s.id)}
+                      className="p-1 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/20 rounded cursor-pointer shrink-0"
+                      title="Сохранить название"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Check className="h-3.5 w-3.5" />
                     </button>
-                  )}
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingSessionId(null)}
+                      className="p-1 text-white/40 hover:text-white hover:bg-white/[0.08] rounded cursor-pointer shrink-0"
+                      title="Отмена"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full shrink-0 transition-all",
+                          isActive
+                            ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+                            : "bg-white/20 group-hover:bg-white/40",
+                        )}
+                      />
+                      <span
+                        onDoubleClick={(e) => handleStartRename(s, e)}
+                        title="Нажмите на карандаш или дважды кликните для переименования"
+                        className="truncate text-xs font-medium"
+                      >
+                        {s.title}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleStartRename(s, e)}
+                        className="opacity-0 group-hover:opacity-100 text-white/35 hover:text-emerald-300 p-0.5 rounded transition-all cursor-pointer shrink-0"
+                        title="Переименовать диалог"
+                      >
+                        <Pencil className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      {isSessionThinking && (
+                        <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
+                      )}
+                      {hasUnresolved && !isSessionThinking && (
+                        <span
+                          className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"
+                          title="Требует решения"
+                        />
+                      )}
+                      <span className="text-[10px] text-white/40 font-mono">
+                        {msgCount}
+                      </span>
+                      {(sessions || []).length > 1 && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteChat(s.id, e)}
+                          className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 p-0.5 rounded transition-all cursor-pointer"
+                          title="Удалить диалог"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Snippet preview */}
@@ -1474,12 +1495,6 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
           );
         })}
-      </div>
-
-      {/* Нижняя информационная плашка */}
-      <div className="border-t border-white/[0.08] px-3 py-2 bg-black/40 flex items-center justify-between text-[10px] text-white/40">
-        <span>Мультиагентный режим</span>
-        <span className="text-emerald-400/80 font-mono">Онлайн</span>
       </div>
     </div>
   );
@@ -1604,12 +1619,51 @@ export function OrchestratorPanel({ projectId }: Props) {
               <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300">
                 AI Director
               </span>
-              <span
-                className="text-[11px] text-white/40 font-normal truncate max-w-[140px] hidden sm:inline"
-                title={currentSession?.title}
-              >
-                · «{currentSession?.title || "Основной чат"}»
-              </span>
+              {editingSessionId === currentSession?.id ? (
+                <div
+                  className="flex items-center gap-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    // eslint-disable-next-line jsx-a11y/no-autofocus
+                    autoFocus
+                    type="text"
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && currentSession) handleSaveRename(currentSession.id);
+                      if (e.key === "Escape") setEditingSessionId(null);
+                    }}
+                    className="bg-black/90 border border-emerald-500/60 rounded px-1.5 py-0.5 text-[11px] text-white outline-none w-28 sm:w-36 ring-1 ring-emerald-500/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => currentSession && handleSaveRename(currentSession.id)}
+                    className="p-0.5 text-emerald-400 hover:text-emerald-300 rounded cursor-pointer shrink-0"
+                    title="Сохранить"
+                  >
+                    <Check className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingSessionId(null)}
+                    className="p-0.5 text-white/40 hover:text-white rounded cursor-pointer shrink-0"
+                    title="Отмена"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => currentSession && handleStartRename(currentSession, e)}
+                  className="group/rename inline-flex items-center gap-1 text-[11px] text-white/40 hover:text-white/80 transition-colors truncate max-w-[150px] cursor-pointer"
+                  title="Нажмите, чтобы переименовать диалог"
+                >
+                  <span className="truncate">· «{currentSession?.title || "Основной чат"}»</span>
+                  <Pencil className="h-2.5 w-2.5 opacity-0 group-hover/rename:opacity-100 text-white/50 shrink-0" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1979,19 +2033,6 @@ export function OrchestratorPanel({ projectId }: Props) {
             )}
             <div ref={messagesEndRef} />
           </div>
-
-          {chatLog.length > 0 && (
-            <div className="flex items-center justify-end px-3.5 pt-1.5 pb-1 border-t border-white/[0.08] bg-black/30">
-              <button
-                type="button"
-                onClick={() => setChatLog([])}
-                className="text-[10px] text-white/35 hover:text-white/70 transition-colors cursor-pointer"
-                title="Очистить историю диалога"
-              >
-                Очистить чат
-              </button>
-            </div>
-          )}
 
           {/* Bottom input card styled after reference */}
           <div className="shrink-0 p-3 pt-1.5 bg-[#0c0c0e]/95 border-t border-white/[0.08]">
