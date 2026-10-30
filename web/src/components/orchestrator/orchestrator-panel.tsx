@@ -26,6 +26,7 @@ import {
   Square,
   Trash2,
   User,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, type DbOrchestratorChatResult } from "@/lib/api";
@@ -142,7 +143,7 @@ function OrchestratorAvatar({
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src="/orchestrator-avatar.jpg"
-          alt="Оркестратор"
+          alt="ИИ-агент"
           className="h-full w-full object-cover rounded-full"
           onError={() => setImgError(true)}
         />
@@ -155,7 +156,7 @@ function OrchestratorAvatar({
 
 export function OrchestratorPanel({ projectId }: Props) {
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
-  const [expanded, setExpanded] = usePersistedState("vp-orchestrator-expanded", false);
+  const [expanded, setExpanded] = usePersistedState("vp-orchestrator-expanded", true);
   const storageKey = `vp-orchestrator-log-${projectId ?? "none"}`;
   const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
   const [chatInput, setChatInput] = useState("");
@@ -178,10 +179,18 @@ export function OrchestratorPanel({ projectId }: Props) {
     );
   }, [open]);
 
-  // Слушатель событий переключения/открытия из левой панели (кнопка «Оркестратор»)
+  // Слушатель событий переключения/открытия из левой панели (кнопка «ИИ-агент»)
   useEffect(() => {
-    const onToggle = () => setOpen((prev) => !prev);
-    const onOpen = () => setOpen(true);
+    const onToggle = () =>
+      setOpen((prev) => {
+        const next = !prev;
+        if (next) setExpanded(true);
+        return next;
+      });
+    const onOpen = () => {
+      setOpen(true);
+      setExpanded(true);
+    };
     const onClose = () => setOpen(false);
 
     window.addEventListener("studio-toggle-orchestrator", onToggle);
@@ -193,7 +202,7 @@ export function OrchestratorPanel({ projectId }: Props) {
       window.removeEventListener("studio-open-orchestrator", onOpen);
       window.removeEventListener("studio-close-orchestrator", onClose);
     };
-  }, [setOpen]);
+  }, [setOpen, setExpanded]);
 
   useEffect(() => {
     try {
@@ -411,7 +420,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               setStreamingText((prev) => (prev ?? "") + delta);
             },
             onPhase: (_phase, detail) => {
-              setStreamingPhase(detail || "Оркестратор печатает ответ…");
+              setStreamingPhase(detail || "ИИ-агент печатает ответ…");
             },
             onDone: (result) => {
               streamFinished = true;
@@ -726,7 +735,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             role: "assistant",
             content:
               status === 404
-                ? `План #${planId} не найден на сервере (устарел) — попроси оркестратор построить план заново.`
+                ? `План #${planId} не найден на сервере (устарел) — попроси ИИ-агента построить план заново.`
                 : status === 401
                   ? "Сессия истекла или требуется авторизация в студии."
                   : `Ошибка запуска плана: ${e instanceof Error ? e.message : e}`,
@@ -743,20 +752,20 @@ export function OrchestratorPanel({ projectId }: Props) {
   return (
     <div
       className={cn(
-        "absolute inset-x-0 bottom-0 z-40 flex flex-col border border-white/[0.1] bg-[#0c0c0e]/98 shadow-2xl backdrop-blur transition-all duration-300 ease-in-out",
+        "fixed left-[64px] right-0 z-50 flex flex-col bg-[#0c0c0e]/98 backdrop-blur-2xl border-l border-white/[0.08] shadow-2xl transition-all duration-300 ease-in-out",
         !open && "pointer-events-none translate-y-full opacity-0 invisible h-0 border-transparent",
-        open && expanded && "top-[158px] rounded-t-xl border-x-0 border-b-0 opacity-100 translate-y-0 visible",
-        open && !expanded && "h-72 rounded-none border-x-0 border-b-0 opacity-100 translate-y-0 visible",
+        open && expanded && "top-0 bottom-0 opacity-100 translate-y-0 visible",
+        open && !expanded && "bottom-0 h-[440px] border-t border-white/[0.12] rounded-t-xl opacity-100 translate-y-0 visible",
       )}
     >
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3 bg-white/[0.02]">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-white/[0.02]">
         <div className="flex min-w-0 flex-1 items-center gap-2.5 px-0.5 text-[11px]">
           <div className="relative">
             <OrchestratorAvatar size="sm" pulse={isStreaming} />
             <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="font-semibold text-white/95 text-xs tracking-wide">Оркестратор</span>
+            <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
             <span className="rounded-full bg-purple-500/15 border border-purple-500/30 px-2 py-0.2 text-[9px] font-mono text-purple-300">
               AI Director
             </span>
@@ -764,8 +773,8 @@ export function OrchestratorPanel({ projectId }: Props) {
           {isStreaming || busy ? (
             <span className="truncate text-purple-300/80 hidden sm:inline ml-1">
               {isStreaming
-                ? `${streamingPhase || "Печатает ответ…"} (${elapsedSec}с)`
-                : `Анализирует… (${elapsedSec}с)`}
+                ? `${streamingPhase || "ИИ-агент печатает ответ…"} (${elapsedSec}с)`
+                : `ИИ-агент думает… (${elapsedSec}с)`}
             </span>
           ) : null}
         </div>
@@ -799,9 +808,9 @@ export function OrchestratorPanel({ projectId }: Props) {
           type="button"
           size="sm"
           variant="ghost"
-          className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white"
+          className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white hover:bg-white/[0.08]"
           onClick={onToggleExpanded}
-          title={expanded && open ? "Меньше окно" : "Большое окно"}
+          title={expanded && open ? "Свернуть в компактный вид" : "Развернуть на весь экран"}
         >
           {expanded && open ? (
             <Minimize2 className="h-3.5 w-3.5" />
@@ -814,11 +823,11 @@ export function OrchestratorPanel({ projectId }: Props) {
           type="button"
           size="sm"
           variant="ghost"
-          className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white"
+          className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white hover:bg-white/[0.08]"
           onClick={() => setOpen(false)}
-          title="Скрыть панель (открыть можно из левой панели)"
+          title="Скрыть окно (открыть можно из левой панели)"
         >
-          <ChevronDown className="h-4 w-4" />
+          <X className="h-4 w-4" />
         </Button>
       </div>
 
@@ -826,7 +835,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         <div
           className={cn(
             "flex min-h-0 flex-1 flex-col",
-            expanded ? "min-h-0" : "h-72",
+            expanded ? "min-h-0" : "h-[396px]",
           )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5 space-y-3.5">
@@ -837,7 +846,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full bg-emerald-400 border-2 border-[#0c0c0e] shadow-[0_0_8px_#34d399]" />
                 </div>
                 <h4 className="text-xs font-semibold text-white tracking-wide mb-1">
-                  ИИ-Оркестратор видеостудии
+                  ИИ-агент видеостудии
                 </h4>
                 <p className="text-[11px] text-white/45 max-w-sm mb-3.5 leading-relaxed">
                   Управление пайплайном, графом нод, генерацией и настройками проекта.
@@ -890,7 +899,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                     <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-purple-100 to-white/90 bg-clip-text text-transparent">
-                          Оркестратор
+                          ИИ-агент
                         </span>
                         <span className="rounded-full bg-purple-500/10 border border-purple-500/25 px-2 py-0.2 text-[9px] text-purple-300 font-mono">
                           AI Director
@@ -1122,10 +1131,10 @@ export function OrchestratorPanel({ projectId }: Props) {
             {isStreaming && (
               <div className="flex gap-3 max-w-4xl mx-auto w-full items-start animate-in fade-in duration-200">
                 <OrchestratorAvatar size="md" pulse />
-                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-cyan-500/35 p-4 shadow-xl backdrop-blur-xl">
+                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-purple-500/35 p-4 shadow-xl backdrop-blur-xl">
                   <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
-                    <div className="flex items-center gap-2 text-xs font-medium text-cyan-300">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
+                    <div className="flex items-center gap-2 text-xs font-medium text-purple-300">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
                       <span>{streamingPhase || "Печатает ответ…"}</span>
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
@@ -1133,12 +1142,12 @@ export function OrchestratorPanel({ projectId }: Props) {
                   {streamingText ? (
                     <div className="text-xs leading-relaxed text-white/90 space-y-2">
                       <MarkdownRenderer content={streamingText} />
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-cyan-400 animate-pulse align-middle" />
+                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-purple-400 animate-pulse align-middle" />
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
-                      <span className="inline-block h-2 w-2 rounded-full bg-cyan-400 animate-ping" />
-                      <span>Оркестратор формулирует ответ…</span>
+                      <span className="inline-block h-2 w-2 rounded-full bg-purple-400 animate-ping" />
+                      <span>ИИ-агент формулирует ответ…</span>
                     </div>
                   )}
                 </div>
@@ -1184,12 +1193,12 @@ export function OrchestratorPanel({ projectId }: Props) {
                 projectId == null
                   ? "сначала открой проект"
                   : isStreaming
-                    ? "оркестратор печатает ответ… жми Отмена для остановки"
+                    ? "ИИ-агент печатает ответ… жми Отмена для остановки"
                     : busy
-                      ? "оркестратор думает… жми Отмена"
+                      ? "ИИ-агент думает… жми Отмена"
                       : "Введите сообщение..."
               }
-              className="h-9 flex-1 rounded-xl border border-white/10 bg-black/60 px-3 text-xs text-white placeholder:text-white/30 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 disabled:opacity-40 transition-all"
+              className="h-9 flex-1 rounded-xl border border-white/10 bg-black/60 px-3 text-xs text-white placeholder:text-white/30 focus:border-purple-500/50 focus:outline-none focus:ring-1 focus:ring-purple-500/40 disabled:opacity-40 transition-all"
             />
             <Button
               type="button"
@@ -1197,7 +1206,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               variant="default"
               disabled={projectId == null || busy || isStreaming || !chatInput.trim()}
               onClick={() => void sendChat()}
-              className="h-9 gap-1.5 text-xs px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500 text-white shadow-md shadow-cyan-900/30 transition-all font-medium"
+              className="h-9 gap-1.5 text-xs px-4 rounded-xl bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-md shadow-purple-900/30 transition-all font-medium"
             >
               <Send className="h-3.5 w-3.5" />
               {isStreaming ? "…" : "Отправить"}

@@ -179,7 +179,7 @@ function AdminRailLink() {
   );
 }
 
-/** Кнопка «Оркестратор» в левой панели с эффектом пульсирующих фиолетовых круговых волн каждые 2 сек. */
+/** Кнопка «ИИ-агент» в левой панели с эффектом пульсирующих фиолетовых круговых волн каждые 2 сек. */
 function OrchestratorRailBtn({
   active,
   onClick,
@@ -193,7 +193,7 @@ function OrchestratorRailBtn({
     <button
       type="button"
       onClick={onClick}
-      title={active ? "Скрыть Оркестратор" : "Открыть Оркестратор (ИИ-режиссёр проекта)"}
+      title={active ? "Скрыть ИИ-агент" : "Открыть ИИ-агент"}
       className={cn(
         "group relative flex w-[62px] flex-col items-center gap-1.5 py-1.5 text-[11px] tracking-[-0.02em] transition-all rounded-md select-none",
         active
@@ -213,7 +213,7 @@ function OrchestratorRailBtn({
           aria-hidden="true"
         />
 
-        {/* Круглый аватар / иконка оркестратора */}
+        {/* Круглый аватар / иконка ИИ-агента */}
         <div
           className={cn(
             "relative z-10 flex h-[26px] w-[26px] items-center justify-center rounded-full overflow-hidden transition-all duration-200",
@@ -227,7 +227,7 @@ function OrchestratorRailBtn({
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src="/orchestrator-avatar.jpg"
-              alt="Оркестратор"
+              alt="ИИ-агент"
               className="h-full w-full object-cover rounded-full"
               onError={() => setImgError(true)}
             />
@@ -243,7 +243,7 @@ function OrchestratorRailBtn({
           active ? "text-purple-300 font-medium" : "text-zinc-400 group-hover:text-purple-200",
         )}
       >
-        Оркестратор
+        ИИ-агент
       </span>
     </button>
   );
