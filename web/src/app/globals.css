@@ -190,9 +190,17 @@ body {
   background: hsl(var(--accent));
 }
 .react-flow__minimap {
-  background: hsl(var(--card) / 0.9);
-  border: 1px solid hsl(0 0% 100% / 0.08);
-  border-radius: var(--radius-md);
+  background: #0c0c0e !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+}
+.react-flow__minimap-mask {
+  fill: rgba(0, 0, 0, 0.65) !important;
+  stroke: rgba(255, 255, 255, 0.4) !important;
+  stroke-width: 1.5 !important;
 }
 .react-flow__edge-path,
 .react-flow__edge .soft-thread-edge-path {
