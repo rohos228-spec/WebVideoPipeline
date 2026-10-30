@@ -2153,6 +2153,7 @@ class OrchestratorChatBody(BaseModel):
     history: list[dict] = Field(default_factory=list)
     # Кнопка «Фикс багов» в Studio — чинить, не только объяснить.
     fix_bugs: bool = False
+    auto_apply: bool = False
 
 
 async def _build_orchestrator_prompt(
@@ -2205,6 +2206,20 @@ async def _build_orchestrator_prompt(
                 else ""
             )
         )
+        + (
+            "\n\nВАЖНО: Если пользователь просит показать доступные действия, возможности или справку (например, «Покажи доступные действия»):\n"
+            "Описывай свои возможности обычным русским текстом. НИКОГДА не выводи в таком ответе сырые JSON-блоки вроде {\"ops\":[...]} или {\"actions\":[...]}\n"
+            "в качестве примеров, так как система парсит весь ответ и пытается исполнить найденный JSON как реальную команду в базе данных!\n"
+        )
+        + (
+            "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: АВТОНОМНЫЙ (АВТОМАТИЧЕСКИЙ).\n"
+            "Пользователь включил автоматический режим. Все действия, изменения темы/промтов/настроек, генерацию и запуск шагов выполняй сразу через JSON ops/actions без запроса подтверждения!"
+            if (getattr(body, "auto_apply", False) or "[РЕЖИМ: АВТОНОМНЫЙ" in body.message)
+            else (
+                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ.\n"
+                "Любые важные операции (удаление нод/проектов, push, запуск планов) предлагай пользователю и выводи подтверждение."
+            )
+        )
         + "\n\nПОЛЬЗОВАТЕЛЬ: "
         + body.message
     )
@@ -2225,9 +2240,19 @@ async def _execute_orchestrator_reply(
     ui_actions: list[dict] = []
     pending_confirm: list[dict] = []
     error = None
+    def _is_dummy_uuid(val: Any) -> bool:
+        s = str(val or "").strip()
+        return (
+            not s
+            or s in ("...", "…", "<uuid>", "uuid", "none", "null")
+            or s.startswith(("<", "...", "…"))
+            or ("uuid" in s.lower() and "<" in s)
+        )
+
     ops_data = db_apply.extract_apply_ops_json(reply or "")
     if ops_data:
-        ops = ops_data.get("ops") or []
+        raw_ops = ops_data.get("ops") or []
+        ops = [op for op in raw_ops if isinstance(op, dict) and not _is_dummy_uuid(op.get("frame_uuid"))]
         chars = ops_data.get("characters") or []
         scenes = ops_data.get("scenes") or []
         if ops or chars or scenes:
@@ -2243,7 +2268,10 @@ async def _execute_orchestrator_reply(
                 await commit_with_retry(session)
             except db_apply.ApplyOpsError as e:
                 await session.rollback()
-                error = str(e)
+                err_msg = str(e)
+                # Если в ошибке фигурируют заглушки '...' / '<...>', это был просто пример из текста
+                if not any(x in err_msg for x in ("'...' ", "['...']", "['…']", "<", ">")):
+                    error = err_msg
         raw_actions = list(ops_data.get("actions") or [])
 
         def _flatten_orchestrator_actions(items: list) -> list[dict]:
@@ -2626,7 +2654,7 @@ async def orchestrator_chat_stream(
                 if delta:
                     await queue.put(("delta", delta))
 
-            yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'detail': 'Оркестратор печатает ответ…'}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'detail': 'Я думаю, пожалуйста, подождите…'}, ensure_ascii=False)}\n\n"
 
             async def _runner() -> None:
                 with tenant_scope(captured_tenant):

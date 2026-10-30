@@ -99,7 +99,7 @@ function parseInlineFormatting(text: string): React.ReactNode[] {
       elements.push(
         <code
           key={key}
-          className="rounded-md border border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-mono text-[12px] font-medium text-[#22d3ee]"
+          className="rounded-md border border-white/15 bg-white/[0.06] px-1.5 py-0.5 font-mono text-[11px] font-medium text-[#22d3ee] break-all break-words [overflow-wrap:anywhere]"
         >
           {token.slice(1, -1)}
         </code>
@@ -291,9 +291,9 @@ export function MarkdownRenderer({ content }: { content: string }) {
     if (/^\s*[-*•]\s+/.test(line)) {
       const content = line.replace(/^\s*[-*•]\s+/, "");
       nodes.push(
-        <div key={i} className="my-1 flex items-start gap-2 text-xs leading-relaxed text-white/90">
+        <div key={i} className="my-1 flex items-start gap-2 text-xs leading-relaxed text-white/90 min-w-0">
           <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#22d3ee]" />
-          <div className="flex-1">{parseInlineFormatting(content)}</div>
+          <div className="flex-1 min-w-0 break-words [overflow-wrap:anywhere]">{parseInlineFormatting(content)}</div>
         </div>
       );
       continue;
@@ -304,11 +304,11 @@ export function MarkdownRenderer({ content }: { content: string }) {
       const match = line.match(/^\s*(\d+)\.\s+(.*)$/);
       if (match) {
         nodes.push(
-          <div key={i} className="my-1 flex items-start gap-2 text-xs leading-relaxed text-white/90">
-            <span className="font-mono text-[11px] font-semibold text-[#22d3ee]">
+          <div key={i} className="my-1 flex items-start gap-2 text-xs leading-relaxed text-white/90 min-w-0">
+            <span className="font-mono text-[11px] font-semibold text-[#22d3ee] shrink-0">
               {match[1]}.
             </span>
-            <div className="flex-1">{parseInlineFormatting(match[2])}</div>
+            <div className="flex-1 min-w-0 break-words [overflow-wrap:anywhere]">{parseInlineFormatting(match[2])}</div>
           </div>
         );
         continue;
@@ -323,7 +323,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
 
     // Regular paragraph
     nodes.push(
-      <p key={i} className="my-1 text-xs leading-relaxed text-white/90 selection:bg-[#22d3ee]/30">
+      <p key={i} className="my-1 text-xs leading-relaxed text-white/90 break-words [overflow-wrap:anywhere] selection:bg-[#22d3ee]/30">
         {parseInlineFormatting(line)}
       </p>
     );
@@ -342,5 +342,5 @@ export function MarkdownRenderer({ content }: { content: string }) {
     flushTable("table-unfinished");
   }
 
-  return <div className="space-y-0.5">{nodes}</div>;
+  return <div className="space-y-0.5 max-w-full overflow-hidden break-words [overflow-wrap:anywhere]">{nodes}</div>;
 }

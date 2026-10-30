@@ -134,7 +134,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
                 <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
               </div>
               <div className="mb-3 text-[13px] text-zinc-500">Текстовая модель</div>
-              <TextLlmPicker />
+              <TextLlmPicker className="w-full h-8" side="bottom" align="start" />
               <div className="mt-3 flex items-center gap-2 text-[13px] text-zinc-500">Версия <StudioVersionBadge /></div>
             </div>
           ) : null}
@@ -179,7 +179,7 @@ function AdminRailLink() {
   );
 }
 
-/** Кнопка «ИИ-агент» в левой панели с эффектом пульсирующих фиолетовых круговых волн каждые 2 сек. */
+/** Кнопка «ИИ-агент» в левой панели с эффектом пульсирующих изумрудных круговых волн каждые 2 сек. */
 function OrchestratorRailBtn({
   active,
   onClick,
@@ -197,19 +197,19 @@ function OrchestratorRailBtn({
       className={cn(
         "group relative flex w-[62px] flex-col items-center gap-1.5 py-1.5 text-[11px] tracking-[-0.02em] transition-all rounded-md select-none",
         active
-          ? "text-purple-300 bg-purple-500/10"
-          : "text-zinc-400 hover:text-purple-200 hover:bg-white/[0.05]",
+          ? "text-emerald-300 bg-emerald-500/10"
+          : "text-zinc-400 hover:text-emerald-200 hover:bg-white/[0.05]",
       )}
     >
-      {/* Контейнер иконки с эффектом расходящихся фиолетовых волн */}
+      {/* Контейнер иконки с эффектом расходящихся изумрудных волн */}
       <div className="relative flex h-7 w-7 items-center justify-center">
-        {/* Круговые фиолетовые волны пульсации раз в 2 сек */}
+        {/* Круговые изумрудные волны пульсации раз в 2 сек */}
         <span
-          className="absolute inset-0 rounded-full border border-purple-500/60 pointer-events-none animate-orch-wave"
+          className="absolute inset-0 rounded-full border border-emerald-500/60 pointer-events-none animate-orch-wave"
           aria-hidden="true"
         />
         <span
-          className="absolute inset-0 rounded-full border border-fuchsia-400/40 pointer-events-none animate-orch-wave-delayed"
+          className="absolute inset-0 rounded-full border border-teal-400/40 pointer-events-none animate-orch-wave-delayed"
           aria-hidden="true"
         />
 
@@ -217,10 +217,10 @@ function OrchestratorRailBtn({
         <div
           className={cn(
             "relative z-10 flex h-[26px] w-[26px] items-center justify-center rounded-full overflow-hidden transition-all duration-200",
-            "border border-purple-400/50 bg-gradient-to-br from-[#1d1233] to-[#0c0a17]",
+            "border border-emerald-400/50 bg-gradient-to-br from-[#0c241e] to-[#081512]",
             active
-              ? "ring-2 ring-purple-400 ring-offset-1 ring-offset-[#0e0e10] shadow-[0_0_12px_rgba(168,85,247,0.7)]"
-              : "shadow-[0_0_8px_rgba(168,85,247,0.35)] group-hover:border-purple-300 group-hover:scale-105",
+              ? "ring-2 ring-emerald-400 ring-offset-1 ring-offset-[#0e0e10] shadow-[0_0_12px_rgba(16,185,129,0.7)]"
+              : "shadow-[0_0_8px_rgba(16,185,129,0.35)] group-hover:border-emerald-300 group-hover:scale-105",
           )}
         >
           {!imgError ? (
@@ -232,7 +232,7 @@ function OrchestratorRailBtn({
               onError={() => setImgError(true)}
             />
           ) : (
-            <Bot className="h-3.5 w-3.5 text-purple-300" />
+            <Bot className="h-3.5 w-3.5 text-emerald-300" />
           )}
         </div>
       </div>
@@ -240,7 +240,7 @@ function OrchestratorRailBtn({
       <span
         className={cn(
           "leading-none transition-colors",
-          active ? "text-purple-300 font-medium" : "text-zinc-400 group-hover:text-purple-200",
+          active ? "text-emerald-300 font-medium" : "text-zinc-400 group-hover:text-emerald-200",
         )}
       >
         ИИ-агент
