@@ -759,38 +759,6 @@ export function OrchestratorPanel({ projectId }: Props) {
           )}
         >
           <div className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3 space-y-3">
-            {chatLog.length === 0 && !isStreaming ? (
-              <div className="flex flex-col items-center justify-center py-6 text-center text-white/40">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.04] border border-white/10 text-primary mb-2.5">
-                  <Bot className="h-5 w-5" />
-                </div>
-                <p className="text-xs font-medium text-white/80 mb-1">Оркестратор видеостудии</p>
-                <p className="text-[11px] text-white/45 max-w-sm mb-4">
-                  Управляйте проектом голосом: придумывайте темы, запускайте шаги пайплайна и меняйте настройки.
-                </p>
-                <div className="flex flex-wrap justify-center gap-2 max-w-lg">
-                  {[
-                    "💡 Придумай тему ролика в стиле лофт",
-                    "🚀 Запусти генерацию сценария",
-                    "📊 Какой текущий статус проекта и нод?",
-                    "⚙️ Смени ориентацию видео на 16:9",
-                  ].map((suggestion, sIdx) => (
-                    <button
-                      key={sIdx}
-                      type="button"
-                      onClick={() => {
-                        setChatInput(suggestion.replace(/^[^a-zA-Zа-яА-ЯёЁ]+/, "").trim());
-                        inputRef.current?.focus();
-                      }}
-                      className="rounded-lg bg-white/[0.04] border border-white/[0.08] px-2.5 py-1 text-[11px] text-white/70 hover:bg-white/[0.08] hover:text-white transition-all text-left"
-                    >
-                      {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
             {chatLog.map((m, i) => {
               const isUser = m.role === "user";
 
@@ -1094,7 +1062,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                     ? "оркестратор печатает ответ… жми Отмена для остановки"
                     : busy
                       ? "оркестратор думает… жми Отмена"
-                      : "сообщение оркестратору (например: запусти шаг plan)..."
+                      : "сообщение оркестратору…"
               }
               className="h-9 flex-1 rounded-lg border border-white/10 bg-black/50 px-3 text-xs text-white placeholder:text-white/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40 transition-all"
             />
