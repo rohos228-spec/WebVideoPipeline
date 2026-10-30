@@ -50,7 +50,14 @@ export interface OrchClientConfig {
 export function readOrchToken(): string {
   if (typeof window === "undefined") return "";
   try {
-    return localStorage.getItem(ORCH_TOKEN_STORAGE_KEY) ?? "";
+    const raw = localStorage.getItem(ORCH_TOKEN_STORAGE_KEY) ?? "";
+    // Заголовки HTTP допускают только ASCII/ISO-8859-1. Невалидные символы (кириллица,
+    // спецсимволы) приводят к фатальной ошибке fetch: "String contains non ISO-8859-1 code point".
+    if (raw && !/^[\x20-\x7E]+$/.test(raw)) {
+      localStorage.removeItem(ORCH_TOKEN_STORAGE_KEY);
+      return "";
+    }
+    return raw;
   } catch {
     return "";
   }
@@ -249,8 +256,12 @@ function apiUrl(apiBase: string, path: string): string {
 /** Bearer всегда. X-Orch-Scenario — только в тестовой сборке, значение сценария не важно. */
 export function orchAuthHeaders(cfg: OrchClientConfig, extra?: Record<string, string>): Headers {
   const headers = new Headers(extra);
-  headers.set("Authorization", `Bearer ${cfg.token}`);
-  if (orchTestModeEnabled()) headers.set("X-Orch-Scenario", cfg.scenario);
+  if (cfg.token && /^[\x20-\x7E]+$/.test(cfg.token)) {
+    headers.set("Authorization", `Bearer ${cfg.token}`);
+  }
+  if (orchTestModeEnabled() && cfg.scenario && /^[\x20-\x7E]+$/.test(cfg.scenario)) {
+    headers.set("X-Orch-Scenario", cfg.scenario);
+  }
   return headers;
 }
 

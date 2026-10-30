@@ -366,7 +366,10 @@ export interface LibraryConfigDTO {
  */
 export function orchAuthHeaders(): Record<string, string> {
   const token = readOrchToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (!token || !/^[\x20-\x7E]+$/.test(token)) {
+    return {};
+  }
+  return { Authorization: `Bearer ${token}` };
 }
 
 export async function http<T>(

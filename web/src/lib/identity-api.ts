@@ -82,7 +82,8 @@ export function clearToken(): void {
 
 export function authHeaders(): Record<string, string> {
   const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (!token || !/^[\x20-\x7E]+$/.test(token)) return {};
+  return { Authorization: `Bearer ${token}` };
 }
 
 async function get<T>(path: string): Promise<T> {
