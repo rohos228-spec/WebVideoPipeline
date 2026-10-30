@@ -18,11 +18,12 @@ import {
   Clapperboard,
   Copy,
   GitBranch,
-  GripHorizontal,
+  GripVertical,
   Loader2,
   Maximize2,
   Minimize2,
   MessageSquare,
+  PanelLeftClose,
   Paperclip,
   Play,
   Plus,
@@ -195,8 +196,14 @@ export function OrchestratorPanel({ projectId }: Props) {
     { id: "default", title: "Основной чат", createdAt: Date.now(), updatedAt: Date.now() },
   ]);
   const [activeSessionId, setActiveSessionId] = usePersistedState<string>(activeSessionKey, "default");
-  const [isChatsOpen, setIsChatsOpen] = useState(false);
-  const chatsMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isChatsOpen, setIsChatsOpen] = usePersistedState("vp-ai-agent-chats-panel-open", false);
+  const isChatsOpenRef = useRef(isChatsOpen);
+  useEffect(() => {
+    isChatsOpenRef.current = isChatsOpen;
+  }, [isChatsOpen]);
+
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
 
   // Режим выполнения действий (С подтверждением / Автоматически)
   const [actionMode, setActionMode] = usePersistedState<"ask" | "auto">("vp-ai-agent-action-mode", "ask");
@@ -298,6 +305,21 @@ export function OrchestratorPanel({ projectId }: Props) {
 
   const currentSession = (sessions || []).find((s) => s.id === activeSessionId) || sessions?.[0];
 
+  const toggleChats = useCallback(() => {
+    setIsChatsOpen((prev) => {
+      const next = !prev;
+      if (next && !isMaximized && currentRectRef.current.x < 270) {
+        const adjustedX = 270;
+        currentRectRef.current.x = adjustedX;
+        setRect((r) => ({ ...r, x: adjustedX }));
+        if (panelRef.current) {
+          panelRef.current.style.left = `${adjustedX}px`;
+        }
+      }
+      return next;
+    });
+  }, [isMaximized, setRect, setIsChatsOpen]);
+
   const handleCreateNewChat = useCallback(() => {
     const newId = `session-${Date.now()}`;
     const newSession: ChatSession = {
@@ -309,15 +331,32 @@ export function OrchestratorPanel({ projectId }: Props) {
     setSessions((prev) => [newSession, ...(prev || [])]);
     setChatLogsMap((prev) => ({ ...prev, [newId]: [] }));
     setActiveSessionId(newId);
-    setIsChatsOpen(false);
   }, [sessions, setSessions, setChatLogsMap, setActiveSessionId]);
 
   const handleSwitchChat = useCallback(
     (id: string) => {
       setActiveSessionId(id);
-      setIsChatsOpen(false);
     },
     [setActiveSessionId],
+  );
+
+  const handleStartRename = useCallback((s: ChatSession, e: ReactMouseEvent) => {
+    e.stopPropagation();
+    setEditingSessionId(s.id);
+    setEditingTitle(s.title);
+  }, []);
+
+  const handleSaveRename = useCallback(
+    (id: string) => {
+      const trimmed = editingTitle.trim();
+      if (trimmed) {
+        setSessions((prev) =>
+          (prev || []).map((s) => (s.id === id ? { ...s, title: trimmed } : s)),
+        );
+      }
+      setEditingSessionId(null);
+    },
+    [editingTitle, setSessions],
   );
 
   const handleDeleteChat = useCallback(
@@ -405,18 +444,15 @@ export function OrchestratorPanel({ projectId }: Props) {
   }, [chatInput]);
 
   useEffect(() => {
-    if (!isChatsOpen && !isModeOpen) return;
+    if (!isModeOpen) return;
     const onClickOutside = (e: MouseEvent) => {
-      if (chatsMenuRef.current && !chatsMenuRef.current.contains(e.target as Node)) {
-        setIsChatsOpen(false);
-      }
       if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
         setIsModeOpen(false);
       }
     };
     window.addEventListener("mousedown", onClickOutside);
     return () => window.removeEventListener("mousedown", onClickOutside);
-  }, [isChatsOpen, isModeOpen]);
+  }, [isModeOpen]);
 
   useEffect(() => {
     currentRectRef.current = rect;
@@ -456,14 +492,15 @@ export function OrchestratorPanel({ projectId }: Props) {
     };
   }, [setOpen]);
 
-  // Проверка границ экрана при первом рендере
+  // Проверка границ экрана при первом рендере и изменении режима/панели
   useEffect(() => {
     if (typeof window !== "undefined") {
       setRect((prev) => {
         const p = prev || DEFAULT_RECT;
         const maxW = Math.min(p.width ?? DEFAULT_RECT.width, Math.max(380, window.innerWidth - 80));
         const maxH = Math.min(p.height ?? DEFAULT_RECT.height, Math.max(340, window.innerHeight - 80));
-        const safeX = Math.max(0, Math.min(window.innerWidth - 120, p.x ?? DEFAULT_RECT.x));
+        const minX = isChatsOpen && !isMaximized ? 270 : 0;
+        const safeX = Math.max(minX, Math.min(window.innerWidth - 120, p.x ?? DEFAULT_RECT.x));
         const safeY = Math.max(0, Math.min(window.innerHeight - 80, p.y ?? DEFAULT_RECT.y));
         return {
           x: safeX,
@@ -473,7 +510,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         };
       });
     }
-  }, [setRect]);
+  }, [setRect, isChatsOpen, isMaximized]);
 
   useEffect(() => {
     if (isStreaming || busy) {
@@ -888,7 +925,8 @@ export function OrchestratorPanel({ projectId }: Props) {
         const dx = ev.clientX - startMouseX;
         const dy = ev.clientY - startMouseY;
 
-        nextX = Math.max(0, Math.min(window.innerWidth - 120, startRectX + dx));
+        const minX = isChatsOpenRef.current && !isMaximized ? 270 : 0;
+        nextX = Math.max(minX, Math.min(window.innerWidth - 120, startRectX + dx));
         nextY = Math.max(0, Math.min(window.innerHeight - 80, startRectY + dy));
         currentRectRef.current.x = nextX;
         currentRectRef.current.y = nextY;
@@ -994,10 +1032,11 @@ export function OrchestratorPanel({ projectId }: Props) {
           newH = Math.max(minH, Math.min(maxH - initialRect.y, initialRect.height + dy));
         }
         if (dir.includes("w")) {
+          const minX = isChatsOpenRef.current ? 270 : 0;
           const potentialW = initialRect.width - dx;
           if (potentialW >= minW) {
             newW = Math.min(maxW, potentialW);
-            newX = Math.max(0, initialRect.x + dx);
+            newX = Math.max(minX, initialRect.x + dx);
           }
         }
         if (dir.includes("n")) {
@@ -1292,6 +1331,159 @@ export function OrchestratorPanel({ projectId }: Props) {
 
   if (!open) return null;
 
+  const renderChatsSidebar = () => (
+    <div
+      className={cn(
+        "flex flex-col bg-[#0c0c0e]/98 backdrop-blur-2xl select-none",
+        isMaximized
+          ? "w-64 shrink-0 h-full border-r border-white/[0.08]"
+          : "pointer-events-auto absolute top-0 right-[calc(100%+8px)] h-full w-64 border border-white/[0.14] rounded-2xl shadow-2xl shadow-black/90 ring-1 ring-emerald-500/20 overflow-hidden animate-in fade-in slide-in-from-right-3 duration-150",
+      )}
+    >
+      {/* Шапка боковой панели чатов */}
+      <div
+        onMouseDown={!isMaximized ? onHeaderMouseDown : undefined}
+        className={cn(
+          "flex h-11 shrink-0 items-center justify-between border-b border-white/[0.08] px-3 bg-gradient-to-r from-emerald-950/40 via-black/40 to-black/40 select-none",
+          !isMaximized ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+        )}
+      >
+        <div className="flex items-center gap-2 text-white/90">
+          <MessageSquare className="h-4 w-4 text-emerald-400" />
+          <span className="text-xs font-semibold tracking-wide">Диалоги</span>
+          <span className="rounded-full bg-white/[0.06] border border-white/10 px-1.5 py-0.2 text-[10px] font-mono text-white/60">
+            {(sessions || []).length}
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={handleCreateNewChat}
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300 hover:text-white bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-md px-2 py-0.5 transition-colors cursor-pointer"
+            title="Создать новый чат"
+          >
+            <Plus className="h-3 w-3" />
+            <span>Новый</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsChatsOpen(false)}
+            className="h-6 w-6 flex items-center justify-center rounded text-white/40 hover:text-white hover:bg-white/[0.08] transition-colors cursor-pointer"
+            title="Свернуть список чатов"
+          >
+            <PanelLeftClose className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Список сессий диалогов */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+        {(sessions || []).map((s) => {
+          const isActive = s.id === activeSessionId;
+          const sLogs = chatLogsMap[s.id] || [];
+          const lastMsg = sLogs[sLogs.length - 1];
+          const msgCount = sLogs.length;
+          const hasUnresolved =
+            lastMsg?.confirms?.some((c) => !c.resolved) ||
+            (lastMsg?.confirm && !lastMsg.confirm.resolved);
+          const isSessionThinking = isActive && (isStreaming || busy);
+          const isEditing = editingSessionId === s.id;
+
+          const snippet = lastMsg
+            ? cleanOrchestratorText(lastMsg.content) ||
+              (lastMsg.role === "user" ? "Запрос пользователя" : "Действия по проекту")
+            : "Новый пустой диалог";
+
+          return (
+            <div
+              key={s.id}
+              onClick={() => handleSwitchChat(s.id)}
+              className={cn(
+                "group relative flex flex-col gap-1 rounded-xl p-2.5 cursor-pointer transition-all border",
+                isActive
+                  ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-100 shadow-sm shadow-emerald-950/50 ring-1 ring-emerald-500/20"
+                  : "bg-white/[0.02] border-white/[0.06] text-white/70 hover:bg-white/[0.05] hover:border-white/10 hover:text-white",
+              )}
+            >
+              <div className="flex items-center justify-between gap-1.5">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full shrink-0 transition-all",
+                      isActive
+                        ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+                        : "bg-white/20 group-hover:bg-white/40",
+                    )}
+                  />
+                  {isEditing ? (
+                    <input
+                      // eslint-disable-next-line jsx-a11y/no-autofocus
+                      autoFocus
+                      type="text"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveRename(s.id);
+                        if (e.key === "Escape") setEditingSessionId(null);
+                      }}
+                      onBlur={() => handleSaveRename(s.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-black/80 border border-emerald-500/50 rounded px-1.5 py-0.5 text-xs text-white outline-none w-full"
+                    />
+                  ) : (
+                    <span
+                      onDoubleClick={(e) => handleStartRename(s, e)}
+                      title="Двойной клик для переименования"
+                      className="truncate text-xs font-medium"
+                    >
+                      {s.title}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {isSessionThinking && (
+                    <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
+                  )}
+                  {hasUnresolved && !isSessionThinking && (
+                    <span
+                      className="h-2 w-2 rounded-full bg-amber-400 animate-pulse"
+                      title="Требует решения"
+                    />
+                  )}
+                  <span className="text-[10px] text-white/40 font-mono">
+                    {msgCount}
+                  </span>
+                  {(sessions || []).length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleDeleteChat(s.id, e)}
+                      className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 p-0.5 rounded transition-all cursor-pointer"
+                      title="Удалить диалог"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Snippet preview */}
+              <div className="text-[10px] text-white/40 line-clamp-2 leading-relaxed pl-3.5 pr-1">
+                {snippet}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Нижняя информационная плашка */}
+      <div className="border-t border-white/[0.08] px-3 py-2 bg-black/40 flex items-center justify-between text-[10px] text-white/40">
+        <span>Мультиагентный режим</span>
+        <span className="text-emerald-400/80 font-mono">Онлайн</span>
+      </div>
+    </div>
+  );
+
   return (
     <div
       ref={panelRef}
@@ -1311,175 +1503,122 @@ export function OrchestratorPanel({ projectId }: Props) {
             }
       }
       className={cn(
-        "fixed z-50 flex flex-col bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-emerald-500/20 overflow-hidden transition-none",
-        isMaximized ? "rounded-none border-l border-y-0 border-r-0" : "rounded-2xl",
+        "fixed z-50 transition-none",
+        isMaximized
+          ? "pointer-events-auto flex flex-row overflow-hidden bg-[#0c0c0e]/95 backdrop-blur-2xl border-l border-white/[0.14]"
+          : "pointer-events-none",
       )}
     >
-      {/* Ручки изменения размера (resizing handles) по всем 4 сторонам и 4 углам */}
-      {!isMaximized && (
-        <>
-          <div
-            onMouseDown={(e) => startResize("e", e)}
-            className="absolute top-0 right-0 w-2 h-full cursor-ew-resize z-20"
-          />
-          <div
-            onMouseDown={(e) => startResize("w", e)}
-            className="absolute top-0 left-0 w-2 h-full cursor-ew-resize z-20"
-          />
-          <div
-            onMouseDown={(e) => startResize("s", e)}
-            className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize z-20"
-          />
-          <div
-            onMouseDown={(e) => startResize("n", e)}
-            className="absolute top-0 left-0 w-full h-2 cursor-ns-resize z-20"
-          />
+      {isChatsOpen && renderChatsSidebar()}
 
-          <div
-            onMouseDown={(e) => startResize("se", e)}
-            className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-30"
-          />
-          <div
-            onMouseDown={(e) => startResize("sw", e)}
-            className="absolute bottom-0 left-0 w-5 h-5 cursor-nesw-resize z-30"
-          />
-          <div
-            onMouseDown={(e) => startResize("ne", e)}
-            className="absolute top-0 right-0 w-5 h-5 cursor-nesw-resize z-30"
-          />
-          <div
-            onMouseDown={(e) => startResize("nw", e)}
-            className="absolute top-0 left-0 w-5 h-5 cursor-nwse-resize z-30"
-          />
-
-          {/* Декоративный уголок-грип в нижнем правом углу */}
-          <div
-            onMouseDown={(e) => startResize("se", e)}
-            className="absolute bottom-1 right-1 w-3.5 h-3.5 cursor-nwse-resize z-30 flex items-center justify-center opacity-40 hover:opacity-100 transition-opacity pointer-events-auto"
-            title="Потяните за угол для изменения размера"
-          >
-            <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-white/60 rounded-br-sm" />
-          </div>
-        </>
-      )}
-
-      {/* Заголовок окна (drag handle для перемещения) */}
       <div
-        onMouseDown={onHeaderMouseDown}
         className={cn(
-          "flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-gradient-to-r from-emerald-950/40 via-black/50 to-black/50 select-none",
-          !isMaximized ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+          "flex flex-col overflow-hidden",
+          isMaximized
+            ? "flex-1 min-w-0 h-full"
+            : "pointer-events-auto relative w-full h-full bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-emerald-500/20 rounded-2xl",
         )}
       >
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 text-[11px]">
-          {/* Меню чатов (слева где 6 точек) */}
-          <div className="relative shrink-0" ref={chatsMenuRef}>
+        {/* Ручки изменения размера (resizing handles) по всем 4 сторонам и 4 углам */}
+        {!isMaximized && (
+          <>
+            <div
+              onMouseDown={(e) => startResize("e", e)}
+              className="absolute top-0 right-0 w-2 h-full cursor-ew-resize z-20"
+            />
+            <div
+              onMouseDown={(e) => startResize("w", e)}
+              className="absolute top-0 left-0 w-2 h-full cursor-ew-resize z-20"
+            />
+            <div
+              onMouseDown={(e) => startResize("s", e)}
+              className="absolute bottom-0 left-0 w-full h-2 cursor-ns-resize z-20"
+            />
+            <div
+              onMouseDown={(e) => startResize("n", e)}
+              className="absolute top-0 left-0 w-full h-2 cursor-ns-resize z-20"
+            />
+
+            <div
+              onMouseDown={(e) => startResize("se", e)}
+              className="absolute bottom-0 right-0 w-5 h-5 cursor-nwse-resize z-30"
+            />
+            <div
+              onMouseDown={(e) => startResize("sw", e)}
+              className="absolute bottom-0 left-0 w-5 h-5 cursor-nesw-resize z-30"
+            />
+            <div
+              onMouseDown={(e) => startResize("ne", e)}
+              className="absolute top-0 right-0 w-5 h-5 cursor-nesw-resize z-30"
+            />
+            <div
+              onMouseDown={(e) => startResize("nw", e)}
+              className="absolute top-0 left-0 w-5 h-5 cursor-nwse-resize z-30"
+            />
+
+            {/* Декоративный уголок-грип в нижнем правом углу */}
+            <div
+              onMouseDown={(e) => startResize("se", e)}
+              className="absolute bottom-1 right-1 w-3.5 h-3.5 cursor-nwse-resize z-30 flex items-center justify-center opacity-40 hover:opacity-100 transition-opacity pointer-events-auto"
+              title="Потяните за угол для изменения размера"
+            >
+              <div className="w-2.5 h-2.5 border-r-2 border-b-2 border-white/60 rounded-br-sm" />
+            </div>
+          </>
+        )}
+
+        {/* Заголовок окна (drag handle для перемещения) */}
+        <div
+          onMouseDown={onHeaderMouseDown}
+          className={cn(
+            "flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-gradient-to-r from-emerald-950/40 via-black/50 to-black/50 select-none",
+            !isMaximized ? "cursor-grab active:cursor-grabbing" : "cursor-default",
+          )}
+        >
+          <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 text-[11px]">
+            {/* Кнопка 6 точек для открытия панели диалогов из левого ребра */}
             <button
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setIsChatsOpen((prev) => !prev);
+                toggleChats();
               }}
               onMouseDown={(e) => e.stopPropagation()}
               className={cn(
-                "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer select-none",
+                "flex h-7 w-7 items-center justify-center rounded-lg border transition-all cursor-pointer select-none shrink-0",
                 isChatsOpen
-                  ? "bg-emerald-950/70 border-emerald-500/50 text-emerald-200"
-                  : "bg-white/[0.04] border-white/10 text-white/80 hover:bg-white/[0.09] hover:text-white",
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300 shadow-sm shadow-emerald-950/50"
+                  : "bg-white/[0.04] border-white/10 text-white/60 hover:bg-white/[0.08] hover:text-white",
               )}
-              title="Список диалогов с ИИ-агентом"
+              title={isChatsOpen ? "Скрыть панель диалогов" : "Показать список диалогов (чатов)"}
             >
-              <GripHorizontal className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
-              <span className="max-w-[110px] truncate font-medium">
-                {currentSession?.title || "Чаты"}
-              </span>
-              <ChevronDown
-                className={cn(
-                  "h-3 w-3 text-white/50 transition-transform duration-150",
-                  isChatsOpen && "rotate-180 text-emerald-300",
-                )}
-              />
+              <GripVertical className="h-4 w-4" />
             </button>
 
-            {isChatsOpen && (
-              <div
-                className="absolute left-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-white/[0.14] bg-[#12131a] p-1.5 shadow-2xl shadow-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
+            <div className="relative shrink-0">
+              <OrchestratorAvatar size="sm" pulse={isStreaming} />
+              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
+              <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300">
+                AI Director
+              </span>
+              <span
+                className="text-[11px] text-white/40 font-normal truncate max-w-[140px] hidden sm:inline"
+                title={currentSession?.title}
               >
-                <div className="flex items-center justify-between px-2 py-1.5 border-b border-white/[0.08] mb-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                    Диалоги проекта
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleCreateNewChat}
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300 hover:text-white bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-md px-2 py-0.5 transition-colors"
-                  >
-                    <Plus className="h-3 w-3" />
-                    <span>Новый</span>
-                  </button>
-                </div>
-
-                <div className="max-h-60 overflow-y-auto space-y-0.5 pr-0.5">
-                  {(sessions || []).map((s) => {
-                    const isActive = s.id === activeSessionId;
-                    return (
-                      <div
-                        key={s.id}
-                        onClick={() => handleSwitchChat(s.id)}
-                        className={cn(
-                          "group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer transition-colors",
-                          isActive
-                            ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 font-medium"
-                            : "text-white/70 hover:bg-white/[0.06] hover:text-white",
-                        )}
-                      >
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <MessageSquare
-                            className={cn(
-                              "h-3.5 w-3.5 shrink-0",
-                              isActive ? "text-emerald-400" : "text-white/40",
-                            )}
-                          />
-                          <span className="truncate text-[11px]">{s.title}</span>
-                        </div>
-                        {(sessions || []).length > 1 && (
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteChat(s.id, e)}
-                            className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 p-0.5 rounded transition-all"
-                            title="Удалить диалог"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+                · «{currentSession?.title || "Основной чат"}»
+              </span>
+            </div>
+            {isStreaming || busy ? (
+              <span className="truncate text-emerald-300/80 hidden sm:inline ml-1 text-[11px]">
+                {isStreaming
+                  ? `${streamingPhase || "Я думаю, пожалуйста, подождите…"} (${elapsedSec}с)`
+                  : `ИИ-агент думает… (${elapsedSec}с)`}
+              </span>
+            ) : null}
           </div>
-
-          <div className="relative shrink-0">
-            <OrchestratorAvatar size="sm" pulse={isStreaming} />
-            <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
-            <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300">
-              AI Director
-            </span>
-          </div>
-          {isStreaming || busy ? (
-            <span className="truncate text-emerald-300/80 hidden sm:inline ml-1 text-[11px]">
-              {isStreaming
-                ? `${streamingPhase || "Я думаю, пожалуйста, подождите…"} (${elapsedSec}с)`
-                : `ИИ-агент думает… (${elapsedSec}с)`}
-            </span>
-          ) : null}
-        </div>
 
         {busy || isStreaming ? (
           <Button
@@ -2040,6 +2179,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
           </div>
         </div>
+      </div>
     </div>
   );
 }
