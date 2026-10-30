@@ -186,6 +186,7 @@ export function OrchestratorPanel({ projectId }: Props) {
   const userCancelRef = useRef(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const currentRectRef = useRef<WindowRect>(rect);
@@ -273,11 +274,55 @@ export function OrchestratorPanel({ projectId }: Props) {
     };
   }, [isStreaming, busy]);
 
-  useEffect(() => {
-    if (isStreaming || streamingText || chatLog.length) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = useCallback((smooth = false) => {
+    if (scrollContainerRef.current) {
+      const el = scrollContainerRef.current;
+      if (smooth) {
+        el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
     }
-  }, [isStreaming, streamingText, chatLog.length]);
+    if (messagesEndRef.current) {
+      try {
+        messagesEndRef.current.scrollIntoView({
+          behavior: smooth ? "smooth" : "instant",
+          block: "end",
+        });
+      } catch {
+        messagesEndRef.current.scrollIntoView(false);
+      }
+    }
+  }, []);
+
+  // Автоскролл в самый конец при открытии окна ИИ-агента или изменении истории сообщений
+  useEffect(() => {
+    if (!open) return;
+    // Мгновенный скролл вниз
+    scrollToBottom(false);
+
+    // Дополнительные скроллы по мере расчёта размеров Markdown и картинок
+    const raf1 = requestAnimationFrame(() => scrollToBottom(false));
+    const raf2 = requestAnimationFrame(() => requestAnimationFrame(() => scrollToBottom(false)));
+    const t1 = setTimeout(() => scrollToBottom(false), 40);
+    const t2 = setTimeout(() => scrollToBottom(false), 120);
+    const t3 = setTimeout(() => scrollToBottom(false), 250);
+
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+    };
+  }, [open, chatLog.length, projectId, scrollToBottom]);
+
+  // Автоскролл во время стриминга ответа ИИ-агента
+  useEffect(() => {
+    if (isStreaming || streamingText) {
+      scrollToBottom(false);
+    }
+  }, [isStreaming, streamingText, scrollToBottom]);
 
   const cancelBusy = useCallback(() => {
     userCancelRef.current = true;
@@ -1140,7 +1185,10 @@ export function OrchestratorPanel({ projectId }: Props) {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5 space-y-3.5">
+          <div
+            ref={scrollContainerRef}
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-3.5 space-y-3.5"
+          >
             {chatLog.length === 0 && !isStreaming ? (
               <div className="flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-300">
                 <div className="relative mb-3">
