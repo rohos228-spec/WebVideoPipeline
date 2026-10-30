@@ -1309,9 +1309,6 @@ function TopicEditView({
         projectId={projectId}
         initialTopic={snapshot.items[0]?.content ?? ""}
       />
-      <p className="text-xs text-muted-foreground">
-        Для массовой генерации используйте Excel с колонкой «Название ролика».
-      </p>
     </div>
   );
 }
