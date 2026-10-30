@@ -2153,6 +2153,7 @@ class OrchestratorChatBody(BaseModel):
     history: list[dict] = Field(default_factory=list)
     # Кнопка «Фикс багов» в Studio — чинить, не только объяснить.
     fix_bugs: bool = False
+    auto_apply: bool = False
 
 
 async def _build_orchestrator_prompt(
@@ -2203,6 +2204,15 @@ async def _build_orchestrator_prompt(
                 "edit_files + run_tests. Краткий отчёт по-русски что сломано и что сделал."
                 if fix_bugs
                 else ""
+            )
+        )
+        + (
+            "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: АВТОНОМНЫЙ (АВТОМАТИЧЕСКИЙ).\n"
+            "Пользователь включил автоматический режим. Все действия, изменения темы/промтов/настроек, генерацию и запуск шагов выполняй сразу через JSON ops/actions без запроса подтверждения!"
+            if (getattr(body, "auto_apply", False) or "[РЕЖИМ: АВТОНОМНЫЙ" in body.message)
+            else (
+                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ.\n"
+                "Любые важные операции (удаление нод/проектов, push, запуск планов) предлагай пользователю и выводи подтверждение."
             )
         )
         + "\n\nПОЛЬЗОВАТЕЛЬ: "

@@ -140,9 +140,9 @@ function OrchestratorAvatar({
   return (
     <div
       className={cn(
-        "relative shrink-0 rounded-full overflow-hidden border border-purple-400/50 bg-gradient-to-br from-[#1b102b] to-[#0a0a0f] shadow-md shadow-purple-950/60 flex items-center justify-center select-none ring-1 ring-purple-500/20",
+        "relative shrink-0 rounded-full overflow-hidden border border-emerald-400/50 bg-gradient-to-br from-[#0c241e] to-[#081512] shadow-md shadow-emerald-950/60 flex items-center justify-center select-none ring-1 ring-emerald-500/20",
         sizeClasses,
-        pulse && "ring-2 ring-purple-400 ring-offset-1 ring-offset-[#0c0c0e] animate-pulse",
+        pulse && "ring-2 ring-emerald-400 ring-offset-1 ring-offset-[#0c0c0e] animate-pulse",
         className,
       )}
     >
@@ -155,7 +155,7 @@ function OrchestratorAvatar({
           onError={() => setImgError(true)}
         />
       ) : (
-        <Bot className="h-1/2 w-1/2 text-purple-400" />
+        <Bot className="h-1/2 w-1/2 text-emerald-400" />
       )}
     </div>
   );
@@ -1262,7 +1262,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             }
       }
       className={cn(
-        "fixed z-50 flex flex-col bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-purple-500/20 overflow-hidden transition-none",
+        "fixed z-50 flex flex-col bg-[#0c0c0e]/95 backdrop-blur-2xl border border-white/[0.14] shadow-2xl shadow-black/90 ring-1 ring-emerald-500/20 overflow-hidden transition-none",
         isMaximized ? "rounded-none border-l border-y-0 border-r-0" : "rounded-2xl",
       )}
     >
@@ -1318,7 +1318,7 @@ export function OrchestratorPanel({ projectId }: Props) {
       <div
         onMouseDown={onHeaderMouseDown}
         className={cn(
-          "flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-gradient-to-r from-purple-950/40 via-black/50 to-black/50 select-none",
+          "flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-gradient-to-r from-emerald-950/40 via-black/50 to-black/50 select-none",
           !isMaximized ? "cursor-grab active:cursor-grabbing" : "cursor-default",
         )}
       >
@@ -1335,19 +1335,19 @@ export function OrchestratorPanel({ projectId }: Props) {
               className={cn(
                 "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer select-none",
                 isChatsOpen
-                  ? "bg-purple-950/70 border-purple-500/50 text-purple-200"
+                  ? "bg-emerald-950/70 border-emerald-500/50 text-emerald-200"
                   : "bg-white/[0.04] border-white/10 text-white/80 hover:bg-white/[0.09] hover:text-white",
               )}
               title="Список диалогов с ИИ-агентом"
             >
-              <GripHorizontal className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+              <GripHorizontal className="h-3.5 w-3.5 text-emerald-400 shrink-0" />
               <span className="max-w-[110px] truncate font-medium">
                 {currentSession?.title || "Чаты"}
               </span>
               <ChevronDown
                 className={cn(
                   "h-3 w-3 text-white/50 transition-transform duration-150",
-                  isChatsOpen && "rotate-180 text-purple-300",
+                  isChatsOpen && "rotate-180 text-emerald-300",
                 )}
               />
             </button>
@@ -1365,7 +1365,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <button
                     type="button"
                     onClick={handleCreateNewChat}
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-300 hover:text-white bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-md px-2 py-0.5 transition-colors"
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300 hover:text-white bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 rounded-md px-2 py-0.5 transition-colors"
                   >
                     <Plus className="h-3 w-3" />
                     <span>Новый</span>
@@ -1382,7 +1382,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                         className={cn(
                           "group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer transition-colors",
                           isActive
-                            ? "bg-purple-500/20 border border-purple-500/30 text-purple-200 font-medium"
+                            ? "bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 font-medium"
                             : "text-white/70 hover:bg-white/[0.06] hover:text-white",
                         )}
                       >
@@ -1390,7 +1390,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                           <MessageSquare
                             className={cn(
                               "h-3.5 w-3.5 shrink-0",
-                              isActive ? "text-purple-400" : "text-white/40",
+                              isActive ? "text-emerald-400" : "text-white/40",
                             )}
                           />
                           <span className="truncate text-[11px]">{s.title}</span>
@@ -1419,12 +1419,12 @@ export function OrchestratorPanel({ projectId }: Props) {
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
-            <span className="rounded-full bg-purple-500/15 border border-purple-500/30 px-2 py-0.2 text-[9px] font-mono text-purple-300">
+            <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300">
               AI Director
             </span>
           </div>
           {isStreaming || busy ? (
-            <span className="truncate text-purple-300/80 hidden sm:inline ml-1 text-[11px]">
+            <span className="truncate text-emerald-300/80 hidden sm:inline ml-1 text-[11px]">
               {isStreaming
                 ? `${streamingPhase || "ИИ-агент печатает ответ…"} (${elapsedSec}с)`
                 : `ИИ-агент думает… (${elapsedSec}с)`}
@@ -1498,9 +1498,9 @@ export function OrchestratorPanel({ projectId }: Props) {
                   size="sm"
                   disabled={projectId == null || busy || isStreaming}
                   onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                  className="h-7 gap-1.5 rounded-full border border-purple-500/40 bg-gradient-to-r from-purple-950/60 to-slate-900/80 px-3.5 text-xs font-medium text-purple-200 hover:bg-purple-500/25 hover:text-white hover:border-purple-400 shadow-md shadow-purple-950/40 transition-all active:scale-95"
+                  className="h-7 gap-1.5 rounded-full border border-emerald-500/40 bg-gradient-to-r from-emerald-950/60 to-slate-900/80 px-3.5 text-xs font-medium text-emerald-200 hover:bg-emerald-500/25 hover:text-white hover:border-emerald-400 shadow-md shadow-emerald-950/40 transition-all active:scale-95"
                 >
-                  <Settings className="h-3 w-3 text-purple-400" />
+                  <Settings className="h-3 w-3 text-emerald-400" />
                   <span>⚙️ Покажи доступные действия</span>
                 </Button>
               </div>
@@ -1540,10 +1540,10 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-gradient-to-b from-[#161722]/98 to-[#111218]/98 border border-white/[0.12] p-4 shadow-xl backdrop-blur-md">
                     <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-purple-100 to-white/90 bg-clip-text text-transparent">
+                        <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-emerald-100 to-white/90 bg-clip-text text-transparent">
                           ИИ-агент
                         </span>
-                        <span className="rounded-full bg-purple-500/10 border border-purple-500/25 px-2 py-0.2 text-[9px] text-purple-300 font-mono">
+                        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.2 text-[9px] text-emerald-300 font-mono">
                           AI Director
                         </span>
                       </div>
@@ -1773,10 +1773,10 @@ export function OrchestratorPanel({ projectId }: Props) {
             {isStreaming && (
               <div className="flex gap-3 max-w-4xl mx-auto w-full items-start animate-in fade-in duration-200">
                 <OrchestratorAvatar size="md" pulse />
-                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-purple-500/35 p-4 shadow-xl backdrop-blur-xl">
+                <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-[#161722]/98 border border-emerald-500/35 p-4 shadow-xl backdrop-blur-xl">
                   <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
-                    <div className="flex items-center gap-2 text-xs font-medium text-purple-300">
-                      <Loader2 className="h-3.5 w-3.5 animate-spin text-purple-400" />
+                    <div className="flex items-center gap-2 text-xs font-medium text-emerald-300">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
                       <span>{streamingPhase || "Печатает ответ…"}</span>
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
@@ -1784,11 +1784,11 @@ export function OrchestratorPanel({ projectId }: Props) {
                   {streamingText ? (
                     <div className="text-xs leading-relaxed text-white/90 space-y-2">
                       <MarkdownRenderer content={streamingText} />
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-purple-400 animate-pulse align-middle" />
+                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
-                      <span className="inline-block h-2 w-2 rounded-full bg-purple-400 animate-ping" />
+                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
                       <span>ИИ-агент формулирует ответ…</span>
                     </div>
                   )}
@@ -1813,7 +1813,7 @@ export function OrchestratorPanel({ projectId }: Props) {
 
           {/* Bottom input card styled after reference */}
           <div className="shrink-0 p-3 pt-1.5 bg-[#0c0c0e]/95 border-t border-white/[0.08]">
-            <div className="rounded-2xl border border-white/[0.12] bg-[#141520]/95 p-2.5 shadow-xl transition-all focus-within:border-purple-500/50 focus-within:ring-1 focus-within:ring-purple-500/30">
+            <div className="rounded-2xl border border-white/[0.12] bg-[#141520]/95 p-2.5 shadow-xl transition-all focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/30">
               {/* Attachment chips */}
               {attachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pb-2 border-b border-white/[0.06] mb-2">
@@ -1822,7 +1822,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                       key={file.id}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.06] border border-white/10 px-2.5 py-1 text-[11px] text-white/90"
                     >
-                      <Paperclip className="h-3 w-3 text-purple-400 shrink-0" />
+                      <Paperclip className="h-3 w-3 text-emerald-400 shrink-0" />
                       <span className="max-w-[130px] truncate">{file.name}</span>
                       <span className="text-[9px] text-white/40 font-mono">
                         ({Math.round(file.size / 1024)} КБ)
@@ -1901,7 +1901,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                       {actionMode === "auto" ? (
                         <Zap className="h-3 w-3 text-amber-400 shrink-0" />
                       ) : (
-                        <Shield className="h-3 w-3 text-purple-400 shrink-0" />
+                        <Shield className="h-3 w-3 text-emerald-400 shrink-0" />
                       )}
                       <span className="hidden xs:inline sm:inline">
                         {actionMode === "auto" ? "Автоматически" : "С подтверждением"}
@@ -1931,11 +1931,11 @@ export function OrchestratorPanel({ projectId }: Props) {
                           className={cn(
                             "w-full flex items-start gap-2 rounded-lg p-2 text-left transition-colors cursor-pointer",
                             actionMode === "ask"
-                              ? "bg-purple-500/15 text-purple-200 border border-purple-500/30"
+                              ? "bg-emerald-500/15 text-emerald-200 border border-emerald-500/30"
                               : "hover:bg-white/[0.06] text-white/80",
                           )}
                         >
-                          <Shield className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+                          <Shield className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium">С подтверждением</div>
                             <div className="text-[10px] text-white/45 leading-tight">
@@ -1984,7 +1984,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                       (!chatInput.trim() && attachments.length === 0)
                     }
                     onClick={() => void sendChat()}
-                    className="h-7 w-7 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-md shadow-purple-900/30 transition-all shrink-0 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                    className="h-7 w-7 p-0 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-950/40 transition-all shrink-0 flex items-center justify-center disabled:opacity-40 cursor-pointer"
                     title="Отправить (Enter)"
                   >
                     <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
