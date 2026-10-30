@@ -2521,7 +2521,7 @@ async def _execute_orchestrator_reply(
             project.data_dir,
             {
                 "type": "orchestrator_chat",
-                "message": body.message[:500],
+                "message": body_message[:500],
                 "reply": (reply or "")[:500],
                 "applied": bool(applied),
                 "actions": [sorted(a.keys()) for a in actions_run],
@@ -2602,8 +2602,8 @@ async def orchestrator_chat_stream(
     body: OrchestratorChatBody,
 ) -> StreamingResponse:
     """Потоковый диалог с оркестратором по SSE (генерация текста в реальном времени)."""
-    from app.services.tenant import current_tenant, tenant_scope
     from app.services.gpt_client import get_gpt_client
+    from app.services.tenant import current_tenant, tenant_scope
 
     captured_tenant = current_tenant()
 
@@ -2664,7 +2664,7 @@ async def orchestrator_chat_stream(
                         elif kind == "error":
                             yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
                             return
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         if task.done() and queue.empty():
                             break
             finally:
