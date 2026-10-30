@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  ArrowUp,
   Bot,
   Check,
   ChevronDown,
@@ -20,14 +21,19 @@ import {
   Loader2,
   Maximize2,
   Minimize2,
+  MessageSquare,
+  Paperclip,
   Play,
+  Plus,
   Send,
   Settings,
+  Shield,
   Sparkles,
   Square,
   Trash2,
   User,
   X,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, type DbOrchestratorChatResult } from "@/lib/api";
@@ -169,11 +175,45 @@ const DEFAULT_RECT: WindowRect = {
   height: 640,
 };
 
+interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export function OrchestratorPanel({ projectId }: Props) {
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
-  const storageKey = `vp-orchestrator-log-${projectId ?? "none"}`;
+
+  // Мульти-чаты проекта
+  const sessionsKey = `vp-ai-agent-sessions-${projectId ?? "none"}`;
+  const activeSessionKey = `vp-ai-agent-active-session-${projectId ?? "none"}`;
+  const [sessions, setSessions] = usePersistedState<ChatSession[]>(sessionsKey, [
+    { id: "default", title: "Основной чат", createdAt: Date.now(), updatedAt: Date.now() },
+  ]);
+  const [activeSessionId, setActiveSessionId] = usePersistedState<string>(activeSessionKey, "default");
+  const [isChatsOpen, setIsChatsOpen] = useState(false);
+  const chatsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Режим выполнения действий (С подтверждением / Автоматически)
+  const [actionMode, setActionMode] = usePersistedState<"ask" | "auto">("vp-ai-agent-action-mode", "ask");
+  const [isModeOpen, setIsModeOpen] = useState(false);
+  const modeMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Прикрепленные файлы
+  const [attachments, setAttachments] = useState<
+    { id: string; name: string; size: number; type: string; content?: string }[]
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Ключ хранения для активного чата (default использует legacy-ключ для 100% совместимости)
+  const storageKey =
+    activeSessionId === "default"
+      ? `vp-orchestrator-log-${projectId ?? "none"}`
+      : `vp-orchestrator-log-${projectId ?? "none"}-${activeSessionId}`;
   const [chatLog, setChatLog] = usePersistedState<ChatMsg[]>(storageKey, []);
   const [chatInput, setChatInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -184,13 +224,140 @@ export function OrchestratorPanel({ projectId }: Props) {
 
   const abortRef = useRef<AbortController | null>(null);
   const userCancelRef = useRef(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const currentRectRef = useRef<WindowRect>(rect);
   const rafIdRef = useRef<number | null>(null);
+  const autoResolveRef = useRef<((confirms: PendingConfirm[], msgIndex: number) => void) | null>(null);
+
+  const currentSession = (sessions || []).find((s) => s.id === activeSessionId) || sessions?.[0];
+
+  const handleCreateNewChat = useCallback(() => {
+    const newId = `session-${Date.now()}`;
+    const newSession: ChatSession = {
+      id: newId,
+      title: `Чат ${(sessions?.length || 0) + 1}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    setSessions((prev) => [newSession, ...(prev || [])]);
+    setActiveSessionId(newId);
+    setChatLog([]);
+    setIsChatsOpen(false);
+  }, [sessions, setSessions, setActiveSessionId, setChatLog]);
+
+  const handleSwitchChat = useCallback(
+    (id: string) => {
+      setActiveSessionId(id);
+      const key =
+        id === "default"
+          ? `vp-orchestrator-log-${projectId ?? "none"}`
+          : `vp-orchestrator-log-${projectId ?? "none"}-${id}`;
+      try {
+        const raw = localStorage.getItem(key);
+        setChatLog(raw ? JSON.parse(raw) : []);
+      } catch {
+        setChatLog([]);
+      }
+      setIsChatsOpen(false);
+    },
+    [projectId, setActiveSessionId, setChatLog],
+  );
+
+  const handleDeleteChat = useCallback(
+    (id: string, e: ReactMouseEvent) => {
+      e.stopPropagation();
+      const remaining = (sessions || []).filter((s) => s.id !== id);
+      try {
+        const key =
+          id === "default"
+            ? `vp-orchestrator-log-${projectId ?? "none"}`
+            : `vp-orchestrator-log-${projectId ?? "none"}-${id}`;
+        localStorage.removeItem(key);
+      } catch {}
+
+      if (remaining.length === 0) {
+        const def: ChatSession = {
+          id: "default",
+          title: "Основной чат",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        setSessions([def]);
+        setActiveSessionId("default");
+        setChatLog([]);
+      } else {
+        setSessions(remaining);
+        if (activeSessionId === id) {
+          handleSwitchChat(remaining[0].id);
+        }
+      }
+    },
+    [sessions, setSessions, activeSessionId, projectId, handleSwitchChat, setChatLog],
+  );
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    Array.from(files).forEach((file) => {
+      const id = `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const isText =
+        file.type.startsWith("text/") ||
+        /\.(txt|json|md|py|csv|log|yaml|yml|js|ts|tsx|html|css)$/i.test(file.name);
+
+      if (isText && file.size < 500_000) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const content = ev.target?.result as string;
+          setAttachments((prev) => [
+            ...prev,
+            { id, name: file.name, size: file.size, type: file.type || "text", content },
+          ]);
+        };
+        reader.readAsText(file);
+      } else {
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id,
+            name: file.name,
+            size: file.size,
+            type: file.type || (file.type.startsWith("image/") ? "изображение" : "файл"),
+          },
+        ]);
+      }
+    });
+
+    e.target.value = "";
+  }, []);
+
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = `${Math.min(140, Math.max(28, textareaRef.current.scrollHeight))}px`;
+    }
+  }, [chatInput]);
+
+  useEffect(() => {
+    if (!isChatsOpen && !isModeOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (chatsMenuRef.current && !chatsMenuRef.current.contains(e.target as Node)) {
+        setIsChatsOpen(false);
+      }
+      if (modeMenuRef.current && !modeMenuRef.current.contains(e.target as Node)) {
+        setIsModeOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onClickOutside);
+    return () => window.removeEventListener("mousedown", onClickOutside);
+  }, [isChatsOpen, isModeOpen]);
 
   useEffect(() => {
     currentRectRef.current = rect;
@@ -472,15 +639,48 @@ export function OrchestratorPanel({ projectId }: Props) {
           created_at: Date.now(),
         },
       ]);
+
+      if (actionMode === "auto" && pendAll.length > 0) {
+        setTimeout(() => {
+          autoResolveRef.current?.(pendAll, currentChatLog.length);
+        }, 300);
+      }
     },
-    [projectId, setChatLog],
+    [projectId, setChatLog, actionMode],
   );
 
   const sendMessage = useCallback(
-    async (userText: string) => {
-      if (projectId == null || !userText.trim() || busy || isStreaming || abortRef.current) return;
+    async (
+      userText: string,
+      attachedFiles?: { id: string; name: string; size: number; type: string; content?: string }[],
+    ) => {
+      if (projectId == null || busy || isStreaming || abortRef.current) return;
+      const currentFiles = attachedFiles !== undefined ? attachedFiles : attachments;
       const cleanInput = userText.trim();
+      if (!cleanInput && currentFiles.length === 0) return;
+
       setChatInput("");
+
+      let messageForAgent = cleanInput;
+      let displayContent = cleanInput;
+
+      if (currentFiles.length > 0) {
+        const fileDescs = currentFiles
+          .map(
+            (f) =>
+              `- ${f.name} (${Math.round(f.size / 1024)} КБ, ${f.type || "файл"})${
+                f.content ? `:\n\`\`\`\n${f.content.slice(0, 4000)}\n\`\`\`` : ""
+              }`,
+          )
+          .join("\n");
+        messageForAgent = `${cleanInput ? cleanInput + "\n\n" : ""}[Вложенные файлы:\n${fileDescs}]`;
+        displayContent = `${cleanInput ? cleanInput + "\n\n" : ""}[📎 Вложено файлов: ${currentFiles.length} (${currentFiles.map((f) => f.name).join(", ")})]`;
+        setAttachments([]);
+      }
+
+      if (actionMode === "auto") {
+        messageForAgent = `[РЕЖИМ: АВТОНОМНЫЙ. Выполняй действия и сохраняй изменения сразу, без ожидания подтверждения]\n\n${messageForAgent}`;
+      }
 
       userCancelRef.current = false;
       const ac = new AbortController();
@@ -488,9 +688,19 @@ export function OrchestratorPanel({ projectId }: Props) {
       setBusy(true);
       setOpen(true);
 
-      const userMsg: ChatMsg = { role: "user", content: cleanInput, created_at: Date.now() };
+      const userMsg: ChatMsg = { role: "user", content: displayContent || cleanInput, created_at: Date.now() };
       const next: ChatMsg[] = [...chatLog, userMsg];
       setChatLog(next);
+
+      if (cleanInput) {
+        setSessions((prev) =>
+          (prev || []).map((s) =>
+            s.id === activeSessionId && (s.title.startsWith("Чат") || s.title === "Основной чат")
+              ? { ...s, title: cleanInput.slice(0, 26).trim() || s.title, updatedAt: Date.now() }
+              : s,
+          ),
+        );
+      }
 
       setIsStreaming(true);
       setStreamingText("");
@@ -502,7 +712,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         const historyPayload = next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content }));
         const r = await api.dbOrchestratorChatStream(
           projectId,
-          cleanInput,
+          messageForAgent,
           historyPayload,
           {
             onDelta: (delta) => {
@@ -554,7 +764,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         try {
           const fallbackRes = await api.dbOrchestratorChat(
             projectId,
-            cleanInput,
+            messageForAgent,
             next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content })),
             { signal: ac.signal },
           );
@@ -584,9 +794,9 @@ export function OrchestratorPanel({ projectId }: Props) {
   );
 
   const sendChat = useCallback(async () => {
-    if (!chatInput.trim()) return;
-    await sendMessage(chatInput);
-  }, [chatInput, sendMessage]);
+    if (!chatInput.trim() && attachments.length === 0) return;
+    await sendMessage(chatInput, attachments);
+  }, [chatInput, attachments, sendMessage]);
 
   const onToggleMaximized = useCallback(
     (e: ReactMouseEvent) => {
@@ -1020,6 +1230,17 @@ export function OrchestratorPanel({ projectId }: Props) {
     [projectId, busy, setChatLog, withConfirmResolved],
   );
 
+  useEffect(() => {
+    autoResolveRef.current = (confirms: PendingConfirm[], msgIndex: number) => {
+      confirms.forEach((c, ci) => {
+        if (c.kind === "action_plan") void resolvePlan(msgIndex, ci, c, true);
+        else if (c.kind === "remove_node") void resolveRemove(msgIndex, ci, c, true);
+        else if (c.kind === "delete_projects") void resolveDeleteProjects(msgIndex, ci, c, true);
+        else if (c.kind === "git_commit_push") void resolveGitPush(msgIndex, ci, c, true);
+      });
+    };
+  }, [resolvePlan, resolveRemove, resolveDeleteProjects, resolveGitPush]);
+
   if (!open) return null;
 
   return (
@@ -1102,11 +1323,96 @@ export function OrchestratorPanel({ projectId }: Props) {
         )}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 text-[11px]">
-          {!isMaximized && (
-            <span title="Потяните для перемещения окна" className="inline-flex items-center">
-              <GripHorizontal className="h-4 w-4 text-white/30 shrink-0" />
-            </span>
-          )}
+          {/* Меню чатов (слева где 6 точек) */}
+          <div className="relative shrink-0" ref={chatsMenuRef}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsChatsOpen((prev) => !prev);
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer select-none",
+                isChatsOpen
+                  ? "bg-purple-950/70 border-purple-500/50 text-purple-200"
+                  : "bg-white/[0.04] border-white/10 text-white/80 hover:bg-white/[0.09] hover:text-white",
+              )}
+              title="Список диалогов с ИИ-агентом"
+            >
+              <GripHorizontal className="h-3.5 w-3.5 text-purple-400 shrink-0" />
+              <span className="max-w-[110px] truncate font-medium">
+                {currentSession?.title || "Чаты"}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "h-3 w-3 text-white/50 transition-transform duration-150",
+                  isChatsOpen && "rotate-180 text-purple-300",
+                )}
+              />
+            </button>
+
+            {isChatsOpen && (
+              <div
+                className="absolute left-0 top-full mt-1.5 z-50 w-64 rounded-xl border border-white/[0.14] bg-[#12131a] p-1.5 shadow-2xl shadow-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-2 py-1.5 border-b border-white/[0.08] mb-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                    Диалоги проекта
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCreateNewChat}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-purple-300 hover:text-white bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-md px-2 py-0.5 transition-colors"
+                  >
+                    <Plus className="h-3 w-3" />
+                    <span>Новый</span>
+                  </button>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto space-y-0.5 pr-0.5">
+                  {(sessions || []).map((s) => {
+                    const isActive = s.id === activeSessionId;
+                    return (
+                      <div
+                        key={s.id}
+                        onClick={() => handleSwitchChat(s.id)}
+                        className={cn(
+                          "group flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-xs cursor-pointer transition-colors",
+                          isActive
+                            ? "bg-purple-500/20 border border-purple-500/30 text-purple-200 font-medium"
+                            : "text-white/70 hover:bg-white/[0.06] hover:text-white",
+                        )}
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <MessageSquare
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0",
+                              isActive ? "text-purple-400" : "text-white/40",
+                            )}
+                          />
+                          <span className="truncate text-[11px]">{s.title}</span>
+                        </div>
+                        {(sessions || []).length > 1 && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteChat(s.id, e)}
+                            className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 p-0.5 rounded transition-all"
+                            title="Удалить диалог"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="relative shrink-0">
             <OrchestratorAvatar size="sm" pulse={isStreaming} />
             <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
@@ -1124,15 +1430,6 @@ export function OrchestratorPanel({ projectId }: Props) {
                 : `ИИ-агент думает… (${elapsedSec}с)`}
             </span>
           ) : null}
-        </div>
-
-        <div
-          className="hidden min-w-0 shrink sm:block"
-          onClick={(e) => e.stopPropagation()}
-          onMouseDown={(e) => e.stopPropagation()}
-          data-testid="orch-text-llm-picker"
-        >
-          <TextLlmPicker className="max-w-[200px]" />
         </div>
 
         {busy || isStreaming ? (
@@ -1506,7 +1803,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               <button
                 type="button"
                 onClick={() => setChatLog([])}
-                className="text-[10px] text-white/35 hover:text-white/70 transition-colors"
+                className="text-[10px] text-white/35 hover:text-white/70 transition-colors cursor-pointer"
                 title="Очистить историю диалога"
               >
                 Очистить чат
@@ -1514,40 +1811,187 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
           )}
 
-          <div
-            className={cn(
-              "flex shrink-0 items-center gap-2 px-3.5 pb-3 bg-black/30",
-              chatLog.length === 0 ? "pt-2 border-t border-white/[0.08]" : "pt-1",
-            )}
-          >
-            <input
-              ref={inputRef}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !busy && !isStreaming && void sendChat()}
-              disabled={projectId == null || busy || isStreaming}
-              placeholder={
-                projectId == null
-                  ? "сначала открой проект"
-                  : isStreaming
-                    ? "ИИ-агент печатает ответ… жми Отмена для остановки"
-                    : busy
-                      ? "ИИ-агент думает… жми Отмена"
-                      : "Введите сообщение..."
-              }
-              className="h-9 flex-1 rounded-xl border border-white/10 bg-black/60 px-3 text-xs text-white placeholder:text-white/30 focus:border-purple-500/50 focus:outline-none focus:ring-1 focus:ring-purple-500/40 disabled:opacity-40 transition-all"
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="default"
-              disabled={projectId == null || busy || isStreaming || !chatInput.trim()}
-              onClick={() => void sendChat()}
-              className="h-9 gap-1.5 text-xs px-4 rounded-xl bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-md shadow-purple-900/30 transition-all font-medium"
-            >
-              <Send className="h-3.5 w-3.5" />
-              {isStreaming ? "…" : "Отправить"}
-            </Button>
+          {/* Bottom input card styled after reference */}
+          <div className="shrink-0 p-3 pt-1.5 bg-[#0c0c0e]/95 border-t border-white/[0.08]">
+            <div className="rounded-2xl border border-white/[0.12] bg-[#141520]/95 p-2.5 shadow-xl transition-all focus-within:border-purple-500/50 focus-within:ring-1 focus-within:ring-purple-500/30">
+              {/* Attachment chips */}
+              {attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pb-2 border-b border-white/[0.06] mb-2">
+                  {attachments.map((file) => (
+                    <span
+                      key={file.id}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.06] border border-white/10 px-2.5 py-1 text-[11px] text-white/90"
+                    >
+                      <Paperclip className="h-3 w-3 text-purple-400 shrink-0" />
+                      <span className="max-w-[130px] truncate">{file.name}</span>
+                      <span className="text-[9px] text-white/40 font-mono">
+                        ({Math.round(file.size / 1024)} КБ)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => removeAttachment(file.id)}
+                        className="text-white/40 hover:text-white ml-0.5 cursor-pointer"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Textarea */}
+              <textarea
+                ref={textareaRef}
+                value={chatInput}
+                rows={1}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !busy && !isStreaming) {
+                    e.preventDefault();
+                    void sendChat();
+                  }
+                }}
+                disabled={projectId == null || busy || isStreaming}
+                placeholder={
+                  projectId == null
+                    ? "Сначала открой проект"
+                    : isStreaming
+                      ? "ИИ-агент печатает ответ… жми Отмена для остановки"
+                      : busy
+                        ? "ИИ-агент думает… жми Отмена"
+                        : "Введите сообщение или задачу..."
+                }
+                className="w-full resize-none bg-transparent px-1 text-xs text-white placeholder:text-white/35 focus:outline-none min-h-[28px] max-h-36 leading-relaxed"
+              />
+
+              {/* Controls bar (matches reference screenshot 2) */}
+              <div className="flex items-center justify-between gap-2 pt-1.5">
+                {/* Left controls: Attachment button + Action mode dropdown */}
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={projectId == null || busy || isStreaming}
+                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.04] border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.09] transition-colors disabled:opacity-40 cursor-pointer"
+                    title="Прикрепить файл (картинку, документ, скрипт)"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+
+                  {/* Режим выполнения действий (С подтверждением / Автоматически) */}
+                  <div className="relative" ref={modeMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setIsModeOpen((prev) => !prev)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 h-7 rounded-lg border px-2 text-[11px] font-medium transition-colors cursor-pointer select-none",
+                        actionMode === "auto"
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20"
+                          : "border-white/10 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white",
+                      )}
+                      title="Режим выполнения действий ИИ-агентом"
+                    >
+                      {actionMode === "auto" ? (
+                        <Zap className="h-3 w-3 text-amber-400 shrink-0" />
+                      ) : (
+                        <Shield className="h-3 w-3 text-purple-400 shrink-0" />
+                      )}
+                      <span className="hidden xs:inline sm:inline">
+                        {actionMode === "auto" ? "Автоматически" : "С подтверждением"}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "h-3 w-3 opacity-60 transition-transform duration-150",
+                          isModeOpen && "rotate-180",
+                        )}
+                      />
+                    </button>
+
+                    {isModeOpen && (
+                      <div
+                        className="absolute left-0 bottom-full mb-1.5 z-50 w-64 rounded-xl border border-white/[0.14] bg-[#12131a] p-1.5 shadow-2xl shadow-black/95 backdrop-blur-xl animate-in fade-in zoom-in-95 duration-100"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-white/40 border-b border-white/[0.08] mb-1">
+                          Режим выполнения действий
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActionMode("ask");
+                            setIsModeOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-start gap-2 rounded-lg p-2 text-left transition-colors cursor-pointer",
+                            actionMode === "ask"
+                              ? "bg-purple-500/15 text-purple-200 border border-purple-500/30"
+                              : "hover:bg-white/[0.06] text-white/80",
+                          )}
+                        >
+                          <Shield className="h-4 w-4 text-purple-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium">С подтверждением</div>
+                            <div className="text-[10px] text-white/45 leading-tight">
+                              Выполнение действий после подтверждения оператором
+                            </div>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActionMode("auto");
+                            setIsModeOpen(false);
+                          }}
+                          className={cn(
+                            "w-full flex items-start gap-2 rounded-lg p-2 text-left transition-colors mt-0.5 cursor-pointer",
+                            actionMode === "auto"
+                              ? "bg-amber-500/15 text-amber-200 border border-amber-500/30"
+                              : "hover:bg-white/[0.06] text-white/80",
+                          )}
+                        >
+                          <Zap className="h-4 w-4 text-amber-400 shrink-0 mt-0.5" />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium">Автоматически</div>
+                            <div className="text-[10px] text-white/45 leading-tight">
+                              Автоматическое выполнение всех действий
+                            </div>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right controls: Model picker (moved here) + Send button */}
+                <div className="flex items-center gap-1.5">
+                  <TextLlmPicker className="h-7 max-w-[140px] sm:max-w-[180px] bg-white/[0.04] hover:bg-white/[0.08] border-white/10 rounded-lg text-[11px] text-white/70 hover:text-white cursor-pointer transition-colors" />
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    disabled={
+                      projectId == null ||
+                      busy ||
+                      isStreaming ||
+                      (!chatInput.trim() && attachments.length === 0)
+                    }
+                    onClick={() => void sendChat()}
+                    className="h-7 w-7 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-violet-600 hover:from-purple-500 hover:to-violet-500 text-white shadow-md shadow-purple-900/30 transition-all shrink-0 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                    title="Отправить (Enter)"
+                  >
+                    <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
     </div>
