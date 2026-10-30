@@ -13,6 +13,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  Clapperboard,
   Copy,
   GitBranch,
   Loader2,
@@ -738,33 +739,14 @@ export function OrchestratorPanel({ projectId }: Props) {
               AI Director
             </span>
           </div>
-          <span className="truncate text-white/40 hidden sm:inline ml-1">
-            {projectId == null
-              ? "открой проект для начала"
-              : isStreaming
+          {isStreaming || busy ? (
+            <span className="truncate text-cyan-400/80 hidden sm:inline ml-1">
+              {isStreaming
                 ? `${streamingPhase || "Печатает ответ…"} (${elapsedSec}с)`
-                : busy
-                  ? `Анализирует… (${elapsedSec}с)`
-                  : "ИИ-режиссёр проекта"}
-          </span>
+                : `Анализирует… (${elapsedSec}с)`}
+            </span>
+          ) : null}
         </div>
-
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={projectId == null || busy || isStreaming}
-          onClick={(e) => {
-            e.stopPropagation();
-            void sendMessage("Покажи доступные действия по проекту");
-          }}
-          className="h-7 gap-1.5 rounded-lg border-cyan-500/35 bg-cyan-950/25 px-2.5 text-[11px] font-medium text-cyan-200 hover:bg-cyan-500/20 hover:text-white hover:border-cyan-400 transition-all shadow-sm"
-          title="Показать, какие шаги и операции сейчас доступны для проекта"
-        >
-          <Settings className="h-3 w-3 text-cyan-400" />
-          <span className="hidden md:inline">⚙️ Покажи доступные действия</span>
-          <span className="md:hidden">Действия</span>
-        </Button>
 
         <div
           className="hidden min-w-0 shrink sm:block"
@@ -857,11 +839,13 @@ export function OrchestratorPanel({ projectId }: Props) {
               if (isUser) {
                 return (
                   <div key={i} className="flex justify-end max-w-4xl mx-auto w-full">
-                    <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-[#102738] to-[#0c1c28] border border-cyan-500/35 p-3.5 shadow-md shadow-black/40">
-                      <div className="flex items-center justify-between gap-3 mb-1.5 border-b border-cyan-500/15 pb-1">
+                    <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-[#102738] to-[#0c1c28] border border-cyan-500/35 px-4 py-3 shadow-md shadow-black/40">
+                      <div className="flex items-center justify-between gap-3 mb-1.5">
                         <div className="flex items-center gap-1.5 text-cyan-300">
-                          <User className="h-3 w-3" />
-                          <span className="text-[10px] font-semibold tracking-wider">Ты</span>
+                          <Clapperboard className="h-3 w-3 text-cyan-400" />
+                          <span className="text-[10px] font-semibold tracking-wider uppercase text-cyan-200">
+                            Режиссёр
+                          </span>
                         </div>
                         {m.created_at ? (
                           <span className="text-[10px] text-cyan-300/40 font-mono">
@@ -1181,7 +1165,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                     ? "оркестратор печатает ответ… жми Отмена для остановки"
                     : busy
                       ? "оркестратор думает… жми Отмена"
-                      : "сообщение оркестратору…"
+                      : "Введите сообщение..."
               }
               className="h-9 flex-1 rounded-xl border border-white/10 bg-black/60 px-3 text-xs text-white placeholder:text-white/30 focus:border-cyan-500/50 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 disabled:opacity-40 transition-all"
             />
