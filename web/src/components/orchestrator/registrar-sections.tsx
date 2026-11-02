@@ -49,9 +49,9 @@ function registrarSection(id: string, projectId: number | null) {
 // участнику бэкенд отвечает 403 (engine_access.require_engine_admin, plan.ADMIN_ONLY_*).
 const ADMIN_ONLY_SECTIONS = new Set(["spend", "reserves", "kill"]);
 // Блоки, чьих ручек на этой линии нет: показывать их значит показать вечную ошибку загрузки.
-// Наблюдение, стоп, траты и журнал перенесены (app/web/routers/observations.py); журнала
-// публикаций с подтверждениями (роутер publications и шаг публикации с проверкой) нет.
-const NOT_ON_THIS_LINE = new Set(["publications"]);
+// Наблюдение, стоп, траты и журнал перенесены (app/web/routers/observations.py); публикации
+// показаны в модели заказчика (app/web/routers/publications.py, только чтение).
+const NOT_ON_THIS_LINE = new Set<string>();
 
 export function RegistrarSections({ projectId }: { projectId: number | null }) {
   const [openIds, setOpenIds] = usePersistedState<string[]>("vp-registrar-open", []);

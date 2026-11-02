@@ -17,6 +17,8 @@ import {
   ChevronUp,
   Clapperboard,
   Copy,
+  Edit3,
+  ListChecks,
   GitBranch,
   Loader2,
   Maximize2,
@@ -97,6 +99,26 @@ interface ChatMsg {
   created_at?: number;
   confirms?: PendingConfirm[];
   confirm?: PendingConfirm;
+  choices?: string[];
+}
+
+function extractChoicesFromText(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const m = text.match(/<choices>\s*(\[[\s\S]*?\])\s*<\/choices>/i);
+  if (m) {
+    try {
+      const arr = JSON.parse(m[1]);
+      if (Array.isArray(arr)) return arr.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch {}
+  }
+  const m2 = text.match(/\{\s*"choices"\s*:\s*(\[[\s\S]*?\])/i);
+  if (m2) {
+    try {
+      const arr = JSON.parse(m2[1]);
+      if (Array.isArray(arr)) return arr.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch {}
+  }
+  return [];
 }
 
 const HITL_DECISION_RU: Record<string, string> = {
@@ -114,26 +136,20 @@ function hitlDecisionRu(value: string): string {
 
 function cleanOrchestratorText(text: string | null | undefined): string {
   if (!text) return "";
-  let t = text;
+  let t = text.replace(/<choices>[\s\S]*?<\/choices>/gi, "");
+  // 1. Убираем markdown-блоки ```json ... ``` с actions/ops/choices
+  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops|choices)"[\s\S]*?\}\s*```/gi, "");
 
-  // 1. Убираем полностью закрытые markdown-блоки ```json ... ``` с actions/ops/read_file
-  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops|read_file|run_step)"[\s\S]*?\}\s*```/gi, "");
-
-  // 2. Если в хвосте висит незакрытый markdown-блок (идёт стриминг), обрезаем его
-  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops|read_file|run_step)"[\s\S]*$/gi, "");
-  t = t.replace(/```(?:json)?\s*$/gi, "");
-
-  // 3. Вырезаем JSON-объекты {"actions":[...]} или {"ops":[...]} любой вложенности
+  // 2. Убираем сырые JSON-объекты {"actions":[...]}, {"ops":[...]}, {"choices":[...]} любой вложенности
   let out = "";
   let i = 0;
   const n = t.length;
   while (i < n) {
     if (
       t[i] === "{" &&
-      (t.slice(i, i + 80).includes('"actions"') ||
-        t.slice(i, i + 80).includes('"ops"') ||
-        t.slice(i, i + 80).includes('"read_file"') ||
-        t.slice(i, i + 80).includes('"run_step"'))
+      (t.slice(i, i + 100).includes('"actions"') ||
+        t.slice(i, i + 100).includes('"ops"') ||
+        t.slice(i, i + 100).includes('"choices"'))
     ) {
       let depth = 0;
       let inString = false;
@@ -162,17 +178,39 @@ function cleanOrchestratorText(text: string | null | undefined): string {
         j++;
       }
       if (foundEnd) {
-        i = j;
-        continue;
+        const block = t.slice(i, j);
+        try {
+          const parsed = JSON.parse(block);
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            ("actions" in parsed || "ops" in parsed || "choices" in parsed)
+          ) {
+            i = j;
+            continue;
+          }
+        } catch {
+          // Если парсинг не прошел, но это явно блок с actions/ops/choices, вырезаем до закрывающей скобки
+          i = j;
+          continue;
+        }
       } else {
-        // Незакрытый JSON-блок во время стриминга — обрезаем всё с этого места
-        break;
+        // Если блок ещё не закрыт (например, во время стриминга в самом начале)
+        if (i === 0) {
+          return "";
+        }
       }
     }
     out += t[i];
     i++;
   }
 
+  // 3. Убираем любые висячие скобки, двоеточия, запятые или обрывки actions/choices в начале текста
+  out = out.replace(
+    /^(?:[\s\],}:)]+|"(?:actions|ops|choices)"\s*:\s*(?:\[[\s\S]*?\]|\{[\s\S]*?\})\s*\}?)+/,
+    ""
+  );
+  out = out.replace(/^[\s\],}:)]+/, "");
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -417,7 +455,6 @@ export function OrchestratorPanel({ projectId }: Props) {
   const userCancelRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const userScrolledUpRef = useRef<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const currentRectRef = useRef<WindowRect>(rect);
@@ -692,12 +729,10 @@ export function OrchestratorPanel({ projectId }: Props) {
     };
   }, [open, chatLog.length, projectId, scrollToBottom]);
 
-  // Автоскролл во время стриминга ответа ИИ-агента (только если юзер не прокрутил наверх)
+  // Автоскролл во время стриминга ответа ИИ-агента
   useEffect(() => {
     if (isStreaming || streamingText) {
-      if (!userScrolledUpRef.current) {
-        scrollToBottom(false);
-      }
+      scrollToBottom(false);
     }
   }, [isStreaming, streamingText, scrollToBottom]);
 
@@ -867,6 +902,10 @@ export function OrchestratorPanel({ projectId }: Props) {
       }
 
       const cleanReply = cleanOrchestratorText(r.reply || "");
+      const msgChoices =
+        Array.isArray(r.choices) && r.choices.length > 0
+          ? r.choices
+          : extractChoicesFromText(r.reply);
       const assistantMsg: ChatMsg = {
         role: "assistant",
         content:
@@ -880,6 +919,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                 : "Ответ пустой — повторите просьбу другими словами."),
         notes: notes.length ? notes : undefined,
         confirms: pendAll.length ? pendAll : undefined,
+        choices: msgChoices.length > 0 ? msgChoices : undefined,
         created_at: Date.now(),
       };
 
@@ -982,7 +1022,6 @@ export function OrchestratorPanel({ projectId }: Props) {
         );
       }
 
-      userScrolledUpRef.current = false;
       setIsStreaming(true);
       setStreamingText("");
       setStreamingPhase("Анализирую граф проекта…");
@@ -1000,7 +1039,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               setStreamingText((prev) => (prev ?? "") + delta);
             },
             onPhase: (_phase, detail) => {
-              setStreamingPhase(detail || "Печатает ответ…");
+              setStreamingPhase(detail || "Я думаю, пожалуйста, подождите…");
             },
             onDone: (result) => {
               streamFinished = true;
@@ -1902,7 +1941,18 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
           </div>
 
-
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={projectId == null || busy || isStreaming}
+          onClick={() => void sendMessage("Брифинг проекта")}
+          className="h-6 gap-1 rounded-md border border-emerald-500/30 hover:border-emerald-400/60 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 text-[11px] font-medium text-emerald-200 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer mr-1 hidden sm:inline-flex"
+          title="Запустить опросник брифинга проекта"
+        >
+          <ListChecks className="h-3 w-3 text-emerald-400" />
+          <span>Брифинг проекта</span>
+        </Button>
 
         <Button
           type="button"
@@ -1934,11 +1984,6 @@ export function OrchestratorPanel({ projectId }: Props) {
       <div className="flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollContainerRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-              userScrolledUpRef.current = distanceToBottom > 80;
-            }}
             className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3.5 space-y-3.5"
           >
             {chatLog.length === 0 && !isStreaming ? (
@@ -1953,17 +1998,30 @@ export function OrchestratorPanel({ projectId }: Props) {
                 <p className="text-[11px] text-white/45 max-w-sm mb-3.5 leading-relaxed">
                   Управление пайплайном, графом нод, генерацией и настройками проекта.
                 </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={projectId == null || busy || isStreaming}
-                  onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                  className="h-7 gap-1.5 rounded-full border border-white/20 hover:border-emerald-400/60 bg-transparent hover:bg-white/[0.06] px-3.5 text-xs font-medium text-white/80 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
-                >
-                  <Settings className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Покажи доступные действия</span>
-                </Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={projectId == null || busy || isStreaming}
+                    onClick={() => void sendMessage("Брифинг проекта")}
+                    className="h-7 gap-1.5 rounded-full border border-emerald-500/40 hover:border-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 text-xs font-medium text-emerald-200 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
+                  >
+                    <ListChecks className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Брифинг проекта</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={projectId == null || busy || isStreaming}
+                    onClick={() => void sendMessage("Покажи доступные действия по проекту")}
+                    className="h-7 gap-1.5 rounded-full border border-white/20 hover:border-emerald-400/60 bg-transparent hover:bg-white/[0.06] px-3.5 text-xs font-medium text-white/80 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Settings className="h-3.5 w-3.5 text-white/60" />
+                    <span>Покажи доступные действия</span>
+                  </Button>
+                </div>
               </div>
             ) : null}
 
@@ -2033,6 +2091,46 @@ export function OrchestratorPanel({ projectId }: Props) {
                             {note}
                           </span>
                         ))}
+                      </div>
+                    )}
+
+                    {m.choices && m.choices.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-white/[0.08]">
+                        {m.choices.map((choice, ci) => {
+                          const isCustom =
+                            choice.toLowerCase().includes("свой") ||
+                            choice.toLowerCase().includes("другой");
+                          return (
+                            <button
+                              key={ci}
+                              type="button"
+                              disabled={busy || isStreaming || projectId == null}
+                              onClick={() => {
+                                if (isCustom) {
+                                  if (textareaRef.current) {
+                                    textareaRef.current.focus();
+                                    setChatInput("");
+                                  }
+                                } else {
+                                  void sendMessage(choice);
+                                }
+                              }}
+                              className={cn(
+                                "group inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all active:scale-95 cursor-pointer",
+                                isCustom
+                                  ? "bg-white/[0.06] hover:bg-white/[0.12] border border-white/20 text-white/80 hover:text-white"
+                                  : "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-400/60 text-emerald-200 hover:text-emerald-100 shadow-sm"
+                              )}
+                            >
+                              {isCustom ? (
+                                <Edit3 className="h-3 w-3 text-white/60 group-hover:text-white" />
+                              ) : (
+                                <Check className="h-3 w-3 text-emerald-400 group-hover:text-emerald-300" />
+                              )}
+                              <span>{choice}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -2266,27 +2364,21 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                     <div className="flex items-center gap-2 text-xs font-medium text-emerald-300">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                      <span>{streamingPhase || "Печатает ответ…"}</span>
+                      <span>{streamingPhase || "Я думаю, пожалуйста, подождите…"}</span>
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
                   </div>
-                  {cleanOrchestratorText(streamingText) ? (
-                    <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
-                      <MarkdownRenderer content={cleanOrchestratorText(streamingText)} />
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 py-1 text-white/50 text-xs italic animate-pulse">
-                      <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
-                      <span>Печатает ответ…</span>
-                    </div>
-                  )}
-                  {streamingPhase === "Применение действий и проверка…" && (
-                    <div className="flex items-center gap-1.5 pt-2 text-[11px] text-emerald-300 font-medium border-t border-white/[0.06] mt-2.5">
-                      <Loader2 className="h-3 w-3 animate-spin text-emerald-400 shrink-0" />
-                      <span>Применяю действия к проекту…</span>
-                    </div>
-                  )}
+                    {cleanOrchestratorText(streamingText) ? (
+                      <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
+                        <MarkdownRenderer content={cleanOrchestratorText(streamingText)} />
+                        <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                        <span>ИИ-агент формулирует ответ…</span>
+                      </div>
+                    )}
                 </div>
               </div>
             )}
@@ -2328,9 +2420,15 @@ export function OrchestratorPanel({ projectId }: Props) {
                 rows={1}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !busy && !isStreaming) {
+                  if (e.key === "Enter") {
+                    if (e.shiftKey || e.ctrlKey || e.altKey) {
+                      return;
+                    }
+                    if (e.nativeEvent.isComposing) return;
                     e.preventDefault();
-                    void sendChat();
+                    if (!busy && !isStreaming && projectId != null) {
+                      void sendChat();
+                    }
                   }
                 }}
                 disabled={projectId == null || busy || isStreaming}
@@ -2339,7 +2437,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                     ? "Сначала открой проект"
                     : isStreaming || busy
                       ? streamingSessionId === activeSessionId
-                        ? "Печатает ответ… (нажмите кнопку стоп для отмены)"
+                        ? "Я думаю, пожалуйста, подождите… (нажмите кнопку стоп для отмены)"
                         : "ИИ-агент занят в другом диалоге… (нажмите кнопку стоп для отмены)"
                       : "Введите сообщение или задачу..."
                 }

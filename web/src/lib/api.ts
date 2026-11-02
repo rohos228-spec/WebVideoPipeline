@@ -948,6 +948,7 @@ export interface DbOrchestratorChatResult {
     token?: string;
     title?: string;
   }[];
+  choices?: string[];
   error: string | null;
 }
 

@@ -85,8 +85,46 @@ def action_key(act: dict) -> str | None:
     return None
 
 
+def is_publish(act: dict) -> bool:
+    return action_key(act) == "run_step" and str(act.get("run_step") or "").strip() == "publish"
+
+
 def needs_confirm(act: dict, *, auto: bool) -> bool:
+    # Публикация выкладывает ролик наружу и не отзывается: кнопка человека даже в автономном режиме.
+    if is_publish(act):
+        return True
     return not auto and action_key(act) in CONFIRM_KEYS
+
+
+async def publish_refusal(session, project) -> str | None:
+    """Почему шаг «Публикация» сейчас нельзя запускать (None — можно).
+
+    Шаг заказчика при выключенной автопубликации молча ставит «опубликовано», ничего
+    не выложив, — такой запуск из чата обманул бы человека, поэтому отказ.
+    """
+    from sqlalchemy import select
+
+    from app.models import Artifact, ArtifactKind
+    from app.settings import settings
+
+    if not settings.social_publish_enabled:
+        return (
+            "автопубликация выключена в настройках сервера (SOCIAL_PUBLISH_ENABLED): "
+            "шаг «Публикация» ничего не выложит, поэтому не запускаю"
+        )
+    status = getattr(project.status, "value", str(project.status))
+    if status not in {"assembled", "publishing"}:
+        return f"публиковать можно собранный ролик; сейчас проект на этапе «{status}»"
+    final = (
+        await session.execute(
+            select(Artifact.id)
+            .where(Artifact.project_id == project.id, Artifact.kind == ArtifactKind.final_video)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if final is None:
+        return "нет финального видео для публикации"
+    return None
 
 
 def _node_label(keymap: dict, key: str | None) -> str:
@@ -102,6 +140,11 @@ def action_title(act: dict, keymap: dict | None = None) -> str:
     key = action_key(act)
     v = act.get(key) if key else None
     spec = v if isinstance(v, dict) else {}
+    if key == "run_step" and str(v or "").strip() == "publish":
+        return (
+            "Опубликовать готовый ролик на все площадки, где его ещё нет (TikTok, YouTube Shorts, "
+            "Instagram Reels, VK Клипы, Likee), с подписью из темы проекта. Отозвать из студии нельзя."
+        )
     if key == "run_step":
         step = str(v or "")
         paid = " Это платный шаг." if step in PAID_MEDIA_STEPS else ""

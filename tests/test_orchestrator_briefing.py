@@ -1,0 +1,130 @@
+from unittest.mock import AsyncMock
+
+import pytest
+
+from app.models import Project
+from app.services.node_step_params import (
+    build_duration_params_block,
+    build_split_params_block,
+    subtitles_enabled_for_project,
+)
+from app.web.routers.db_browser import (
+    _apply_set_briefing,
+    _clean_orchestrator_human_reply,
+    _execute_orchestrator_reply,
+)
+
+
+def test_apply_set_briefing():
+    p = Project(slug="test-proj", title="Test", meta={}, prompt_overrides={})
+
+    # 1. Update duration, frames, scenario prompt, voiceover, hero, montage, subtitles, sfx
+    res = _apply_set_briefing(p, {
+        "duration": 45,
+        "target_frames": 12,
+        "plan_prompt": "cinematic_story_plan",
+        "scenario_type": "Кинематографичная история",
+        "voiceover_mode": "full",
+        "hero_mode": "hero",
+        "items_consistent": False,
+        "visual_style": "3D мультфильм",
+        "structure": "динамичный клип",
+        "montage": "клиповый с быстрыми склейками",
+        "subtitles_enabled": True,
+        "sfx_enabled": False,
+    })
+
+    assert "duration=45.0s" in res
+    assert "frames=12" in res
+    assert "plan_prompt=cinematic_story_plan" in res
+    assert "hero_mode=hero" in res
+    assert "subs=on" in res
+    assert "sfx=off" in res
+
+    meta = p.meta or {}
+    briefing = meta.get("briefing") or {}
+    nsp = meta.get("node_step_params") or {}
+
+    assert briefing["duration_seconds"] == 45.0
+    assert briefing["target_frames"] == 12
+    assert briefing["plan_prompt"] == "cinematic_story_plan"
+    assert briefing["scenario_type"] == "Кинематографичная история"
+    assert briefing["hero_mode"] == "hero"
+    assert briefing["subtitles_enabled"] is True
+    assert briefing["sfx_enabled"] is False
+    assert p.hero_mode == "hero"
+    assert (p.prompt_overrides or {}).get("plan") == "cinematic_story_plan"
+    assert "sfx_plan" in meta.get("disabled_nodes", [])
+    assert nsp["plan"]["duration_seconds"] == 45.0
+    assert nsp["script"]["duration_seconds"] == 45.0
+    assert nsp["assemble"]["subtitles_enabled"] is True
+    assert subtitles_enabled_for_project(p) is True
+
+    # 2. Check duration block includes briefing lines
+    block_plan = build_duration_params_block(p, "plan", header="Сценарий")
+    assert "Целевое количество сцен/кадров: 12" in block_plan
+    assert "Длина 45 секунд" in block_plan
+    assert "Структура и темп сцен: динамичный клип" in block_plan
+    assert "Визуальный стиль: 3D мультфильм" in block_plan
+
+    block_split = build_split_params_block(p)
+    assert "Темп склеек: динамичный клип" in block_split
+
+
+@pytest.mark.asyncio
+async def test_execute_orchestrator_reply_choices(monkeypatch):
+    p = Project(slug="test-proj-2", title="Test 2", meta={})
+    p.id = 42
+
+    mock_session = AsyncMock()
+    monkeypatch.setattr("app.web.routers.db_browser.commit_with_retry", AsyncMock())
+
+    reply = (
+        "Давай определимся с хронометражем ролика. Сколько секунд планируем?\n\n"
+        '{"actions":[{"set_briefing":{"duration":30}}], '
+        '"choices":["15–20с (Shorts)", "30–45с (Стандарт)", "60с", "Свой ответ"]}'
+    )
+
+    res = await _execute_orchestrator_reply(
+        mock_session,
+        p,
+        reply,
+        diagnose_only=False,
+        canvas_keymap={},
+        diag_lines=[],
+        body_message="брифинг проекта",
+    )
+
+    assert res["choices"] == ["15–20с (Shorts)", "30–45с (Стандарт)", "60с", "Свой ответ"]
+    assert "Давай определимся с хронометражем" in res["reply"]
+    # Check JSON block is stripped from human reply
+    assert '{"actions"' not in res["reply"]
+    assert '{"choices"' not in res["reply"]
+    assert (p.meta or {}).get("briefing", {}).get("duration_seconds") == 30.0
+
+
+def test_clean_orchestrator_human_reply_nested_json():
+    # 1. Nested set_briefing
+    t1 = '{"actions":[{"set_briefing":{"plan_prompt":"cinematic_story_plan"}}]}\n\nЗаписал: кинематографичная история'
+    res1 = _clean_orchestrator_human_reply(t1)
+    assert res1 == "Записал: кинематографичная история"
+
+    # 2. Multiple nested actions + choices (from screenshot)
+    t2 = (
+        '{"actions":[{"set_briefing":{"hero_mode":"no_hero"}},{"set_option":{"key":"hero_mode","value":"no_hero"}}],'
+        '"choices":["Кинематографичный фотореализм","3D мультфильм / CGI"]}\n\n'
+        "Записал: без постоянных героев"
+    )
+    res2 = _clean_orchestrator_human_reply(t2)
+    assert res2 == "Записал: без постоянных героев"
+
+    # 3. Stray trailing bracket
+    t3 = ')}] Записал: редкие фразы'
+    res3 = _clean_orchestrator_human_reply(t3)
+    assert res3 == "Записал: редкие фразы"
+
+    # 4. Partial choices cut remnant
+    t4 = '}],"choices":["Клиповый монтаж с субтитрами"]}\n\nЗаписал: клиповый монтаж'
+    res4 = _clean_orchestrator_human_reply(t4)
+    assert res4 == "Записал: клиповый монтаж"
+

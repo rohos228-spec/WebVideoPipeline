@@ -97,6 +97,9 @@ from app.web.routers import (
     nii67 as nii67_router,
 )
 from app.web.routers import (
+    publications as publications_router,
+)
+from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
@@ -634,6 +637,8 @@ def create_app() -> FastAPI:
     # /api/projects/{id}/nii67* и /api/projects/{id}/style-agent*.
     app.include_router(nii67_router.router, prefix=API_PREFIX)
     app.include_router(style_agent_router.router, prefix=API_PREFIX)
+    # Публикации в модели заказчика: только чтение состояния по площадкам.
+    app.include_router(publications_router.router, prefix=API_PREFIX)
     # Чат оркестратора (движок). /api/orchestrator/chat/ в TENANT_ALLOWED_PREFIXES:
     # участник ходит в свой чат (сессия несёт арендатора, строки под RLS 0023);
     # роутер требует живую личность (engine_access.require_engine_member).

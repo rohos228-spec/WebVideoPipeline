@@ -282,32 +282,37 @@ def _pub(approved=(), published=None, status="assembled", **meta):
     return _Ctx({r"/projects/7": project, r"/projects/7/publications": facts})
 
 
-async def test_publish_takes_the_named_platforms_and_refuses_extra_approvals() -> None:
+async def test_publish_card_must_name_every_platform_the_step_will_post_to() -> None:
+    """Шаг заказчика выкладывает везде, где ролика ещё нет: карточка не может назвать меньше."""
     plats = pa.registry_platforms()
     one = plats[0]
-    assert await pa._platforms_expected(_pub(), {"project_id": 7, "platforms": [one]}) is None
-    assert await pa._platforms_expected(_pub(approved=[one]), {"project_id": 7, "platforms": [one]}) is None
-    extra = await pa._platforms_expected(_pub(approved=plats[:2]), {"project_id": 7, "platforms": [one]})
-    assert "опубликует и туда" in extra and pa.PLATFORM_TITLES.get(plats[1], plats[1]) in extra
-    done = await pa._platforms_expected(_pub(published={one: True}), {"project_id": 7, "platforms": [one]})
+    assert await pa._platforms_expected(_pub(), {"project_id": 7, "platforms": plats}) is None
+    extra = await pa._platforms_expected(_pub(), {"project_id": 7, "platforms": [one]})
+    assert "на все площадки без публикации" in extra
+    assert pa.PLATFORM_TITLES.get(plats[1], plats[1]) in extra
+    rest = plats[1:]
+    assert await pa._platforms_expected(_pub(published={one: "u"}), {"project_id": 7, "platforms": rest}) is None
+    done = await pa._platforms_expected(_pub(published={one: "u"}), {"project_id": 7, "platforms": [one]})
     assert "уже опубликован" in done
-    broken = _Ctx({r"/projects/7": {"id": 7, "meta": {}},
-                   r"/projects/7/publications": ActionCallError(500, "boom")})
-    assert "не удалось прочитать" in await pa._platforms_expected(broken, {"project_id": 7, "platforms": [one]})
 
 
-async def test_publish_poll_says_it_waits_for_the_human_approval() -> None:
-    one = pa.registry_platforms()[0]
-    waiting = _pub(publish_awaiting_approval={"platforms": pa.registry_platforms()})
-    state = await pa._publish_poll(waiting, {"project_id": 7, "platforms": [one]}, {})
-    assert state.ok and "ждёт вашего подтверждения" in state.result["text_ru"]
-    assert pa.PLATFORM_TITLES.get(one, one) in state.result["text_ru"]
-    posted = _pub(published={one: True})
+def test_publish_effects_describe_the_customer_step() -> None:
+    text = pa.effects_text({"project_id": 7, "platforms": pa.registry_platforms(), "caption": "кофе"})
+    assert "сразу на все площадки, где его ещё нет" in text
+    assert "панели" not in text
+
+
+async def test_publish_poll_reports_done_and_missing_platforms() -> None:
+    one, two = pa.registry_platforms()[:2]
+    running = _pub(status="publishing")
+    state = await pa._publish_poll(running, {"project_id": 7, "platforms": [one]}, {})
+    assert state.done is False
+    posted = _pub(published={one: "https://x/1"})
     state = await pa._publish_poll(posted, {"project_id": 7, "platforms": [one]}, {})
     assert state.ok and state.result["text_ru"].startswith("Ролик опубликован")
-    failed = _pub(publish_needs_human={"platforms": [one]})
-    state = await pa._publish_poll(failed, {"project_id": 7, "platforms": [one]}, {})
-    assert state.ok is False
+    part = _pub(published={one: "https://x/1"})
+    state = await pa._publish_poll(part, {"project_id": 7, "platforms": [one, two]}, {})
+    assert state.ok is False and pa.PLATFORM_TITLES.get(two, two) in state.error
 
 
 async def test_finish_rule_and_next_step_reach_the_planner() -> None:
