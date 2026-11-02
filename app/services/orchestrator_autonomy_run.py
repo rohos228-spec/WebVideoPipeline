@@ -39,6 +39,9 @@ KIND_FAILURE = "node_failure"
 KIND_RESULT = "node_failure_fix"
 REPEAT_NOTICE_S = 24 * 3600
 MAX_CARD_ACTIONS = 4
+# Сколько автоповтор ждёт, пока план из чата, запустивший упавший шаг, отпустит проект.
+_BUSY_WAIT_S = 45.0
+_BUSY_POLL_S = 3.0
 
 _BUSY: set[tuple[str, int]] = set()
 _TASKS: set[asyncio.Task] = set()
@@ -266,7 +269,19 @@ async def _launch(app: Any, plan_id: str, operator: str, *, approve: bool) -> di
     try:
         if approve:
             await service.approve_plan(app, plan_id, who)
-        await service.prepare_run(plan_id, who)
+        waited = 0.0
+        while True:
+            try:
+                await service.prepare_run(plan_id, who)
+                break
+            except service.RunRefused as exc:
+                # Сбой шага будит автономию сразу, а план из чата, запустивший шаг, замечает
+                # паузу на следующем опросе (раз в 3 с) и до того держит проект: повтор
+                # получал «уже запускается другой план» и уходил человеку на кнопку.
+                if exc.code != "project_busy" or waited >= _BUSY_WAIT_S:
+                    raise
+                await asyncio.sleep(_BUSY_POLL_S)
+                waited += _BUSY_POLL_S
     except (service.RunRefused, approval.ApprovalError, LookupError) as exc:
         return {"ok": False, "started": False, "error": str(exc)}
     task = executor.launch(app, plan_id, who.id)

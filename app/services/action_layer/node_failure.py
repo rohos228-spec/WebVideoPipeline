@@ -50,7 +50,10 @@ _PROVIDER = re.compile(
     r"(?:http|status|код|error)\W{0,3}(?:5\d\d|429)\b|internal server error|bad gateway|"
     r"service unavailable|gateway timeout|too many requests|timeout|timed out|таймаут|"
     r"время ожидания|quota|rate.?limit|insufficient|баланс|overloaded|"
-    r"connection (?:reset|error|refused)",
+    r"connection (?:reset|error|refused)|"
+    # httpx: провайдер недоступен по сети (проверено вживую — шло в «причина не видна»).
+    r"connect(?:error|timeout)|all connection attempts failed|readerror|remoteprotocolerror|"
+    r"сетев\w* ошибк",
     re.I,
 )
 # llm_ledger.BudgetExhausted: «бюджет исчерпан: $0.31 из $0.30 (проект #10)».

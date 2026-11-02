@@ -254,7 +254,12 @@ def manual_ref_prompt_note(frame: Any) -> str:
         parts.append(f"{REF_KINDS[kind]} — {name}")
     if not parts:
         return ""
-    return "Референсы кадра: " + "; ".join(parts) + "."
+    # Имена рефов — подписи файлов, а не текст сцены: генератор рисовал «branch», «branch2»
+    # (рефы «ветка», «ветка2» проекта 4) прямо на картинке.
+    return (
+        "Референсы кадра: " + "; ".join(parts) + ". "
+        "Это имена файлов для сопоставления: на картинке их не писать, никаких надписей и подписей."
+    )
 
 
 def append_manual_ref_note(prompt: str, frame: Any) -> str:
