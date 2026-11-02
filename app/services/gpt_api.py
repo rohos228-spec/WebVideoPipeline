@@ -324,6 +324,23 @@ def _node_vibecode_override() -> bool:
     return bool(ov and ov.kind == "text" and ov.provider == "vibecode")
 
 
+def _pay52_override() -> Any:
+    """Маршрут 52pay, если шаг сам попросил 52pay (агент стиля, границы сцен).
+
+    Раньше provider="52pay" в override молча игнорировался: вызовы шли в общий
+    провайдер (kie). Ключа нет — None, остаётся общий провайдер.
+    """
+    try:
+        from app.services.llm_override import current_override
+        from app.services.pay52_routes import resolve_text
+    except Exception:  # noqa: BLE001
+        return None
+    ov = current_override()
+    if not (ov and ov.kind == "text" and ov.provider == "52pay"):
+        return None
+    return resolve_text(ov.model_id)
+
+
 def _override_vibecode_base_url() -> str:
     """Нода/шапка vibecode: VPS /v1/* если relay задан, иначе vibecode.moe."""
     vps = _vps_relay_base()
@@ -903,7 +920,7 @@ def split_input_paths(
 
 def is_responses_mode() -> bool:
     """API формата Responses (input/output) вместо chat/completions?"""
-    if _node_vibecode_override():
+    if _node_vibecode_override() or _pay52_override() is not None:
         return False
     mode = (settings.gpt_api_mode_effective or "auto").strip().lower()
     if mode == "responses":
@@ -2783,10 +2800,15 @@ async def _chat_unscoped(
             if _node_vibecode_override()
             else settings.gpt_api_effective_base_url
         )
+    pay52 = _pay52_override()
+    if pay52 is not None:
+        headers, use_model, url, anthropic_route = pay52.headers(), pay52.api_model, pay52.url, False
     use_timeout = float(timeout if timeout is not None else settings.gpt_timeout_s)
     retries = int(max_retries if max_retries is not None else settings.gpt_max_retries)
     ov_model = current_text_model_id()
     provider_label = f"vibecode ({ov_model})" if _node_vibecode_override() else settings.text_llm_label
+    if pay52 is not None:
+        provider_label = f"52pay ({pay52.api_model})"
     proxy = _gpt_proxy_url()
     via = "vps-relay" if _vps_relay_base() else ("proxy" if proxy else "direct")
     logger.info(
@@ -2871,6 +2893,8 @@ async def _chat_unscoped(
     from app.services import provider_breaker
 
     _provider = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "pay52")
+    if pay52 is not None:
+        _provider = "52pay"
     _transport = "messages" if anthropic_route else ("responses" if responses_mode else "chat")
     breaker_key = f"{_provider}:{_transport}"
 

@@ -1299,6 +1299,10 @@ def test_style_agent_api_flow(api_client, monkeypatch, tmp_path: Path) -> None:
 
     app, factory, engine, prepare = api_client
     spawned: list[dict[str, Any]] = []
+    from app.settings import settings as _settings
+
+    # Без ключа 52pay запуск сразу отвечает 400 (разбор идёт только через 52pay).
+    monkeypatch.setattr(_settings, "pay52_gpt_key", "test-key-not-real")
 
     def _fake_spawn(project_id: int, *, node_key, overrides=None):
         spawned.append({"project_id": project_id, "node_key": node_key, "overrides": overrides})
