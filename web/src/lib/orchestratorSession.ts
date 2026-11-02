@@ -222,6 +222,10 @@ export interface ApprovalView {
    * `CheckpointData.plan` (`readPlanSteps`).
    */
   plan: PlanStepView[];
+  /** Что затронет шаг словами (`steps[].params_text`): «кадр 5; проект #4». */
+  details?: string[];
+  /** `destructive_effects`: что изменится без возврата. */
+  effects?: string[];
   resolved: "approved" | "rejected" | "retried" | "closed" | null;
 }
 
@@ -473,11 +477,32 @@ function readStepChangeId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function approvalWire(body: Record<string, unknown>): { actions: string[] | null; stepChangeId: string | null } {
+function approvalWire(body: Record<string, unknown>): {
+  actions: string[] | null;
+  stepChangeId: string | null;
+  details: string[];
+  effects: string[];
+} {
   return {
     actions: readStringList(body.actions),
     stepChangeId: readStepChangeId(body.step_change_id),
+    details: approvalDetails(body.steps),
+    effects: readChangeIds(body.destructive_effects),
   };
+}
+
+/** Строки шагов карточки: у одного шага — только параметры (название уже в заголовке). */
+function approvalDetails(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const rows = value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  const out: string[] = [];
+  for (const row of rows) {
+    const params = typeof row.params_text === "string" ? row.params_text.trim() : "";
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const line = rows.length > 1 ? [title, params].filter(Boolean).join(" — ") : params;
+    if (line) out.push(line);
+  }
+  return out;
 }
 
 function readChangeIds(value: unknown): string[] {
@@ -984,6 +1009,17 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
   };
   const payload = asRecord(event.payload);
   const taskId = taskKey(event.task_id);
+  if (taskId && (event.type === "agent_status" || event.type === "approval_required")) {
+    // Плашка старой задачи («План получился пустым» от 20.10) висела внизу дока под каждой новой
+    // просьбой, будто про неё. Пошла более новая задача — старые плашки без кнопок закрываем.
+    const now = Number(taskId);
+    for (const item of next.approvals) {
+      const own = item.taskId ? Number(item.taskId) : NaN;
+      if (item.resolved == null && !item.serverId && isTerminalBlock(item.reason) && own < now) {
+        item.resolved = "closed";
+      }
+    }
+  }
   if (event.type !== "approval_required") {
     const decided = approvalDecision(payload.decision ?? payload.approval_decision);
     const key = approvalDecisionKey(payload);

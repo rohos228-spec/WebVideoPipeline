@@ -871,8 +871,21 @@ class Supervisor:
                 "decision": ApprovalDecision.deny.value,
                 "retry_armed": False,
             }
-        if decided in {ApprovalDecision.retry_step, ApprovalDecision.deny}:
-            raise InvalidTransition("retry_step и deny только для paid_outcome_unknown")
+        if decided is ApprovalDecision.deny:
+            # «Отклонить» на обычной карточке (риск, план): док шлёт deny сюда, а не в /reject.
+            # Раньше 409 «invalid transition» — карточка блокировалась, задача висела в ожидании.
+            await self._emit_decision(task_id, session_id, decided)
+            self._budget_stop.discard(task_id)
+            self._block_reason.pop(task_id, None)
+            await self._set_status(task_id, TaskStatus.cancelled, session_id=session_id, error="rejected")
+            return {
+                "executed": False,
+                "decision": ApprovalDecision.deny.value,
+                "retry_armed": False,
+                "change_id": change_id or self._appr_open.get(int(task_id)),
+            }
+        if decided is ApprovalDecision.retry_step:
+            raise InvalidTransition("retry_step только для paid_outcome_unknown")
         if (
             reason == ApprovalReason.missing_project_id.value
             and task_id not in self._budget_stop

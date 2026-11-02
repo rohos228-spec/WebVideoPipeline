@@ -658,6 +658,120 @@ async def _fill_shots(name: str, params: dict) -> dict:
     return out
 
 
+_FRAME_ID_KEYS = ("frame_id", "after_frame_id", "left_frame_id", "right_frame_id")
+
+
+def _frame_values(params: dict) -> list[int]:
+    out: list[int] = []
+    for key in (*_FRAME_ID_KEYS, "frame_ids"):
+        vals = params.get(key)
+        for v in vals if isinstance(vals, list) else [vals]:
+            if isinstance(v, int) and not isinstance(v, bool):
+                out.append(v)
+    return out
+
+
+FRAME_NUMBERS: dict[int, int] = {}
+"""id строки кадра → номер на доске; пополняет ``_fill_frame_ids`` перед карточкой."""
+
+
+async def _board_frame_ids(project_id: int) -> dict[int, int] | None:
+    """Номер кадра на доске → id строки кадра; удалённые номера не в счёт."""
+    from app.services.frame_tombstones import deleted_numbers
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return None
+        gone = set(deleted_numbers(project))
+        rows = (
+            await session.execute(select(Frame.number, Frame.id).where(Frame.project_id == project_id))
+        ).all()
+        await session.rollback()
+    return {int(r.number): int(r.id) for r in rows if int(r.number) not in gone}
+
+
+async def _fill_frame_ids(params: dict) -> dict:
+    """Каталог велит планировщику писать в frame_id номер кадра с доски («кадр 5» — 5), а маршруты
+    доски ждут id строки кадра. Без перевода карточка «раздели сцену 3–6» уходила с id чужого
+    проекта. Номер на доске важнее: id кадра оставляем, только если такого номера нет."""
+    if params.get("project_id") is None or not _frame_values(params):
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+
+    project_id = int(params["project_id"])
+    by_number = await _board_frame_ids(project_id)
+    if by_number is None:
+        return params
+    ids = set(by_number.values())
+    # Карточка подтверждения показывает кадр номером с доски, а не id строки (approval_steps).
+    FRAME_NUMBERS.update({fid: n for n, fid in by_number.items()})
+
+    def one(v: Any) -> Any:
+        if not isinstance(v, int) or isinstance(v, bool):
+            return v
+        if v in by_number:
+            return by_number[v]
+        if v in ids:
+            return v
+        raise PlanResolveRefused(f"Кадра {v} нет на доске монтажа проекта {project_id}.")
+
+    out = dict(params)
+    for key in _FRAME_ID_KEYS:
+        if key in out:
+            out[key] = one(out[key])
+    if isinstance(out.get("frame_ids"), list):
+        out["frame_ids"] = [one(v) for v in out["frame_ids"]]
+    return out
+
+
+async def _board_frames(project_id: int) -> list[dict] | None:
+    from app.services.montage_board import build_montage_board
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return None
+        board = await build_montage_board(session, project)
+        await session.rollback()
+    return [f for f in board.get("frames") or [] if isinstance(f, dict)]
+
+
+async def _check_split(params: dict) -> dict:
+    """«Раздели сцену 3–6 на 3–4 и 5–6»: до карточки сверяем с доской, иначе карточка падала уже
+    после «Подтвердить» («первый кадр сцены нельзя отделить»)."""
+    if params.get("project_id") is None or not isinstance(params.get("frame_id"), int):
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+
+    frames = await _board_frames(int(params["project_id"]))
+    if not frames:
+        return params
+    at = next((f for f in frames if str(f.get("frame_id")) == str(params["frame_id"])), None)
+    if at is None:
+        return params
+    number = int(at.get("number") or 0)
+    head = int(at.get("vo_scene_number") or 0)
+    size = int(at.get("vo_scene_size") or 0)
+    if head == number:
+        if size <= 1:
+            raise PlanResolveRefused(
+                f"Кадр {number} и так отдельная сцена — делить нечего. Если нужно сначала собрать "
+                "кадры в одну сцену, попросите объединить сцены."
+            )
+        raise PlanResolveRefused(
+            f"Кадр {number} — первый в своей сцене, его нельзя отделить. Назовите кадр, с которого "
+            "начнётся новая сцена."
+        )
+    out = dict(params)
+    ids = out.get("frame_ids")
+    parent = next((f for f in frames if int(f.get("number") or 0) == head), None)
+    if isinstance(ids, list) and parent is not None and parent.get("frame_id") not in ids:
+        # Планировщик кладёт сюда кадры новой части, а сервер ждёт все видимые кадры ячейки.
+        out.pop("frame_ids")
+    return out
+
+
 async def _fill_ref_file(params: dict) -> dict:
     """«Приложи реф predmet2»: в file — код или имя рефа, а не путь; путь берём из ref-assets проекта."""
     want = str(params.get("file") or params.get("name") or "").strip()
@@ -811,6 +925,10 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
     params = dict(params or {})
     if "node_key" in params:
         params = await _fill_node_key(params)
+    if str(name).startswith("montage."):
+        params = await _fill_frame_ids(params)
+    if str(name) == "montage.split_scene":
+        return await _check_split(params)
     if str(name) == "montage.link_ref":
         return await _fill_ref_file(params)
     if str(name) in _SHOT_FILL:

@@ -110,8 +110,27 @@ def variant_title(name: str) -> str:
     return f"«{title or name}»"
 
 
+_FRAME_KEYS = ("frame_id", "after_frame_id", "left_frame_id", "right_frame_id")
+
+
+def _frame_numbers(shown: dict[str, Any]) -> None:
+    """«кадр 237» в карточке — id строки; человек видит на доске номер 5."""
+    try:
+        from app.orchestrator.actions.executor import FRAME_NUMBERS
+    except Exception:
+        return
+    for key in _FRAME_KEYS:
+        value = shown.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value in FRAME_NUMBERS:
+            shown[key] = FRAME_NUMBERS[value]
+    ids = shown.get("frame_ids")
+    if isinstance(ids, list):
+        shown["frame_ids"] = [FRAME_NUMBERS.get(v, v) if isinstance(v, int) else v for v in ids]
+
+
 def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, named: bool = False) -> str:
     shown = dict(params)
+    _frame_numbers(shown)
     if named:
         for key in _ID_KEYS:
             shown.pop(key, None)

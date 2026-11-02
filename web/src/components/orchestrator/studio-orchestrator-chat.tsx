@@ -740,6 +740,18 @@ function DockApprovalCard({ approval, chat, titles }: { approval: ApprovalView; 
         )}
       </div>
       {approval.plan.length > 0 ? <PlanList steps={approval.plan} titles={titles} /> : null}
+      {!terminal && approval.details?.length ? (
+        <ul data-testid="orch-approval-details" className="mt-2 space-y-0.5 text-[11px] text-white/80">
+          {approval.details.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {!terminal && approval.effects?.length ? (
+        <p data-testid="orch-approval-effects" className="mt-1.5 text-[11px] leading-relaxed text-white/60">
+          {approval.effects.join(" ")}
+        </p>
+      ) : null}
       <div className="mt-2 flex flex-wrap items-center gap-2">
         {terminal ? (
           <Button type="button" size="sm" variant="outline" data-testid="orch-block-close" onClick={() => chat.dismissBlock(approval.id)}>

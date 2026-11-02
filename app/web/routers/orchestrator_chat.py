@@ -324,6 +324,12 @@ async def post_approve(session_id: str, body: ApproveIn, request: Request):
         if isinstance(failure, JSONResponse):
             return failure
         raise failure from None
+    if body.decision == "deny" and isinstance(result, dict) and result.get("change_id"):
+        # Тот же отзыв плана слоя действий, что и у POST .../reject.
+        decided = str(result["change_id"])
+        plan_id = await orch_bridge.bound_plan_any(decided)
+        if plan_id:
+            await orch_bridge.revoke(plan_id, decided, orch_bridge.actor_of(dict(request.scope)))
     return _for_viewer(_approval_result(runtime.supervisor, internal, body, result))
 
 

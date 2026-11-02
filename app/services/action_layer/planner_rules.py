@@ -898,6 +898,7 @@ def guard_declined(text: str) -> bool:
 _PARAM_LABELS = {
     "frame_number": "кадр",
     "frame_id": "кадр",
+    "frame_ids": "кадры сцены",
     "frame_numbers": "кадры",
     "from_frame": "из кадра",
     "to_frame": "в кадр",
@@ -970,7 +971,7 @@ _PARAM_LABELS = {
     "limit": "не больше",
 }
 # Список из одного номера: «проект 11», а не «проекты 11».
-_PARAM_LABELS_ONE = {"project_ids": "проект", "frame_numbers": "кадр"}
+_PARAM_LABELS_ONE = {"project_ids": "проект", "frame_numbers": "кадр", "frame_ids": "кадр"}
 _SKIP_PARAMS = frozenset(
     {
         "project_id",

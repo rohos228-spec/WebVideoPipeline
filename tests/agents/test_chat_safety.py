@@ -335,3 +335,30 @@ async def test_reject_card_posts_one_short_message(token: str) -> None:
         assert [call["name"] for call in actions.calls] == ["project.status"]
     finally:
         set_runtime(None)
+
+
+@pytest.mark.asyncio
+async def test_deny_on_risk_card_cancels_like_reject(token: str) -> None:
+    """Док шлёт «Отклонить» как approve с decision=deny: раньше 409 и задача висела в ожидании."""
+    from app.orchestrator.contracts import ApprovalDecision
+
+    del token
+    actions = MockActions(risks={"montage.split_scene": "high"})
+    plan = [PlanStep(action="montage.split_scene", params={"project_id": 4, "frame_id": 237},
+                     mutating=True, risk="high")]
+    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
+                       planner=FixedPlanner(plan))
+    set_runtime(rt)
+    session = "safety-deny"
+    try:
+        task_id = await rt.supervisor.start_task(session, "раздели сцену", project_id=4)
+        await rt.supervisor.wait(task_id, timeout=5)
+        assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
+        result = await rt.supervisor.grant_approval(session, ApprovalDecision.deny)
+        assert result["decision"] == "deny" and result["executed"] is False
+        row = rt.tasks.get(task_id)
+        assert row["status"] == TaskStatus.cancelled.value and row["error"] == "rejected"
+        assert actions.calls == []
+        assert _events(rt, session, "task_failed") == []
+    finally:
+        set_runtime(None)
