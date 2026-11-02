@@ -502,11 +502,15 @@ def invalidate_budget_cache(project_id: int) -> None:
     _spent_cache.pop(project_id, None)
 
 
-async def check_budget(project_id: int | None) -> None:
-    """Raise BudgetExhausted, если spent ≥ budget (budget 0 = выключен)."""
+async def check_budget(project_id: int | None, *, run_cap: bool = True) -> None:
+    """Raise BudgetExhausted, если spent ≥ budget (budget 0 = выключен).
+
+    ``run_cap=False`` — потолок цепочки уже проверен вызывающим (с оценкой и резервом).
+    """
     if project_id is None:
         return
-    await check_run_cap(project_id)
+    if run_cap:
+        await check_run_cap(project_id)
     budget = await budget_usd(project_id)
     if budget <= 0:
         return
@@ -523,7 +527,9 @@ async def _run_cap(project_id: int) -> tuple[float, datetime] | None:
     from app.services import spend_guard
 
     async with session_scope() as session:
-        meta = (await session.execute(select(Project.meta).where(Project.id == project_id))).scalar_one_or_none()
+        meta = (
+            await session.execute(select(Project.meta).where(Project.id == project_id))
+        ).scalar_one_or_none()
     raw = meta.get(spend_guard.CHAIN_BUDGET_META) if isinstance(meta, dict) else None
     if spend_guard.chain_budget(meta) is None or not isinstance(raw, dict):
         return None
@@ -536,34 +542,142 @@ async def _run_cap(project_id: int) -> tuple[float, datetime] | None:
     return float(raw["cap_usd"]), started
 
 
-async def check_run_cap(project_id: int) -> None:
-    """GPT шага тоже упирается в потолок запуска, а не только в бюджет проекта.
+# ── Потолок цепочки из чата: GPT + медиа вместе, с оценкой и резервом ──────────
+# Раньше: GPT сверялся «потрачено ≥ потолка» без оценки следующего вызова и без
+# идущих параллельно, а медиа — отдельно по своей таблице. Итог мог уйти почти в 2×
+# потолка (GPT до потолка + медиа до потолка) и ещё на N параллельных вызовов.
+#: Оценка ответа модели, если длину вывода не знаем заранее (токенов).
+LLM_ESTIMATE_OUT_TOKENS = 2000
+_llm_reserved: dict[int, dict[int, float]] = defaultdict(dict)  # project → {token: usd}
+_llm_reserve_seq = iter(range(1, 1 << 62))
+_llm_reserve_lock = asyncio.Lock()
+_held_reserve: ContextVar[tuple[int, int] | None] = ContextVar("llm_run_cap_reserve", default=None)
 
-    Без этого потолок автоповтора/цепочки из чата держал только медиа: GPT-нода тратила
-    сколько угодно в пределах общего бюджета проекта.
-    """
+
+def estimate_call_usd(
+    model: str | None, prompt_chars: int, out_tokens: int = LLM_ESTIMATE_OUT_TOKENS
+) -> float:
+    """Оценка одного вызова до отправки: вход по длине промта (~3 символа на токен) + ответ."""
+    in_rate, out_rate = price_for(model or _default_model())
+    return round(max(0, prompt_chars) / 3 * in_rate / 1e6 + max(0, out_tokens) * out_rate / 1e6, 8)
+
+
+def _default_model() -> str:
+    try:
+        from app.settings import settings
+
+        return str(getattr(settings, "gpt_model", "") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def reserved_usd(project_id: int, *, exclude_own: bool = True) -> float:
+    own = _held_reserve.get() if exclude_own else None
+    return sum(
+        v for k, v in _llm_reserved.get(project_id, {}).items() if not (own and own == (project_id, k))
+    )
+
+
+async def _chain_spent_usd(project_id: int, started: datetime) -> float:
+    """GPT цепочки (llm_calls с начала цепочки) + медиа цепочки (spend_ledger по её run_id)."""
     from sqlalchemy import func, select
 
+    from app.models import Project
+    from app.services import spend_guard
+
+    async with session_scope() as session:
+        llm = float(
+            (
+                await session.execute(
+                    select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
+                        LlmCall.project_id == project_id, LlmCall.created_at >= started
+                    )
+                )
+            ).scalar_one()
+            or 0.0
+        )
+        meta = (
+            await session.execute(select(Project.meta).where(Project.id == project_id))
+        ).scalar_one_or_none()
+        budget = spend_guard.chain_budget(meta)
+        media = 0.0
+        if budget is not None:
+            media = float(
+                (await spend_guard.conservative_sums(session, project_id=None, run_id=budget[0]))["run"]
+            )
+            media += float(spend_guard.inflight_usd(run_id=budget[0])["run"])
+    return llm + media + unpersisted_spent(project_id)
+
+
+async def chain_llm_spent_usd(project_id: int) -> float:
+    """Для медиа-ворот: сколько GPT уже съел из потолка цепочки (+ резерв идущих вызовов)."""
+    from sqlalchemy import func, select
+
+    cap = await _run_cap(project_id)
+    if cap is None:
+        return 0.0
+    async with session_scope() as session:
+        llm = float(
+            (
+                await session.execute(
+                    select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
+                        LlmCall.project_id == project_id, LlmCall.created_at >= cap[1]
+                    )
+                )
+            ).scalar_one()
+            or 0.0
+        )
+    return llm + unpersisted_spent(project_id) + reserved_usd(project_id, exclude_own=False)
+
+
+async def check_run_cap(project_id: int, *, estimate_usd: float = 0.0, reserve: bool = False) -> int | None:
+    """GPT шага упирается в потолок цепочки из чата — вместе с медиа той же цепочки.
+
+    ``estimate_usd`` — оценка этого вызова: проверка «потрачено + идут сейчас + этот ≤ потолка».
+    ``reserve`` — занять оценку до конца вызова (параллельные вызовы видят друг друга);
+    вернёт токен для :func:`release_run_cap`. Потолок есть, а потраченное прочитать не
+    удалось — вызов не идёт (раньше пропускали).
+    """
     try:
         cap = await _run_cap(project_id)
-        if cap is None:
-            return
-        cap_usd, started = cap
-        async with session_scope() as session:
-            spent = float(
-                (
-                    await session.execute(
-                        select(func.coalesce(func.sum(LlmCall.cost_usd), 0.0)).where(
-                            LlmCall.project_id == project_id, LlmCall.created_at >= started
-                        )
-                    )
-                ).scalar_one()
-                or 0.0
-            )
-    except Exception as e:  # noqa: BLE001 — потолок не прочитан: не глушим шаг, бюджет проекта остаётся
+    except Exception as e:  # noqa: BLE001 — нет meta проекта: потолка не знаем, бюджет проекта остаётся
         logger.warning("llm_ledger: потолок запуска не прочитан: {}", e)
-        return
-    spent += unpersisted_spent(project_id)
-    if spent >= cap_usd:
-        raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=cap_usd)
+        return None
+    if cap is None:
+        return None
+    cap_usd, started = cap
+    async with _llm_reserve_lock:
+        try:
+            spent = await _chain_spent_usd(project_id, started)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("llm_ledger: траты цепочки не прочитаны — вызов не отправлен: {}", e)
+            raise BudgetExhausted(project_id=project_id, spent_usd=cap_usd, budget_usd=cap_usd) from e
+        spent += reserved_usd(project_id)
+        est = max(0.0, float(estimate_usd or 0.0))
+        if spent >= cap_usd or spent + est > cap_usd + 1e-9:
+            raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=cap_usd)
+        if reserve and _held_reserve.get() is None and est > 0:
+            token = next(_llm_reserve_seq)
+            _llm_reserved[project_id][token] = est
+            return token
+    return None
 
+
+def release_run_cap(project_id: int | None, token: int | None) -> None:
+    if project_id is None or token is None:
+        return
+    _llm_reserved.get(project_id, {}).pop(token, None)
+
+
+@contextmanager
+def hold_reservation(project_id: int | None, token: int | None) -> Iterator[None]:
+    """Вложенные вызовы (добор/продолжение) не считают резерв родителя дважды."""
+    if project_id is None or token is None:
+        yield
+        return
+    t = _held_reserve.set((project_id, token))
+    try:
+        yield
+    finally:
+        _held_reserve.reset(t)
+        release_run_cap(project_id, token)

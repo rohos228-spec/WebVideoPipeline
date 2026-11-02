@@ -1220,6 +1220,15 @@ async def _paid_gate(provider, what, estimate_usd, pid, run_id, register, contro
         if any(c[key] > 0 and applies for _code, key, applies in windows):
             async with _sessions()() as session:
                 sums = await conservative_sums(session, project_id=pid, run_id=run_id)
+        if bound is not None and run_id == bound[0] and pid is not None and c["run"] > 0:
+            # Потолок цепочки из чата общий: GPT той же цепочки тоже съедает его.
+            from app.services import llm_ledger
+
+            try:
+                sums["run"] = sums["run"] + await llm_ledger.chain_llm_spent_usd(int(pid))
+            except Exception as exc:  # noqa: BLE001 — не прочитали GPT: считаем потолок занятым
+                logger.warning("paid gate: GPT цепочки не прочитан: {}", exc)
+                sums["run"] = max(sums["run"], c["run"])
         fly = inflight_usd(project_id=pid, run_id=run_id)
         over = [
             (code, key)

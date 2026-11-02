@@ -2655,17 +2655,33 @@ async def chat(**kwargs: Any) -> GptChatResult:
             fallback_hash = ""
     with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(fallback_hash, fallback=True):
         # Бюджет-предохранитель: ДО платного вызова (вложенные вызовы
-        # проверяют тоже — дёшево, по кэшу).
-        await _check_budget_before_call()
-        return await _chat_unscoped(**kwargs)
+        # проверяют тоже — дёшево, по кэшу). Потолок цепочки из чата: с оценкой
+        # этого вызова и резервом на время вызова (параллельные видят друг друга).
+        pid, token = await _check_budget_before_call(kwargs)
+        with llm_ledger.hold_reservation(pid, token):
+            return await _chat_unscoped(**kwargs)
 
 
-async def _check_budget_before_call() -> None:
+async def _check_budget_before_call(kwargs: dict | None = None) -> tuple[int | None, int | None]:
     from app.services import llm_ledger
     from app.services.llm_override import current_accounting
 
     acct = current_accounting()
-    await llm_ledger.check_budget(acct.project_id if acct else None)
+    pid = acct.project_id if acct else None
+    if pid is None:
+        return None, None
+    kw = kwargs or {}
+    chars = len(str(kw.get("prompt") or "")) + len(str(kw.get("accompanying") or "")) + len(
+        str(kw.get("system") or "")
+    )
+    est = llm_ledger.estimate_call_usd(kw.get("model"), chars)
+    token = await llm_ledger.check_run_cap(pid, estimate_usd=est, reserve=True)
+    try:
+        await llm_ledger.check_budget(pid, run_cap=False)
+    except BaseException:
+        llm_ledger.release_run_cap(pid, token)
+        raise
+    return pid, token
 
 
 async def _chat_unscoped(

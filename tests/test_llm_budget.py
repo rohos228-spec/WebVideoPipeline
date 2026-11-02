@@ -389,3 +389,80 @@ async def test_no_run_cap_means_project_budget_only(db, monkeypatch):
     pid = await _add_project(db)
     await _add_call(db, pid, 50.0)
     await ledger.check_budget(pid)
+
+
+async def _cap_project(db, credits: float = 60):
+    from datetime import UTC, datetime, timedelta
+
+    from app.services import spend_guard
+
+    budget = spend_guard.chain_budget_meta(1, credits, "t")  # 60 кр = $0.30
+    budget["started_at"] = (datetime.now(UTC) - timedelta(seconds=5)).isoformat(timespec="seconds")
+    pid = await _add_project(db, meta={spend_guard.CHAIN_BUDGET_META: budget})
+    return pid, budget
+
+
+@pytest.mark.asyncio
+async def test_run_cap_counts_the_coming_call(db, monkeypatch):
+    """Потрачено $0.25 из $0.30: вызов с оценкой $0.10 не идёт (раньше шёл и переходил потолок)."""
+    monkeypatch.setattr(settings, "llm_budget_usd", 0.0)
+    pid, _ = await _cap_project(db)
+    await _add_call(db, pid, 0.25)
+    await ledger.check_run_cap(pid, estimate_usd=0.04)
+    with pytest.raises(BudgetExhausted):
+        await ledger.check_run_cap(pid, estimate_usd=0.10)
+
+
+@pytest.mark.asyncio
+async def test_run_cap_parallel_calls_see_each_other(db, monkeypatch):
+    """Три параллельных вызова по $0.12 при потолке $0.30: третий отказан, после конца резерв снят."""
+    monkeypatch.setattr(settings, "llm_budget_usd", 0.0)
+    ledger._llm_reserved.clear()
+    pid, _ = await _cap_project(db)
+    t1 = await ledger.check_run_cap(pid, estimate_usd=0.12, reserve=True)
+    t2 = await ledger.check_run_cap(pid, estimate_usd=0.12, reserve=True)
+    assert t1 and t2
+    with pytest.raises(BudgetExhausted):
+        await ledger.check_run_cap(pid, estimate_usd=0.12, reserve=True)
+    ledger.release_run_cap(pid, t1)
+    ledger.release_run_cap(pid, t2)
+    assert ledger.reserved_usd(pid) == 0
+    await ledger.check_run_cap(pid, estimate_usd=0.12, reserve=False)
+
+
+@pytest.mark.asyncio
+async def test_run_cap_is_shared_with_media(db, monkeypatch):
+    """Медиа цепочки ($0.28 в spend_ledger по её run_id) тоже съедает потолок GPT."""
+    from app.services import spend_guard
+
+    monkeypatch.setattr(settings, "llm_budget_usd", 0.0)
+    pid, budget = await _cap_project(db)
+
+    async def _sums(_session, *, project_id, run_id):
+        return {"run": 0.28 if run_id == budget["run_id"] else 0.0, "project": 0.0, "daily": 0.0}
+
+    monkeypatch.setattr(spend_guard, "conservative_sums", _sums)
+    with pytest.raises(BudgetExhausted):
+        await ledger.check_run_cap(pid, estimate_usd=0.05)
+    # и наоборот: медиа-ворота видят GPT цепочки
+    await _add_call(db, pid, 0.2)
+    assert await ledger.chain_llm_spent_usd(pid) == pytest.approx(0.2)
+
+
+@pytest.mark.asyncio
+async def test_run_cap_fails_closed_when_spend_unreadable(db, monkeypatch):
+    monkeypatch.setattr(settings, "llm_budget_usd", 0.0)
+    pid, _ = await _cap_project(db)
+
+    async def _boom(*_a, **_k):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ledger, "_chain_spent_usd", _boom)
+    with pytest.raises(BudgetExhausted):
+        await ledger.check_run_cap(pid, estimate_usd=0.01)
+
+
+def test_estimate_call_usd_uses_prices(monkeypatch):
+    monkeypatch.setattr(ledger, "price_for", lambda *_a, **_k: (1.0, 4.0))
+    est = ledger.estimate_call_usd("x", 3000, out_tokens=1000)
+    assert est == pytest.approx(1000 * 1.0 / 1e6 + 1000 * 4.0 / 1e6)
