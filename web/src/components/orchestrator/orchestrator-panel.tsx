@@ -1610,14 +1610,21 @@ export function OrchestratorPanel({ projectId }: Props) {
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <span
-                        className={cn(
-                          "h-2 w-2 rounded-full shrink-0 transition-all",
-                          isActive
-                            ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
-                            : "bg-white/20 group-hover:bg-white/40",
-                        )}
-                      />
+                      {isSessionThinking ? (
+                        <span
+                          className="h-2.5 w-2.5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0 shadow-[0_0_8px_#f59e0b]"
+                          title="ИИ-агент выполняет запрос…"
+                        />
+                      ) : (
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full shrink-0 transition-all",
+                            isActive
+                              ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+                              : "bg-white/20 group-hover:bg-white/40",
+                          )}
+                        />
+                      )}
                       <span
                         onDoubleClick={(e) => handleStartRename(s, e)}
                         title="Нажмите на карандаш или дважды кликните для переименования"

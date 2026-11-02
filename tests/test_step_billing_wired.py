@@ -224,3 +224,30 @@ async def test_empty_balance_is_reported_outward(db, monkeypatch) -> None:
 async def _noop_advance(session, project, bot) -> None:
     """Шаг, который ничего не делает: касса проверяется отдельно от шага."""
     return None
+
+
+async def test_no_credits_timeout_auto_stops_project(db, monkeypatch) -> None:
+    """Если за 90с средства не появились, running-шаг останавливается, не крутясь бесконечно."""
+    import time
+    from app.services.advance_runner import _NO_CREDITS_FIRST_SEEN, _NO_CREDITS_LOGGED, advance_project_job
+    from app.services.noop_bot import get_worker_bot
+    from app.services.tenant import tenant_scope
+
+    monkeypatch.setattr("app.services.advance_runner.advance_project", _noop_advance)
+
+    project_id = await _project(db)
+    _NO_CREDITS_LOGGED.pop(project_id, None)
+    # Имитируем, что ожидание длится уже 95 секунд
+    _NO_CREDITS_FIRST_SEEN[project_id] = time.monotonic() - 95.0
+
+    tenant = str(uuid.uuid4())
+    with tenant_scope(tenant):
+        result = await advance_project_job(project_id, get_worker_bot(None))
+
+    assert result.new_status == "animation_prompts_ready"
+    assert project_id not in _NO_CREDITS_FIRST_SEEN
+
+    async with db() as s:
+        p = await s.get(Project, project_id)
+        assert p.status == ProjectStatus.animation_prompts_ready
+        assert p.meta.get("credits_wait_timeout") is True
