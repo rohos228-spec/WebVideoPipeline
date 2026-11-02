@@ -1100,6 +1100,22 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
     )
 
 
+def _briefing_number(value: Any) -> float:
+    """Число из ответа брифинга: 40, "40", "30–45с" (диапазон → середина), "60 сек".
+
+    Модель отвечает так, как подписан вариант («30–45с»); float() такое не берёт,
+    и длительность раньше молча не сохранялась.
+    """
+    if isinstance(value, bool):
+        raise ValueError("bool")
+    if isinstance(value, (int, float)):
+        return float(value)
+    nums = [float(x.replace(",", ".")) for x in re.findall(r"\d+(?:[.,]\d+)?", str(value or ""))]
+    if not nums:
+        raise ValueError(f"нет числа в {value!r}")
+    return sum(nums[:2]) / len(nums[:2])
+
+
 def _apply_set_briefing(project: Project, data: dict) -> str:
     """Сохранить параметры брифинга в project.meta и применить к нодам графа."""
     if not isinstance(data, dict):
@@ -1118,7 +1134,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
     raw_dur = data.get("duration") or data.get("duration_seconds")
     if raw_dur is not None:
         try:
-            dur = float(raw_dur)
+            dur = _briefing_number(raw_dur)
             if dur > 0:
                 plan_params["duration_seconds"] = dur
                 script_params["duration_seconds"] = dur
@@ -1131,7 +1147,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
 
     if "target_frames" in data:
         try:
-            tf = int(data["target_frames"])
+            tf = int(round(_briefing_number(data["target_frames"])))
             briefing["target_frames"] = tf
             updated_keys.append(f"frames={tf}")
         except (ValueError, TypeError):
@@ -1169,7 +1185,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         updated_keys.append("voiceover_mode")
     if "voiceover_chars" in data:
         try:
-            vc = int(data["voiceover_chars"])
+            vc = int(round(_briefing_number(data["voiceover_chars"])))
             briefing["voiceover_chars"] = vc
             updated_keys.append(f"chars={vc}")
         except (ValueError, TypeError):

@@ -211,7 +211,11 @@ def action_note(entry: dict, keymap: dict | None = None) -> str:
         name, _, value = humanize_reply(str(entry["set_option"]), km).partition("=")
         return f"настройка «{name}»: теперь {value}" if value else "настройка изменена: " + name
     if "set_prompt" in entry:
-        return "выбран вариант промта: " + humanize_reply(str(entry["set_prompt"]), km)
+        raw = str(entry["set_prompt"])
+        step, arrow, variant = raw.partition("→")
+        if arrow and step.strip():
+            return f"для шага «{step_title(step.strip(), km)}» выбран вариант промта «{variant.strip()}»"
+        return "выбран вариант промта: " + humanize_reply(raw, km)
     if "set_text_llm" in entry:
         return "текстовая модель: " + str(entry["set_text_llm"])
     if "hitl_decision" in entry:

@@ -283,3 +283,51 @@ async def test_storyboard_requires_plan_then_writes_general_plan(monkeypatch) ->
         assert body["card"]["generated_text"] == body["general_plan"]
         got = (await c.get(f"/api/projects/{pid}/nii67")).json()
         assert got["frames"] == frames
+
+
+def _matrix_card(move1: str, move2: str, **state) -> dict:
+    from app.services.nii67_card import default_card
+
+    card = default_card()
+    for door, move in zip(card["doors"], (move1, move2)):
+        door["move"] = move
+        door["state"] = {**door["state"], "world_description": "затопленный архив", **state}
+        if move == "creature":
+            door["creature_action"] = "interact"
+    return card
+
+
+async def test_matrix_plan_without_move_is_a_draft_and_not_saved() -> None:
+    pid = await _project()
+    async with _client() as c:
+        r = await c.post(f"/api/projects/{pid}/nii67/matrix-plan", json={"card": _matrix_card("", "")})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["preview"] is True
+        assert any("не выбран ход" in i for i in body["issues"])
+        assert body["frames"]
+        got = await c.get(f"/api/projects/{pid}/nii67")
+    # Кадры черновика не пишутся, а карточка пишется: студия перечитывает её после ответа.
+    assert got.json()["frames"] == []
+    assert got.json()["card"]["doors"][0]["state"]["world_description"] == "затопленный архив"
+
+
+async def test_matrix_plan_builds_and_saves_frames_without_gpt() -> None:
+    pid = await _project()
+    card = _matrix_card(
+        "death_world", "creature",
+        death_action="тянется к рубильнику", death_cause="удар током", interaction_result="существо отдаёт ключ",
+    )
+    async with _client() as c:
+        r = await c.post(f"/api/projects/{pid}/nii67/matrix-plan", json={"card": card})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["preview"] is False, body["issues"]
+        frames = body["frames"]
+        assert any(f["slot_id"].startswith("door1.") for f in frames)
+        assert any(f["slot_id"].startswith("door2.") for f in frames)
+        text = " ".join(str(f) for f in frames)
+        assert "рубильник" in text and "ключ" in text
+        got = await c.get(f"/api/projects/{pid}/nii67")
+    assert len(got.json()["frames"]) == len(frames)
+    assert got.json()["card"]["doors"][0]["move"] == "death_world"

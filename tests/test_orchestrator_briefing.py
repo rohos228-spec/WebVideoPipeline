@@ -128,3 +128,18 @@ def test_clean_orchestrator_human_reply_nested_json():
     res4 = _clean_orchestrator_human_reply(t4)
     assert res4 == "Записал: клиповый монтаж"
 
+
+
+def test_briefing_duration_given_as_range_is_saved():
+    """Модель отвечает подписью варианта («30–45с», «8-12»): раньше float() падал и длительность терялась."""
+    from app.models import Project
+    from app.web.routers.db_browser import _apply_set_briefing, _briefing_number
+
+    assert _briefing_number("30–45с") == 37.5
+    assert _briefing_number("60 сек") == 60.0
+    assert _briefing_number(40) == 40.0
+    p = Project(slug="b", topic="t", meta={})
+    label = _apply_set_briefing(p, {"duration": "30–45с (Стандарт / 8-12 сцен)", "target_frames": "8-12"})
+    assert "duration=37.5s" in label and "frames=10" in label
+    assert p.meta["briefing"]["duration_seconds"] == 37.5
+    assert p.meta["briefing"]["target_frames"] == 10

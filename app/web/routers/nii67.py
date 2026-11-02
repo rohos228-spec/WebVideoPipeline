@@ -195,6 +195,45 @@ async def storyboard_nii67(
     return {"card": card, "general_plan": project.general_plan, "frames": agent["frames"]}
 
 
+@router.post("/{project_id}/nii67/matrix-plan")
+async def matrix_plan_nii67(
+    project_id: int,
+    session: ProjectSession,
+    payload: CardBody,
+) -> dict[str, Any]:
+    """Кадры по полям матрицы дверей без GPT (кнопки «Собрать кадры» и «Матрица»).
+
+    Черновик (у двери не выбран ход или не хватает полей): карточка сохраняется
+    (студия после ответа перечитывает её с сервера), а кадры и общий план — нет:
+    preview=true и список issues.
+    """
+    from app.services.nii67_matrix import matrix_plan
+
+    project = _project_or_404(await session.get(Project, project_id))
+    card = _read_card(payload)
+    res = matrix_plan(card)
+    if res["preview"]:
+        draft = _stamp(res["card"], "draft")
+        await _store(session, project, draft)
+        return {"card": draft, "frames": res["frames"], "preview": True, "issues": res["issues"]}
+    card = _stamp(res["card"], "save")
+    agent = res["agent"]
+    text = (compile_scenario(card).strip() + "\n\n" + render_plan(agent))[:GENERATED_LIMIT]
+    card["generated_text"] = text
+    project.general_plan = text
+    apply_project_meta_patch(project, {META_KEY: card, "nii67_frames": agent}, source="nii67_matrix")
+    lock_ui_field(project, "general_plan")
+    flag_modified(project, "meta")
+    project.updated_at = datetime.utcnow()
+    await commit_with_retry(session)
+    await publish_project_event(
+        project.id,
+        event_type="project_updated",
+        payload={"nii67": True, "general_plan": True},
+    )
+    return {"card": card, "frames": agent["frames"], "preview": False, "issues": res["issues"]}
+
+
 @router.post("/{project_id}/nii67/reset")
 async def reset_nii67(project_id: int, session: ProjectSession) -> dict[str, Any]:
     project = _project_or_404(await session.get(Project, project_id))
