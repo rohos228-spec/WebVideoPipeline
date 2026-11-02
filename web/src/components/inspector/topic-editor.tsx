@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 
 export function TopicEditor({
   projectId,
@@ -21,7 +20,7 @@ export function TopicEditor({
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
-    enabled: initialTopic === undefined,
+    enabled: projectId != null,
   });
 
   const topicFromApi = project.data?.topic?.trim() || project.data?.title?.trim() || "";
@@ -47,7 +46,7 @@ export function TopicEditor({
   });
 
   return (
-    <div className="flex flex-col gap-3.5">
+    <div className="flex flex-col gap-4">
       <div>
         <p className="text-[13.5px] font-bold text-zinc-100 leading-snug">
           Тема задаёт направление, смысл и сюжет всего ролика.
@@ -67,13 +66,13 @@ export function TopicEditor({
         }}
         rows={6}
         placeholder="Например: Полет в космос"
-        className="topic-input-glow flex w-full rounded-xl bg-zinc-950/80 p-3 text-sm text-zinc-100 placeholder:text-zinc-500 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50"
+        className="flex w-full rounded-xl border border-white/10 bg-black/50 p-3.5 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-500 transition-all duration-150 focus:border-white/30 focus:bg-black/70 focus:outline-none focus:ring-1 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
         autoFocus
       />
 
       <Button
         size="sm"
-        className="w-full h-9 gap-1.5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/25 rounded-xl transition-all duration-150 disabled:opacity-50"
+        className="w-full h-10 gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 border border-emerald-500/40 shadow-sm rounded-xl transition-all duration-150 disabled:opacity-40"
         disabled={!topic.trim() || save.isPending}
         onClick={() => save.mutate(topic.trim())}
       >
