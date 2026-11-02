@@ -173,3 +173,26 @@ def test_briefing_keeps_hero_description():
     _apply_set_briefing(p2, {"hero_description": "другой"})
     assert p2.hero_description == "уже описан"
     assert p2.meta["briefing"]["hero_description"] == "другой"
+
+
+def test_briefing_context_lists_saved_answers_for_final_summary():
+    from app.web.routers.db_browser import _briefing_context
+
+    p = Project(slug="b", title="B", meta={}, prompt_overrides={})
+    assert _briefing_context(p) == []
+    _apply_set_briefing(p, {"duration": 30, "target_frames": 8, "scenario_type": "Документальный",
+                            "subtitles_enabled": False})
+    lines = _briefing_context(p)
+    text = "\n".join(lines)
+    assert lines[0].startswith("БРИФИНГ")
+    assert "хронометраж, с: 30" in text
+    assert "тип сценария: Документальный" in text
+    assert "субтитры: нет" in text
+
+
+def test_prompt_says_briefing_is_saved_at_once():
+    from app.web.routers.db_browser import _system_prompt
+
+    sp = _system_prompt(False)
+    assert "«Записал" in sp
+    assert "ВСЕХ семи пунктов" in sp
