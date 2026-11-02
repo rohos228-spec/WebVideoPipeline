@@ -133,7 +133,18 @@ def _replace_token(tok: str, labels: dict[str, str]) -> str | None:
     low = t.lower()
     if low in labels:
         return labels[low]
+    # Ключа нет на канвасе (старый проект, текст ошибки): «n_excel_gpt_1» → «Работа с GPT 1».
+    m = _NODE_KEY_RE.match(low)
+    if m:
+        name = _TYPE_DEFAULT.get(m.group(1)) or (
+            bi._type_ru(m.group(1)) if m.group(1).startswith("hitl_") else None
+        )
+        if name:
+            return f"«{name} {m.group(2)}»" if m.group(2) else f"«{name}»"
     return None
+
+
+_NODE_KEY_RE = re.compile(r"^n_([a-z_]+?)(?:_(\d+))?$")
 
 
 def humanize_reply(

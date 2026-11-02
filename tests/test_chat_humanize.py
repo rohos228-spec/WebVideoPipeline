@@ -69,3 +69,9 @@ def test_step_title_and_defaults():
     assert step_title("img", KEYMAP) == "Мои картинки"
     assert step_title("enrich_3") == "Обогащение 3"
     assert build_labels(None)["auto_mode"] == "автоматический режим"
+
+
+def test_node_key_not_on_canvas_falls_back_to_type_title():
+    # Ключ из текста ошибки старого проекта, на канвасе такой ноды нет.
+    out = humanize_reply("нода n_excel_gpt_1 упала, n_images ждёт, n_foo_3 — неизвестно что", {})
+    assert out == "нода «Работа с GPT 1» упала, «Картинки» ждёт, n_foo_3 — неизвестно что"
