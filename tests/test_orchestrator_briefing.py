@@ -3,28 +3,38 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.models import Project
-from app.services.node_step_params import build_duration_params_block, build_split_params_block
+from app.services.node_step_params import (
+    build_duration_params_block,
+    build_split_params_block,
+    subtitles_enabled_for_project,
+)
 from app.web.routers.db_browser import _apply_set_briefing, _execute_orchestrator_reply
 
 
 def test_apply_set_briefing():
-    p = Project(slug="test-proj", title="Test", meta={})
+    p = Project(slug="test-proj", title="Test", meta={}, prompt_overrides={})
 
-    # 1. Update duration, frames, voiceover, hero, sfx
+    # 1. Update duration, frames, scenario prompt, voiceover, hero, montage, subtitles, sfx
     res = _apply_set_briefing(p, {
         "duration": 45,
         "target_frames": 12,
+        "plan_prompt": "cinematic_story_plan",
+        "scenario_type": "Кинематографичная история",
         "voiceover_mode": "full",
         "hero_mode": "hero",
         "items_consistent": False,
-        "structure": "динамичный клип",
         "visual_style": "3D мультфильм",
+        "structure": "динамичный клип",
+        "montage": "клиповый с быстрыми склейками",
+        "subtitles_enabled": True,
         "sfx_enabled": False,
     })
 
     assert "duration=45.0s" in res
     assert "frames=12" in res
+    assert "plan_prompt=cinematic_story_plan" in res
     assert "hero_mode=hero" in res
+    assert "subs=on" in res
     assert "sfx=off" in res
 
     meta = p.meta or {}
@@ -33,12 +43,18 @@ def test_apply_set_briefing():
 
     assert briefing["duration_seconds"] == 45.0
     assert briefing["target_frames"] == 12
+    assert briefing["plan_prompt"] == "cinematic_story_plan"
+    assert briefing["scenario_type"] == "Кинематографичная история"
     assert briefing["hero_mode"] == "hero"
+    assert briefing["subtitles_enabled"] is True
     assert briefing["sfx_enabled"] is False
     assert p.hero_mode == "hero"
+    assert (p.prompt_overrides or {}).get("plan") == "cinematic_story_plan"
     assert "sfx_plan" in meta.get("disabled_nodes", [])
     assert nsp["plan"]["duration_seconds"] == 45.0
     assert nsp["script"]["duration_seconds"] == 45.0
+    assert nsp["assemble"]["subtitles_enabled"] is True
+    assert subtitles_enabled_for_project(p) is True
 
     # 2. Check duration block includes briefing lines
     block_plan = build_duration_params_block(p, "plan", header="Сценарий")

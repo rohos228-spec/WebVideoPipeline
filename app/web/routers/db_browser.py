@@ -562,6 +562,20 @@ _ORCHESTRATOR_SYSTEM = (
     "storage — хранилище.\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
     "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
+    "БРИФИНГ ПРОЕКТА (пошаговый опросник подготовки проекта):\n"
+    "Если пользователь пишет «Брифинг проекта», «брифинг», «опрос», «начни брифинг», «подготовь проект» или отвечает на вопросы опроса:\n"
+    "Веди диалог СТРОГО ПО ОДНОМУ ВОПРОСУ за раз и ВСЕГДА в JSON или в теге <choices>[...]</choices> прикрепляй варианты ответов (choices).\n"
+    "По мере ответов вызывай действие set_briefing:\n"
+    '{"actions":[{"set_briefing":{...}}], "choices":["Вариант 1", "Вариант 2", "Свой ответ"]}.\n'
+    "Шаги брифинга (строго в таком порядке):\n"
+    "1. Хронометраж и кадры: спроси длительность ролика. Choices: [\"15–20с (Shorts / 4-6 сцен)\", \"30–45с (Стандарт / 8-12 сцен)\", \"60с (Длинный / 15-20 сцен)\", \"Свой ответ\"]. Сохрани duration_seconds и target_frames.\n"
+    "2. Тип сценария и выбор промпта (plan): предложи список типов сценария в виде понятных предложений. Choices: [\"Кинематографичная история (cinematic_story_plan)\", \"Документальный YouTube (default)\", \"Вирусный динамичный Shorts\", \"Свой ответ\"]. Сохрани plan_prompt и scenario_type.\n"
+    "3. Закадровый голос: спроси про плотность дикторского текста. Choices: [\"Плотный закадр (на весь ролик)\", \"Редкие фразы / реплики\", \"Без закадра (только музыка и эффекты)\", \"Свой ответ\"]. Сохрани voiceover_mode и voiceover_chars (при 14 симв/сек).\n"
+    "4. Персонажи и предметы: спроси, нужен ли постоянный Главный Герой (ГГ) и есть ли предметы с критичной консистентностью. Choices: [\"Да, один постоянный ГГ\", \"Несколько персонажей\", \"Без постоянных героев (общие планы / графика)\", \"Есть ключевой предмет\", \"Свой ответ\"]. Сохрани hero_mode (hero/no_hero) и items_consistent.\n"
+    "5. Визуальный стиль: спроси стиль рисовки и анимации (идёт ПЕРЕД монтажом). Choices: [\"Кинематографичный фотореализм\", \"3D мультфильм / CGI\", \"Тёмное фэнтези / Аниме\", \"Свой стиль\"]. Сохрани visual_style и animation_style.\n"
+    "6. Монтаж, структура сцен и переходы: обязательно уточни про МОНТАЖ (темп склеек, субтитры). Choices: [\"Клиповый монтаж с субтитрами (склейки 2–3с)\", \"Плавный киномонтаж без субтитров (склейки 4–6с)\", \"Динамичный с зумами и субтитрами\", \"Свой ответ\"]. Сохрани structure, transitions, subtitles_enabled (True/False).\n"
+    "7. Звукорежиссура и SFX: спроси про звуковые эффекты. Choices: [\"Полноценный SFX (акцентные звуки и шаги)\", \"Только музыка и диктор (без SFX)\", \"Звуки в промте видео\", \"Свой ответ\"]. Сохрани sfx_enabled (True/False).\n"
+    "Финал брифинга: выведи аккуратный итог настроек проекта и предложи choices: [\"Запустить создание сценария (plan)\", \"Показать граф проекта\", \"Свой ответ\"].\n"
     "ВАЖНО ПО ФОРМАТУ ОТВЕТА: технический JSON (actions, ops) помещай в ответ, "
     "но в человеческом тексте ответа НИКОГДА не дублируй сырой JSON (например, "
     "не пиши {\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде плашек "
@@ -1087,6 +1101,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
     plan_params = dict(nsp.get("plan") or {})
     script_params = dict(nsp.get("script") or {})
     split_params = dict(nsp.get("split") or {})
+    assemble_params = dict(nsp.get("assemble") or {})
 
     updated_keys = []
 
@@ -1113,7 +1128,33 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         except (ValueError, TypeError):
             pass
 
-    # 2. Закадровый текст
+    # 2. Тип сценария / промпт плана
+    if "plan_prompt" in data or "scenario_prompt" in data:
+        p_var = str(data.get("plan_prompt") or data.get("scenario_prompt") or "").strip()
+        if p_var:
+            clean_var = "default"
+            if "cinematic" in p_var.lower():
+                clean_var = "cinematic_story_plan"
+            elif "default" in p_var.lower() or "документ" in p_var.lower():
+                clean_var = "default"
+            else:
+                clean_var = p_var
+            try:
+                _apply_set_prompt(project, "plan", clean_var)
+                briefing["plan_prompt"] = clean_var
+                updated_keys.append(f"plan_prompt={clean_var}")
+            except Exception:
+                briefing["plan_prompt"] = clean_var
+                overrides = dict(project.prompt_overrides or {})
+                overrides["plan"] = clean_var
+                project.prompt_overrides = overrides
+                updated_keys.append(f"plan_prompt={clean_var}")
+
+    if "scenario_type" in data:
+        briefing["scenario_type"] = str(data["scenario_type"]).strip()
+        updated_keys.append("scenario_type")
+
+    # 3. Закадровый текст
     if "voiceover_mode" in data:
         briefing["voiceover_mode"] = str(data["voiceover_mode"]).strip()
         updated_keys.append("voiceover_mode")
@@ -1125,7 +1166,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         except (ValueError, TypeError):
             pass
 
-    # 3. Персонажи и предметы
+    # 4. Персонажи и предметы
     if "hero_mode" in data:
         hm = str(data["hero_mode"]).strip().lower()
         if hm in ("hero", "no_hero", "auto"):
@@ -1141,16 +1182,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         briefing["items_note"] = str(data["items_note"]).strip()
         updated_keys.append("items_note")
 
-    # 4. Структура и переходы
-    if "structure" in data:
-        briefing["structure"] = str(data["structure"]).strip()
-        updated_keys.append("structure")
-
-    if "transitions" in data:
-        briefing["transitions"] = str(data["transitions"]).strip()
-        updated_keys.append("transitions")
-
-    # 5. Стиль рисовки и анимации
+    # 5. Стиль рисовки и анимации (идёт перед монтажом)
     if "visual_style" in data:
         briefing["visual_style"] = str(data["visual_style"]).strip()
         updated_keys.append("visual_style")
@@ -1159,7 +1191,26 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         briefing["animation_style"] = str(data["animation_style"]).strip()
         updated_keys.append("animation_style")
 
-    # 6. Звуки SFX
+    # 6. Структура сцен, переходы и МОНТАЖ
+    if "structure" in data:
+        briefing["structure"] = str(data["structure"]).strip()
+        updated_keys.append("structure")
+
+    if "transitions" in data:
+        briefing["transitions"] = str(data["transitions"]).strip()
+        updated_keys.append("transitions")
+
+    if "montage" in data:
+        briefing["montage"] = str(data["montage"]).strip()
+        updated_keys.append("montage")
+
+    if "subtitles_enabled" in data:
+        subs = bool(data["subtitles_enabled"])
+        assemble_params["subtitles_enabled"] = subs
+        briefing["subtitles_enabled"] = subs
+        updated_keys.append(f"subs={'on' if subs else 'off'}")
+
+    # 7. Звуки SFX
     if "sfx_enabled" in data or "sfx_mode" in data:
         sfx_on = bool(data.get("sfx_enabled", True)) if "sfx_enabled" in data else (str(data.get("sfx_mode")).lower() not in ("none", "без", "off", "false"))
         briefing["sfx_enabled"] = sfx_on
@@ -1179,6 +1230,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
     nsp["plan"] = plan_params
     nsp["script"] = script_params
     nsp["split"] = split_params
+    nsp["assemble"] = assemble_params
     meta["node_step_params"] = nsp
     meta["briefing"] = briefing
     project.meta = meta
