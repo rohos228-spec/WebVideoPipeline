@@ -1077,6 +1077,114 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
     )
 
 
+def _apply_set_briefing(project: Project, data: dict) -> str:
+    """Сохранить параметры брифинга в project.meta и применить к нодам графа."""
+    if not isinstance(data, dict):
+        return "briefing: no data"
+    meta = dict(project.meta or {})
+    briefing = dict(meta.get("briefing") or {})
+    nsp = dict(meta.get("node_step_params") or {})
+    plan_params = dict(nsp.get("plan") or {})
+    script_params = dict(nsp.get("script") or {})
+    split_params = dict(nsp.get("split") or {})
+
+    updated_keys = []
+
+    # 1. Длительность и кадры
+    raw_dur = data.get("duration") or data.get("duration_seconds")
+    if raw_dur is not None:
+        try:
+            dur = float(raw_dur)
+            if dur > 0:
+                plan_params["duration_seconds"] = dur
+                script_params["duration_seconds"] = dur
+                briefing["duration_seconds"] = dur
+                chars = int(round(dur * 14))
+                briefing["voiceover_chars"] = chars
+                updated_keys.append(f"duration={dur}s")
+        except (ValueError, TypeError):
+            pass
+
+    if "target_frames" in data:
+        try:
+            tf = int(data["target_frames"])
+            briefing["target_frames"] = tf
+            updated_keys.append(f"frames={tf}")
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Закадровый текст
+    if "voiceover_mode" in data:
+        briefing["voiceover_mode"] = str(data["voiceover_mode"]).strip()
+        updated_keys.append("voiceover_mode")
+    if "voiceover_chars" in data:
+        try:
+            vc = int(data["voiceover_chars"])
+            briefing["voiceover_chars"] = vc
+            updated_keys.append(f"chars={vc}")
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Персонажи и предметы
+    if "hero_mode" in data:
+        hm = str(data["hero_mode"]).strip().lower()
+        if hm in ("hero", "no_hero", "auto"):
+            project.hero_mode = hm
+            briefing["hero_mode"] = hm
+            updated_keys.append(f"hero_mode={hm}")
+
+    if "items_consistent" in data:
+        briefing["items_consistent"] = bool(data["items_consistent"])
+        updated_keys.append(f"items_consistent={briefing['items_consistent']}")
+
+    if "items_note" in data:
+        briefing["items_note"] = str(data["items_note"]).strip()
+        updated_keys.append("items_note")
+
+    # 4. Структура и переходы
+    if "structure" in data:
+        briefing["structure"] = str(data["structure"]).strip()
+        updated_keys.append("structure")
+
+    if "transitions" in data:
+        briefing["transitions"] = str(data["transitions"]).strip()
+        updated_keys.append("transitions")
+
+    # 5. Стиль рисовки и анимации
+    if "visual_style" in data:
+        briefing["visual_style"] = str(data["visual_style"]).strip()
+        updated_keys.append("visual_style")
+
+    if "animation_style" in data:
+        briefing["animation_style"] = str(data["animation_style"]).strip()
+        updated_keys.append("animation_style")
+
+    # 6. Звуки SFX
+    if "sfx_enabled" in data or "sfx_mode" in data:
+        sfx_on = bool(data.get("sfx_enabled", True)) if "sfx_enabled" in data else (str(data.get("sfx_mode")).lower() not in ("none", "без", "off", "false"))
+        briefing["sfx_enabled"] = sfx_on
+        briefing["sfx_mode"] = str(data.get("sfx_mode", "full" if sfx_on else "none"))
+        disabled = set(meta.get("disabled_nodes") or [])
+        if sfx_on:
+            disabled.discard("sfx_plan")
+            disabled.discard("sfx_gen")
+            disabled.discard("n_sfx_plan")
+            disabled.discard("n_sfx_gen")
+        else:
+            disabled.add("sfx_plan")
+            disabled.add("sfx_gen")
+        meta["disabled_nodes"] = sorted(disabled)
+        updated_keys.append(f"sfx={'on' if sfx_on else 'off'}")
+
+    nsp["plan"] = plan_params
+    nsp["script"] = script_params
+    nsp["split"] = split_params
+    meta["node_step_params"] = nsp
+    meta["briefing"] = briefing
+    project.meta = meta
+    return ", ".join(updated_keys) if updated_keys else "briefing: ok"
+
+
 def _apply_set_prompt(project: Project, step: object, variant: object) -> str:
     from app.services import prompt_library as pl
 
@@ -2243,6 +2351,7 @@ async def _execute_orchestrator_reply(
     actions_run: list[dict] = []
     ui_actions: list[dict] = []
     pending_confirm: list[dict] = []
+    choices: list[str] = []
     error = None
     def _is_dummy_uuid(val: Any) -> bool:
         s = str(val or "").strip()
@@ -2254,6 +2363,19 @@ async def _execute_orchestrator_reply(
         )
 
     ops_data = db_apply.extract_apply_ops_json(reply or "")
+    if ops_data and isinstance(ops_data.get("choices"), list):
+        choices = [str(c).strip() for c in ops_data["choices"] if str(c).strip()]
+
+    if not choices and reply:
+        m_ch = re.search(r"<choices>\s*(\[[\s\S]*?\])\s*</choices>", reply, re.IGNORECASE)
+        if m_ch:
+            try:
+                parsed_ch = json.loads(m_ch.group(1))
+                if isinstance(parsed_ch, list):
+                    choices = [str(c).strip() for c in parsed_ch if str(c).strip()]
+            except Exception:
+                pass
+
     if ops_data:
         raw_ops = ops_data.get("ops") or []
         ops = [op for op in raw_ops if isinstance(op, dict) and not _is_dummy_uuid(op.get("frame_uuid"))]
@@ -2338,6 +2460,11 @@ async def _execute_orchestrator_reply(
                     label = _apply_set_prompt(project, spec.get("step"), spec.get("variant"))
                     await commit_with_retry(session)
                     actions_run.append({"set_prompt": label})
+                elif "set_briefing" in act:
+                    spec = act.get("set_briefing") or {}
+                    label = _apply_set_briefing(project, spec)
+                    await commit_with_retry(session)
+                    actions_run.append({"set_briefing": label})
                 elif "set_text_llm" in act:
                     spec = act.get("set_text_llm") or {}
                     from app.services.text_llm_catalog import write_choice
@@ -2535,7 +2662,7 @@ async def _execute_orchestrator_reply(
                     keys = sorted(str(k) for k in act)
                     raise db_apply.ApplyOpsError(
                         f"неизвестное действие {keys}; есть: run_step, stop_step, "
-                        "set_option, set_prompt, set_text_llm, open_ui, hitl_decision, "
+                        "set_option, set_prompt, set_briefing, set_text_llm, open_ui, hitl_decision, "
                         "set_topic, create_project, create_child, delete_projects, "
                         "add_node, connect_edges, remove_node, rename_node, repair_graph, "
                         "run_harness, read_file, edit_files, run_tests, git_commit_push"
@@ -2599,7 +2726,13 @@ async def _execute_orchestrator_reply(
         reply or "",
     )
     clean_human_reply = re.sub(
-        r'\{\s*"(?:actions|ops)"\s*:\s*\[[\s\S]*?\]\s*\}',
+        r'<choices>[\s\S]*?</choices>',
+        "",
+        clean_human_reply,
+        flags=re.IGNORECASE,
+    )
+    clean_human_reply = re.sub(
+        r'\{\s*"(?:actions|ops|choices)"\s*:[\s\S]*?\}',
         "",
         clean_human_reply,
     )
@@ -2613,6 +2746,7 @@ async def _execute_orchestrator_reply(
         "actions_run": actions_run,
         "ui_actions": ui_actions,
         "pending_confirm": pending_confirm,
+        "choices": choices,
         "error": error,
     }
 

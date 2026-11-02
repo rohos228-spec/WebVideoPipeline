@@ -891,6 +891,7 @@ export interface DbOrchestratorChatResult {
     steps?: { action_id: string }[];
     step_titles?: string[];
   }[];
+  choices?: string[];
   error: string | null;
 }
 

@@ -17,6 +17,8 @@ import {
   ChevronUp,
   Clapperboard,
   Copy,
+  Edit3,
+  ListChecks,
   GitBranch,
   Loader2,
   Maximize2,
@@ -78,11 +80,31 @@ interface ChatMsg {
   created_at?: number;
   confirms?: PendingConfirm[];
   confirm?: PendingConfirm;
+  choices?: string[];
+}
+
+function extractChoicesFromText(text: string | null | undefined): string[] {
+  if (!text) return [];
+  const m = text.match(/<choices>\s*(\[[\s\S]*?\])\s*<\/choices>/i);
+  if (m) {
+    try {
+      const arr = JSON.parse(m[1]);
+      if (Array.isArray(arr)) return arr.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch {}
+  }
+  const m2 = text.match(/\{\s*"choices"\s*:\s*(\[[\s\S]*?\])/i);
+  if (m2) {
+    try {
+      const arr = JSON.parse(m2[1]);
+      if (Array.isArray(arr)) return arr.map(String).map((s) => s.trim()).filter(Boolean);
+    } catch {}
+  }
+  return [];
 }
 
 function cleanOrchestratorText(text: string | null | undefined): string {
   if (!text) return "";
-  let t = text;
+  let t = text.replace(/<choices>[\s\S]*?<\/choices>/gi, "");
   // 1. Убираем markdown-блоки ```json ... ``` с actions/ops
   t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops)"[\s\S]*?\}\s*```/gi, "");
 
@@ -832,11 +854,16 @@ export function OrchestratorPanel({ projectId }: Props) {
       }
 
       const cleanReply = cleanOrchestratorText(r.reply || "");
+      const msgChoices =
+        Array.isArray(r.choices) && r.choices.length > 0
+          ? r.choices
+          : extractChoicesFromText(r.reply);
       const assistantMsg: ChatMsg = {
         role: "assistant",
         content: cleanReply || (notes.length ? "Действие выполнено." : "(пустой ответ)"),
         notes: notes.length ? notes : undefined,
         confirms: pendAll.length ? pendAll : undefined,
+        choices: msgChoices.length > 0 ? msgChoices : undefined,
         created_at: Date.now(),
       };
 
@@ -1824,7 +1851,18 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
           </div>
 
-
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          disabled={projectId == null || busy || isStreaming}
+          onClick={() => void sendMessage("Брифинг проекта")}
+          className="h-6 gap-1 rounded-md border border-emerald-500/30 hover:border-emerald-400/60 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 text-[11px] font-medium text-emerald-200 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer mr-1 hidden sm:inline-flex"
+          title="Запустить опросник брифинга проекта"
+        >
+          <ListChecks className="h-3 w-3 text-emerald-400" />
+          <span>Брифинг проекта</span>
+        </Button>
 
         <Button
           type="button"
@@ -1870,17 +1908,30 @@ export function OrchestratorPanel({ projectId }: Props) {
                 <p className="text-[11px] text-white/45 max-w-sm mb-3.5 leading-relaxed">
                   Управление пайплайном, графом нод, генерацией и настройками проекта.
                 </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={projectId == null || busy || isStreaming}
-                  onClick={() => void sendMessage("Покажи доступные действия по проекту")}
-                  className="h-7 gap-1.5 rounded-full border border-white/20 hover:border-emerald-400/60 bg-transparent hover:bg-white/[0.06] px-3.5 text-xs font-medium text-white/80 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
-                >
-                  <Settings className="h-3.5 w-3.5 text-emerald-400" />
-                  <span>Покажи доступные действия</span>
-                </Button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={projectId == null || busy || isStreaming}
+                    onClick={() => void sendMessage("Брифинг проекта")}
+                    className="h-7 gap-1.5 rounded-full border border-emerald-500/40 hover:border-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 px-3.5 text-xs font-medium text-emerald-200 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
+                  >
+                    <ListChecks className="h-3.5 w-3.5 text-emerald-400" />
+                    <span>Брифинг проекта</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={projectId == null || busy || isStreaming}
+                    onClick={() => void sendMessage("Покажи доступные действия по проекту")}
+                    className="h-7 gap-1.5 rounded-full border border-white/20 hover:border-emerald-400/60 bg-transparent hover:bg-white/[0.06] px-3.5 text-xs font-medium text-white/80 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Settings className="h-3.5 w-3.5 text-white/60" />
+                    <span>Покажи доступные действия</span>
+                  </Button>
+                </div>
               </div>
             ) : null}
 
@@ -1950,6 +2001,46 @@ export function OrchestratorPanel({ projectId }: Props) {
                             {note}
                           </span>
                         ))}
+                      </div>
+                    )}
+
+                    {m.choices && m.choices.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-white/[0.08]">
+                        {m.choices.map((choice, ci) => {
+                          const isCustom =
+                            choice.toLowerCase().includes("свой") ||
+                            choice.toLowerCase().includes("другой");
+                          return (
+                            <button
+                              key={ci}
+                              type="button"
+                              disabled={busy || isStreaming || projectId == null}
+                              onClick={() => {
+                                if (isCustom) {
+                                  if (textareaRef.current) {
+                                    textareaRef.current.focus();
+                                    setChatInput("");
+                                  }
+                                } else {
+                                  void sendMessage(choice);
+                                }
+                              }}
+                              className={cn(
+                                "group inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all active:scale-95 cursor-pointer",
+                                isCustom
+                                  ? "bg-white/[0.06] hover:bg-white/[0.12] border border-white/20 text-white/80 hover:text-white"
+                                  : "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-400/60 text-emerald-200 hover:text-emerald-100 shadow-sm"
+                              )}
+                            >
+                              {isCustom ? (
+                                <Edit3 className="h-3 w-3 text-white/60 group-hover:text-white" />
+                              ) : (
+                                <Check className="h-3 w-3 text-emerald-400 group-hover:text-emerald-300" />
+                              )}
+                              <span>{choice}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -2211,9 +2302,15 @@ export function OrchestratorPanel({ projectId }: Props) {
                 rows={1}
                 onChange={(e) => setChatInput(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !busy && !isStreaming) {
+                  if (e.key === "Enter") {
+                    if (e.shiftKey || e.ctrlKey || e.altKey) {
+                      return;
+                    }
+                    if (e.nativeEvent.isComposing) return;
                     e.preventDefault();
-                    void sendChat();
+                    if (!busy && !isStreaming && projectId != null) {
+                      void sendChat();
+                    }
                   }
                 }}
                 disabled={projectId == null || busy || isStreaming}
