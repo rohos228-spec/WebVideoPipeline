@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from app.services.provider_breaker import ProviderCircuitOpen
 from app.settings import settings
 
 # Коды, при которых повтор бессмысленен (не ретраим).
@@ -2698,7 +2699,52 @@ async def chat(**kwargs: Any) -> GptChatResult:
         # этого вызова и резервом на время вызова (параллельные видят друг друга).
         pid, token = await _check_budget_before_call(kwargs)
         with llm_ledger.hold_reservation(pid, token):
-            return await _chat_unscoped(**kwargs)
+            try:
+                return await _chat_unscoped(**kwargs)
+            except (GptApiError, ProviderCircuitOpen) as e:
+                fallback = provider_fallback(e, kwargs)
+                if fallback is None:
+                    raise
+                from app.services.llm_override import use_override
+
+                logger.warning(
+                    "gpt_api.chat: kie недоступен ({}), повтор того же запроса через 52pay ({})",
+                    str(e)[:160],
+                    fallback.model_id,
+                )
+                with use_override(fallback):
+                    return await _chat_unscoped(**kwargs)
+
+
+def provider_fallback(error: BaseException, kwargs: dict[str, Any]) -> Any:
+    """Запасной маршрут 52pay для общего провайдера kie, когда тот лежит. None — не переключаемся.
+
+    Только инфраструктурный сбой (сеть, 5xx, 429 после всех повторов, открытый
+    предохранитель): ошибки содержания и бюджета не переключают. Не трогаем шаги со
+    своим провайдером (override), вызовы с файлами и нативными инструментами.
+    """
+    if not getattr(settings, "text_llm_fallback_52pay", False):
+        return None
+    if settings.text_llm_is_vibecode or settings.text_llm_is_pay52:
+        return None
+    if isinstance(error, GptApiError):
+        if not error.retryable or str(error.context.get("error_kind") or "") in {"no_key", "budget"}:
+            return None
+    elif not isinstance(error, ProviderCircuitOpen):
+        return None
+    if kwargs.get("input_paths") or kwargs.get("tools"):
+        return None
+    try:
+        from app.services.llm_override import NodeLlmOverride, current_override
+        from app.services.pay52_routes import resolve_text
+    except Exception:  # noqa: BLE001
+        return None
+    if current_override() is not None:
+        return None
+    model = str(kwargs.get("model") or settings.gpt_model or "").strip()
+    if resolve_text(model) is None:
+        return None
+    return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="52pay", label="52pay (запасной)")
 
 
 async def _check_budget_before_call(kwargs: dict | None = None) -> tuple[int | None, int | None]:
