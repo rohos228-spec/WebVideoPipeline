@@ -561,7 +561,11 @@ _ORCHESTRATOR_SYSTEM = (
     "assemble — «Сборка»; publish — «Публикация»; topic — «Тема»; "
     "storage — хранилище.\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
-    "неизвестное = отклонено с ошибкой. Одна операция = один кадр."
+    "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
+    "ВАЖНО ПО ФОРМАТУ ОТВЕТА: технический JSON (actions, ops) помещай в ответ, "
+    "но в человеческом тексте ответа НИКОГДА не дублируй сырой JSON (например, "
+    "не пиши {\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде плашек "
+    "интерфейса, а твой текст должен содержать только естественный живой русский ответ."
 )
 
 _STEP_RU: dict[str, str] = {
@@ -2587,6 +2591,21 @@ async def _execute_orchestrator_reply(
             reply = _human_reply_from_diagnostics(diag_lines)
         else:
             reply = human
+
+    # Очищаем сырой JSON технических действий из ответа человеку для всех режимов
+    clean_human_reply = re.sub(
+        r"```(?:json)?\s*\{[\s\S]*?\"(?:actions|ops)\"[\s\S]*?\}\s*```",
+        "",
+        reply or "",
+    )
+    clean_human_reply = re.sub(
+        r'\{\s*"(?:actions|ops)"\s*:\s*\[[\s\S]*?\]\s*\}',
+        "",
+        clean_human_reply,
+    )
+    clean_human_reply = re.sub(r"\n{3,}", "\n\n", clean_human_reply).strip()
+    if clean_human_reply:
+        reply = clean_human_reply
 
     return {
         "reply": reply,

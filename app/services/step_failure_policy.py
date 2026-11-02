@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -31,6 +32,57 @@ MAX_TOTAL_FAILS = FAILS_PER_CYCLE * MAX_CYCLES  # 9
 SLEEP_MINUTES = 30
 # Лишние листы GPT / hotfix normalize — не морозить на полчаса.
 XLSX_SHEET_FORMAT_SLEEP_MINUTES = 2
+
+WAIT_PROFILE_ENV = "STEP_FAILURE_WAIT_PROFILE"
+WAIT_PROFILE_SAFE = "safe"
+WAIT_PROFILE_FAST = "fast"
+WAIT_PROFILE_NAMES = (WAIT_PROFILE_SAFE, WAIT_PROFILE_FAST)
+FAST_FAILS_PER_CYCLE = 2
+FAST_MAX_CYCLES = 2
+FAST_SLEEP_MINUTES = 3
+FAST_QUICK_SLEEP_MINUTES = 1
+
+
+@dataclass(frozen=True)
+class WaitProfile:
+    name: str
+    fails_per_cycle: int
+    max_cycles: int
+    sleep_minutes: int
+    quick_sleep_minutes: int
+    abandon_on_fatal_config: bool
+
+    @property
+    def max_total_fails(self) -> int:
+        return self.fails_per_cycle * self.max_cycles
+
+
+def wait_profile(project: Any | None = None) -> WaitProfile:
+    import os
+    name = ""
+    if project is not None:
+        meta = getattr(project, "meta", None)
+        if isinstance(meta, dict):
+            name = str(meta.get("step_failure_profile") or "").strip().lower()
+    if name not in WAIT_PROFILE_NAMES:
+        name = (os.environ.get(WAIT_PROFILE_ENV) or "").strip().lower()
+    if name == WAIT_PROFILE_FAST:
+        return WaitProfile(
+            WAIT_PROFILE_FAST,
+            FAST_FAILS_PER_CYCLE,
+            FAST_MAX_CYCLES,
+            FAST_SLEEP_MINUTES,
+            FAST_QUICK_SLEEP_MINUTES,
+            True,
+        )
+    return WaitProfile(
+        WAIT_PROFILE_SAFE,
+        FAILS_PER_CYCLE,
+        MAX_CYCLES,
+        SLEEP_MINUTES,
+        XLSX_SHEET_FORMAT_SLEEP_MINUTES,
+        False,
+    )
 
 
 def sleep_minutes_for_error(error: Exception) -> int:

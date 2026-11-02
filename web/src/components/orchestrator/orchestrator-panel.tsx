@@ -80,14 +80,69 @@ interface ChatMsg {
   confirm?: PendingConfirm;
 }
 
-function cleanOrchestratorText(text: string): string {
+function cleanOrchestratorText(text: string | null | undefined): string {
   if (!text) return "";
   let t = text;
-  // Убираем технические JSON-блоки действий из вывода для человека
+  // 1. Убираем markdown-блоки ```json ... ``` с actions/ops
   t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops)"[\s\S]*?\}\s*```/gi, "");
-  t = t.replace(/\{[^{}]*"(?:actions|ops)"[^{}]*\}/gi, "");
-  t = t.replace(/\n{3,}/g, "\n\n").trim();
-  return t;
+
+  // 2. Убираем сырые JSON-объекты {"actions":[...]} или {"ops":[...]} любой вложенности
+  let out = "";
+  let i = 0;
+  const n = t.length;
+  while (i < n) {
+    if (t[i] === "{" && (t.slice(i, i + 60).includes('"actions"') || t.slice(i, i + 60).includes('"ops"'))) {
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      let j = i;
+      let foundEnd = false;
+      while (j < n) {
+        const c = t[j];
+        if (escape) {
+          escape = false;
+        } else if (c === "\\") {
+          escape = true;
+        } else if (c === '"') {
+          inString = !inString;
+        } else if (!inString) {
+          if (c === "{") depth++;
+          else if (c === "}") {
+            depth--;
+            if (depth === 0) {
+              foundEnd = true;
+              j++;
+              break;
+            }
+          }
+        }
+        j++;
+      }
+      if (foundEnd) {
+        const block = t.slice(i, j);
+        try {
+          const parsed = JSON.parse(block);
+          if (parsed && typeof parsed === "object" && ("actions" in parsed || "ops" in parsed)) {
+            i = j;
+            continue;
+          }
+        } catch {
+          // Если парсинг не прошел, но это явно блок с actions/ops, вырезаем до закрывающей скобки
+          i = j;
+          continue;
+        }
+      } else {
+        // Если блок ещё не закрыт (например, во время стриминга в самом начале)
+        if (i === 0) {
+          return "";
+        }
+      }
+    }
+    out += t[i];
+    i++;
+  }
+
+  return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function formatTime(timestamp?: number): string {
@@ -1555,14 +1610,21 @@ export function OrchestratorPanel({ projectId }: Props) {
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
-                      <span
-                        className={cn(
-                          "h-2 w-2 rounded-full shrink-0 transition-all",
-                          isActive
-                            ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
-                            : "bg-white/20 group-hover:bg-white/40",
-                        )}
-                      />
+                      {isSessionThinking ? (
+                        <span
+                          className="h-2.5 w-2.5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0 shadow-[0_0_8px_#f59e0b]"
+                          title="ИИ-агент выполняет запрос…"
+                        />
+                      ) : (
+                        <span
+                          className={cn(
+                            "h-2 w-2 rounded-full shrink-0 transition-all",
+                            isActive
+                              ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+                              : "bg-white/20 group-hover:bg-white/40",
+                          )}
+                        />
+                      )}
                       <span
                         onDoubleClick={(e) => handleStartRename(s, e)}
                         title="Нажмите на карандаш или дважды кликните для переименования"
@@ -1582,7 +1644,7 @@ export function OrchestratorPanel({ projectId }: Props) {
 
                     <div className="flex items-center gap-1 shrink-0">
                       {isSessionThinking && (
-                        <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
+                        <Loader2 className="h-3 w-3 animate-spin text-amber-400" />
                       )}
                       {hasUnresolved && !isSessionThinking && (
                         <span
@@ -1711,7 +1773,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           )}
         >
           <div className="flex min-w-0 flex-1 items-center gap-2 px-0.5 text-[11px]">
-            {/* Кнопка 6 точек для открытия панели диалогов из левого ребра */}
+            {/* Кнопка открытия/закрытия панели диалогов */}
             <button
               type="button"
               onClick={(e) => {
@@ -1720,7 +1782,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               }}
               onMouseDown={(e) => e.stopPropagation()}
               className={cn(
-                "flex h-7 w-7 items-center justify-center rounded-lg border transition-all cursor-pointer select-none shrink-0",
+                "flex h-7 w-7 items-center justify-center rounded-lg border transition-all cursor-pointer select-none shrink-0 relative",
                 isChatsOpen
                   ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300 shadow-sm shadow-emerald-950/50"
                   : "bg-white/[0.04] border-white/10 text-white/60 hover:bg-white/[0.08] hover:text-white",
@@ -1732,11 +1794,21 @@ export function OrchestratorPanel({ projectId }: Props) {
               ) : (
                 <PanelLeftOpen className="h-4 w-4" />
               )}
+              {(isStreaming || busy) && (
+                <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500 border border-black shadow-[0_0_6px_#f59e0b]" />
+                </span>
+              )}
             </button>
 
             <div className="relative shrink-0">
               <OrchestratorAvatar size="sm" pulse={isStreaming && streamingSessionId === activeSessionId} />
-              <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
+              {(isStreaming || busy) && streamingSessionId === activeSessionId ? (
+                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-400 border border-[#0c0c0e] shadow-[0_0_6px_#f59e0b] animate-pulse" />
+              ) : (
+                <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
+              )}
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
               <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
@@ -2102,17 +2174,17 @@ export function OrchestratorPanel({ projectId }: Props) {
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
                   </div>
-                  {streamingText ? (
-                    <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
-                      <MarkdownRenderer content={streamingText} />
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
-                      <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
-                      <span>ИИ-агент формулирует ответ…</span>
-                    </div>
-                  )}
+                    {cleanOrchestratorText(streamingText) ? (
+                      <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
+                        <MarkdownRenderer content={cleanOrchestratorText(streamingText)} />
+                        <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                        <span>ИИ-агент формулирует ответ…</span>
+                      </div>
+                    )}
                 </div>
               </div>
             )}

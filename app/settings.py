@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     # GPT / kie.ai — основной текстовый стек
     gpt_api_key: str = Field("", alias="GPT_API_KEY")
     gpt_base_url: str = Field("", alias="GPT_BASE_URL")
-    gpt_model: str = Field("gpt-5-6-sol", alias="GPT_MODEL")
+    gpt_model: str = Field("gpt-6-1-sol", alias="GPT_MODEL")
     # Kie Market (Kling 2.6 video fallback). Пусто → GPT_API_KEY + api.kie.ai.
     kie_api_key: str = Field("", alias="KIE_API_KEY")
     kie_api_base_url: str = Field("https://api.kie.ai", alias="KIE_API_BASE_URL")
@@ -327,7 +327,7 @@ class Settings(BaseSettings):
             )
 
             return catalog_api_model(resolve_active_model_id(self))
-        return (self.gpt_model or "gpt-5-6-sol").strip()
+        return (self.gpt_model or "gpt-6-1-sol").strip()
 
     @property
     def gpt_chat_path_effective(self) -> str:

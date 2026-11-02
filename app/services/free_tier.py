@@ -40,7 +40,52 @@ from typing import Any
 
 from sqlalchemy import func, select
 
-from app.models import CreditEntry, CreditHold
+from app.models import CreditEntry, CreditHold, Project, ProjectStatus
+
+#: Статусы проектов, при которых бесплатная раскадровка уже завершена либо проект остановлен.
+IDLE_OR_DONE_STATUSES: frozenset[ProjectStatus] = frozenset({
+    ProjectStatus.animation_prompts_ready,
+    ProjectStatus.videos_ready,
+    ProjectStatus.music_ready,
+    ProjectStatus.audio_ready,
+    ProjectStatus.sfx_plan_ready,
+    ProjectStatus.sfx_ready,
+    ProjectStatus.assembled,
+    ProjectStatus.published,
+    ProjectStatus.paused,
+    ProjectStatus.failed,
+})
+
+
+async def _filter_active_promo_projects(session: Any, project_ids: tuple[int, ...]) -> tuple[int, ...]:
+    """Оставить только те промо-проекты, которые действительно активны.
+
+    Проекты, дошедшие до конца бесплатного уровня (animation_prompts_ready и дальше),
+    а также остановленные пользователем (user_stop/archived) или завершённые,
+    не считаются активными и не блокируют работу над новыми проектами.
+    """
+    if not project_ids:
+        return ()
+    rows = (
+        await session.execute(
+            select(Project.id, Project.status, Project.meta).where(Project.id.in_(project_ids))
+        )
+    ).all()
+    status_by_id = {int(r[0]): (r[1], r[2]) for r in rows}
+
+    active: list[int] = []
+    for pid in project_ids:
+        if pid not in status_by_id:
+            active.append(pid)
+            continue
+        st, meta = status_by_id[pid]
+        meta_dict = meta if isinstance(meta, dict) else {}
+        if meta_dict.get("user_stop") or meta_dict.get("archived"):
+            continue
+        if st in IDLE_OR_DONE_STATUSES:
+            continue
+        active.append(pid)
+    return tuple(sorted(active))
 
 #: Шаги, которые бесплатными не бывают. Всё, что идёт от рендера и дальше:
 #: видео — 82% себестоимости, а озвучка, музыка и эффекты идут после него и
@@ -91,7 +136,7 @@ async def free_tier_state(session: Any, tenant_id: str) -> FreeTierState:
         ).scalar_one()
         or 0.0
     )
-    projects = tuple(
+    raw_projects = tuple(
         sorted(
             int(pid)
             for pid in (
@@ -109,6 +154,7 @@ async def free_tier_state(session: Any, tenant_id: str) -> FreeTierState:
             .all()
         )
     )
+    projects = await _filter_active_promo_projects(session, raw_projects)
 
     if await _video_was_paid(session, tenant_id):
         # Граница по аккаунту, а не по проекту: после первой оплаченной
@@ -139,18 +185,30 @@ async def check_step_allowed(
         return False
 
     cap = float(getattr(settings, "free_tier_spend_cap_usd", 3.0))
-    if cap > 0 and state.granted_usd + max(0.0, cost_usd) > cap:
-        raise FreeTierExhausted(
-            f"бесплатный уровень исчерпан: подарено ${state.granted_usd:.2f} "
-            f"из ${cap:.2f}. Дальше нужен баланс."
-        )
+    cap_exceeded = cap > 0 and state.granted_usd + max(0.0, cost_usd) > cap
 
     max_projects = int(getattr(settings, "free_tier_max_projects", 1))
-    if max_projects > 0 and project_id not in state.projects and state.project_count >= max_projects:
+    max_projects_exceeded = (
+        max_projects > 0 and project_id not in state.projects and state.project_count >= max_projects
+    )
+
+    if cap_exceeded or max_projects_exceeded:
+        from app.services.credit_ledger import balance_micro
+
+        user_balance = await balance_micro(session, tenant_id)
+        if user_balance > 0:
+            return False
+
+        if cap_exceeded:
+            raise FreeTierExhausted(
+                f"бесплатный уровень исчерпан: подарено ${state.granted_usd:.2f} "
+                f"из ${cap:.2f}. Дальше нужен баланс."
+            )
         raise FreeTierExhausted(
             f"бесплатно можно вести {max_projects} проект(а): уже заведено "
             f"{state.project_count}. Дальше нужен баланс."
         )
+
     return True
 
 
