@@ -24,7 +24,7 @@ _READS = ("project.status", "diag.incidents", "logs.tail")
 
 class _FactActions(MockActions):
     def __init__(self, fail: set[str] | None = None) -> None:
-        super().__init__(risks={name: "none" for name in (*_READS, "step.get_run_cost_basis")})
+        super().__init__(risks={name: "none" for name in (*_READS, "diag.node_failure", "step.get_run_cost_basis")})
         self.fail = fail or set()
 
     async def execute(self, name, params, task_ctx):

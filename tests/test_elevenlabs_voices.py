@@ -27,7 +27,7 @@ def test_resolve_from_meta():
 def test_resolve_invalid_raises():
     p = Project(topic="t")
     p.meta = {"node_step_params": {"audio": {"elevenlabs_voice_id": "bad"}}}
-    with pytest.raises(ValueError, match="нет в каталоге"):
+    with pytest.raises(ValueError, match="некорректен"):
         resolve_elevenlabs_voice_id(p)
 
 
