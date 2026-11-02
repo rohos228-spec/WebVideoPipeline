@@ -899,6 +899,7 @@ _PARAM_LABELS = {
     "frame_number": "кадр",
     "frame_id": "кадр",
     "frame_ids": "кадры сцены",
+    "amount_usd": "новый бюджет текстов, $",
     "frame_numbers": "кадры",
     "from_frame": "из кадра",
     "to_frame": "в кадр",

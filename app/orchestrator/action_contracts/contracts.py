@@ -430,6 +430,9 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("node.set_model_many", "high", False, True, False),
     ("node.set_prompt_variant_many", "high", False, True, False),
     ("node.revert_model_many", "medium", False, False, False),
+    # Бюджет текстов проекта: разрешает будущие траты, поэтому с карточкой (medium),
+    # но ничего не удаляет и сам не платит.
+    ("project.set_llm_budget", "medium", False, False, False),
 )
 
 CHAT_V1_ACTION_IDS: frozenset[str] = frozenset(row[0] for row in _CHAT_V1_ROWS)

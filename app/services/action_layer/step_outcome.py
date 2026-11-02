@@ -77,6 +77,14 @@ def stop_reason(meta: Any) -> str:
     meta = meta if isinstance(meta, dict) else {}
     fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
     why = _clip(fs.get("last_error") or meta.get("auto_paused_reason"))
+    pr = meta.get("pause_reason") if isinstance(meta.get("pause_reason"), dict) else {}
+    if pr.get("code") == "budget_exhausted":
+        # Без подсказки человек упирался в «Устраните причину»: поля бюджета в интерфейсе нет.
+        hint = (
+            "Чтобы продолжить, поднимите бюджет текстов проекта, например: "
+            "«подними бюджет текстов проекта до 1 доллара»"
+        )
+        return f". Причина: {why}. {hint}" if why else f". {hint}"
     return f". Причина: {why}" if why else ""
 
 
