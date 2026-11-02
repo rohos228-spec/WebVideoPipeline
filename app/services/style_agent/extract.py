@@ -47,7 +47,7 @@ DEFAULT_FRAMES_PER_MIN = 120
 HOOK_SECONDS = 5.0
 HOOK_DENSITY = 2
 CUT_PAD_S = 0.2
-TIMELINE_WIDTH = 720  # кадры таймлайна (нужны OCR) — не шире 720
+TIMELINE_WIDTH = 720  # кадры таймлайна (нужны OCR) — не шире 720; шире OCR не лучше (замер 03.11)
 
 SHEET_COLS, SHEET_ROWS = 3, 4  # шот-лист: 4 плана × (start/mid/end)
 OVERVIEW_COLS, OVERVIEW_ROWS = 3, 2
@@ -1052,7 +1052,7 @@ def analyze_video(
     if not skip_ocr:
         fn = ocr_fn or ocr_mod.default_ocr()
         if fn is None:
-            sub_info["error"] = "OCR-бэкенд не найден (pip install rapidocr-onnxruntime)"
+            sub_info["error"] = ocr_mod.backend_error() or "OCR-бэкенд не найден (pip install rapidocr-onnxruntime)"
         else:
             _p("ocr")
             frames_sorted = sorted(list(timeline["base"]) + list(timeline["hook"]), key=lambda x: x[0])

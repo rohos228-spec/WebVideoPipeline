@@ -38,6 +38,18 @@ _JUNK_RE = re.compile(r"^[\W_]+$")
 _backend_cache: dict[str, Any] = {}
 
 
+# Замер на 55 кадрах 720p с русскими субтитрами (эталон SRT):
+#   по умолчанию (limit_type=min 736 раздувает полосу до ~3000 px, cls вкл.):
+#     сходство 0.788, потеряны слова в 15 кадрах, 0.50 с/кадр;
+#   max 960 + unclip 2.0 + без cls: сходство 0.948, потери в 3, 0.05 с/кадр.
+_RAPID_PARAMS: dict[str, Any] = {
+    "use_cls": False,  # субтитры не бывают вверх ногами
+    "det_limit_type": "max",
+    "det_limit_side_len": 960,
+    "det_unclip_ratio": 2.0,  # шире рамка → реже теряются пробелы между словами
+}
+
+
 def _rapidocr() -> OcrFn | None:
     try:
         from rapidocr_onnxruntime import RapidOCR  # type: ignore
@@ -45,7 +57,16 @@ def _rapidocr() -> OcrFn | None:
         return None
     engine = _backend_cache.get("rapidocr")
     if engine is None:
-        engine = RapidOCR()
+        from app.services.style_agent.ocr_models import RecModelUnavailable, rec_model_path
+
+        try:
+            rec = rec_model_path()
+        except RecModelUnavailable as exc:
+            # Встроенная модель вместо русского даёт латинскую кашу - лучше честно без OCR.
+            _backend_cache["error"] = f"rapidocr: нет модели кириллицы ({exc})"
+            logger.warning(_backend_cache["error"])
+            return None
+        engine = RapidOCR(**_RAPID_PARAMS, **({"rec_model_path": str(rec)} if rec else {}))
         _backend_cache["rapidocr"] = engine
 
     def _run(frame: Path) -> list[OcrBox]:
@@ -125,7 +146,7 @@ def _easyocr() -> OcrFn | None:
         except Exception:  # noqa: BLE001
             gpu = False
         try:
-            _backend_cache["easyocr"] = easyocr.Reader(["en"], gpu=gpu, verbose=False)
+            _backend_cache["easyocr"] = easyocr.Reader(["ru", "en"], gpu=gpu, verbose=False)
         except Exception:  # noqa: BLE001
             return None
     reader = _backend_cache["easyocr"]
@@ -159,6 +180,11 @@ def default_ocr() -> OcrFn | None:
 
 def backend_name() -> str:
     return str(_backend_cache.get("name") or "")
+
+
+def backend_error() -> str:
+    """Почему лучший бэкенд не поднялся (пусто, если причины нет)."""
+    return str(_backend_cache.get("error") or "")
 
 
 def normalize_text(text: str) -> str:
@@ -232,6 +258,24 @@ def _looks_like_logo(text: str) -> bool:
     return sum(1 for c in letters if c.isupper()) / len(letters) >= 0.8
 
 
+ROW_TOL = 0.025  # боксы одной строки субтитров: центры по высоте ближе 2.5 % кадра
+
+
+def _reading_order(boxes: list[tuple[float, float, str, float]]) -> list[tuple[float, float, str, float]]:
+    """(cy, cx, text, conf) → порядок чтения: строки сверху вниз, в строке слева направо.
+
+    Детектор режет одну строку на куски с чуть разной высотой центра; сортировка
+    только по cy давала «она крутит головой Поэтому».
+    """
+    rows: list[list[tuple[float, float, str, float]]] = []
+    for b in sorted(boxes):
+        if rows and abs(b[0] - statistics.mean(x[0] for x in rows[-1])) <= ROW_TOL:
+            rows[-1].append(b)
+        else:
+            rows.append([b])
+    return [b for row in rows for b in sorted(row, key=lambda x: x[1])]
+
+
 def build_lines(
     raw: list[dict[str, Any]], *, band: tuple[float, float] | None = None, frame_step_s: float = 0.5
 ) -> list[SubtitleLine]:
@@ -247,16 +291,17 @@ def build_lines(
             if conf < MIN_CONF or not text or _JUNK_RE.match(text):
                 continue
             if band[0] <= cy <= band[1]:
-                picked.append((cy, text, conf))
-        picked.sort()
+                cx = float(b[3]) if len(b) > 3 else 0.5
+                picked.append((cy, cx, text, conf))
+        picked = _reading_order(picked)
         if len(picked) > 1:
             # Логотип/надпись на одежде, попавшая в полосу (КАПС, ≤ 2 слов), — не субтитр, если рядом есть обычный текст
-            normal = [p for p in picked if not _looks_like_logo(p[1])]
+            normal = [p for p in picked if not _looks_like_logo(p[2])]
             if normal:
                 picked = normal
         if picked:
             per_frame.append(
-                (float(fr["t"]), " ".join(p[1] for p in picked), statistics.mean(p[2] for p in picked))
+                (float(fr["t"]), " ".join(p[2] for p in picked), statistics.mean(p[3] for p in picked))
             )
         else:
             per_frame.append((float(fr["t"]), "", 0.0))
