@@ -1292,7 +1292,7 @@ def _parse_responses(payload: dict[str, Any]) -> tuple[str, str]:
     if not text:
         raise GptApiError(
             "GPT(responses): пустой output",
-            context={"status": status, "payload": payload},
+            context={"status": status, "payload": payload, "retryable": True, "error_kind": "empty_output"},
         )
     return text, status
 
@@ -2319,7 +2319,10 @@ def _parse_choice(payload: dict[str, Any]) -> tuple[str, str]:
     _check_provider_envelope(payload)
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise GptApiError("GPT: пустой choices в ответе", context={"payload": payload})
+        raise GptApiError(
+            "GPT: пустой choices в ответе",
+            context={"payload": payload, "retryable": True, "error_kind": "empty_choices"},
+        )
     first = choices[0] if isinstance(choices[0], dict) else {}
     message_raw = first.get("message")
     message: dict[str, Any] = message_raw if isinstance(message_raw, dict) else {}
@@ -2327,13 +2330,32 @@ def _parse_choice(payload: dict[str, Any]) -> tuple[str, str]:
     # content может быть строкой или списком частей (vision/tools)
     if isinstance(content, list):
         text = "".join(str(part.get("text") or "") for part in content if isinstance(part, dict))
-    else:
+    elif content is not None:
         text = str(content or "")
+    else:
+        text = str(first.get("text") or message.get("text") or "")
+
     finish = str(first.get("finish_reason") or "")
+    if not text.strip():
+        # Резерв: reasoning_content / thought / reasoning если модель вернула цепочку мыслей без content
+        reasoning = str(
+            message.get("reasoning_content")
+            or message.get("reasoning")
+            or message.get("thought")
+            or ""
+        )
+        if reasoning.strip():
+            text = reasoning.strip()
+
     if not text.strip():
         raise GptApiError(
             "GPT: пустой content в ответе",
-            context={"finish_reason": finish, "payload": payload},
+            context={
+                "finish_reason": finish,
+                "payload": payload,
+                "retryable": True,
+                "error_kind": "empty_content",
+            },
         )
     return text, finish
 

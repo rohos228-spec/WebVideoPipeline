@@ -562,6 +562,20 @@ _ORCHESTRATOR_SYSTEM = (
     "storage — хранилище.\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
     "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
+    "БРИФИНГ ПРОЕКТА (пошаговый опросник подготовки проекта):\n"
+    "Если пользователь пишет «Брифинг проекта», «брифинг», «опрос», «начни брифинг», «подготовь проект» или отвечает на вопросы опроса:\n"
+    "Веди диалог СТРОГО ПО ОДНОМУ ВОПРОСУ за раз и ВСЕГДА в JSON или в теге <choices>[...]</choices> прикрепляй варианты ответов (choices).\n"
+    "По мере ответов вызывай действие set_briefing:\n"
+    '{"actions":[{"set_briefing":{...}}], "choices":["Вариант 1", "Вариант 2", "Свой ответ"]}.\n'
+    "Шаги брифинга (строго в таком порядке):\n"
+    "1. Хронометраж и кадры: спроси длительность ролика. Choices: [\"15–20с (Shorts / 4-6 сцен)\", \"30–45с (Стандарт / 8-12 сцен)\", \"60с (Длинный / 15-20 сцен)\", \"Свой ответ\"]. Сохрани duration_seconds и target_frames.\n"
+    "2. Тип сценария и выбор промпта (plan): предложи список типов сценария в виде понятных предложений. Choices: [\"Кинематографичная история (cinematic_story_plan)\", \"Документальный YouTube (default)\", \"Вирусный динамичный Shorts\", \"Свой ответ\"]. Сохрани plan_prompt и scenario_type.\n"
+    "3. Закадровый голос: спроси про плотность дикторского текста. Choices: [\"Плотный закадр (на весь ролик)\", \"Редкие фразы / реплики\", \"Без закадра (только музыка и эффекты)\", \"Свой ответ\"]. Сохрани voiceover_mode и voiceover_chars (при 14 симв/сек).\n"
+    "4. Персонажи и предметы: спроси, нужен ли постоянный Главный Герой (ГГ) и есть ли предметы с критичной консистентностью. Choices: [\"Да, один постоянный ГГ\", \"Несколько персонажей\", \"Без постоянных героев (общие планы / графика)\", \"Есть ключевой предмет\", \"Свой ответ\"]. Сохрани hero_mode (hero/no_hero) и items_consistent.\n"
+    "5. Визуальный стиль: спроси стиль рисовки и анимации (идёт ПЕРЕД монтажом). Choices: [\"Кинематографичный фотореализм\", \"3D мультфильм / CGI\", \"Тёмное фэнтези / Аниме\", \"Свой стиль\"]. Сохрани visual_style и animation_style.\n"
+    "6. Монтаж, структура сцен и переходы: обязательно уточни про МОНТАЖ (темп склеек, субтитры). Choices: [\"Клиповый монтаж с субтитрами (склейки 2–3с)\", \"Плавный киномонтаж без субтитров (склейки 4–6с)\", \"Динамичный с зумами и субтитрами\", \"Свой ответ\"]. Сохрани structure, transitions, subtitles_enabled (True/False).\n"
+    "7. Звукорежиссура и SFX: спроси про звуковые эффекты. Choices: [\"Полноценный SFX (акцентные звуки и шаги)\", \"Только музыка и диктор (без SFX)\", \"Звуки в промте видео\", \"Свой ответ\"]. Сохрани sfx_enabled (True/False).\n"
+    "Финал брифинга: выведи аккуратный итог настроек проекта и предложи choices: [\"Запустить создание сценария (plan)\", \"Показать граф проекта\", \"Свой ответ\"].\n"
     "ВАЖНО ПО ФОРМАТУ ОТВЕТА: технический JSON (actions, ops) помещай в ответ, "
     "но в человеческом тексте ответа НИКОГДА не дублируй сырой JSON (например, "
     "не пиши {\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде плашек "
@@ -1075,6 +1089,152 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
     raise db_apply.ApplyOpsError(
         f"set_option: неизвестный ключ {k!r}; допустимые: {sorted([*catalogs, 'hero_mode', 'auto_mode'])}"
     )
+
+
+def _apply_set_briefing(project: Project, data: dict) -> str:
+    """Сохранить параметры брифинга в project.meta и применить к нодам графа."""
+    if not isinstance(data, dict):
+        return "briefing: no data"
+    meta = dict(project.meta or {})
+    briefing = dict(meta.get("briefing") or {})
+    nsp = dict(meta.get("node_step_params") or {})
+    plan_params = dict(nsp.get("plan") or {})
+    script_params = dict(nsp.get("script") or {})
+    split_params = dict(nsp.get("split") or {})
+    assemble_params = dict(nsp.get("assemble") or {})
+
+    updated_keys = []
+
+    # 1. Длительность и кадры
+    raw_dur = data.get("duration") or data.get("duration_seconds")
+    if raw_dur is not None:
+        try:
+            dur = float(raw_dur)
+            if dur > 0:
+                plan_params["duration_seconds"] = dur
+                script_params["duration_seconds"] = dur
+                briefing["duration_seconds"] = dur
+                chars = int(round(dur * 14))
+                briefing["voiceover_chars"] = chars
+                updated_keys.append(f"duration={dur}s")
+        except (ValueError, TypeError):
+            pass
+
+    if "target_frames" in data:
+        try:
+            tf = int(data["target_frames"])
+            briefing["target_frames"] = tf
+            updated_keys.append(f"frames={tf}")
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Тип сценария / промпт плана
+    if "plan_prompt" in data or "scenario_prompt" in data:
+        p_var = str(data.get("plan_prompt") or data.get("scenario_prompt") or "").strip()
+        if p_var:
+            clean_var = "default"
+            if "cinematic" in p_var.lower():
+                clean_var = "cinematic_story_plan"
+            elif "default" in p_var.lower() or "документ" in p_var.lower():
+                clean_var = "default"
+            else:
+                clean_var = p_var
+            try:
+                _apply_set_prompt(project, "plan", clean_var)
+                briefing["plan_prompt"] = clean_var
+                updated_keys.append(f"plan_prompt={clean_var}")
+            except Exception:
+                briefing["plan_prompt"] = clean_var
+                overrides = dict(project.prompt_overrides or {})
+                overrides["plan"] = clean_var
+                project.prompt_overrides = overrides
+                updated_keys.append(f"plan_prompt={clean_var}")
+
+    if "scenario_type" in data:
+        briefing["scenario_type"] = str(data["scenario_type"]).strip()
+        updated_keys.append("scenario_type")
+
+    # 3. Закадровый текст
+    if "voiceover_mode" in data:
+        briefing["voiceover_mode"] = str(data["voiceover_mode"]).strip()
+        updated_keys.append("voiceover_mode")
+    if "voiceover_chars" in data:
+        try:
+            vc = int(data["voiceover_chars"])
+            briefing["voiceover_chars"] = vc
+            updated_keys.append(f"chars={vc}")
+        except (ValueError, TypeError):
+            pass
+
+    # 4. Персонажи и предметы
+    if "hero_mode" in data:
+        hm = str(data["hero_mode"]).strip().lower()
+        if hm in ("hero", "no_hero", "auto"):
+            project.hero_mode = hm
+            briefing["hero_mode"] = hm
+            updated_keys.append(f"hero_mode={hm}")
+
+    if "items_consistent" in data:
+        briefing["items_consistent"] = bool(data["items_consistent"])
+        updated_keys.append(f"items_consistent={briefing['items_consistent']}")
+
+    if "items_note" in data:
+        briefing["items_note"] = str(data["items_note"]).strip()
+        updated_keys.append("items_note")
+
+    # 5. Стиль рисовки и анимации (идёт перед монтажом)
+    if "visual_style" in data:
+        briefing["visual_style"] = str(data["visual_style"]).strip()
+        updated_keys.append("visual_style")
+
+    if "animation_style" in data:
+        briefing["animation_style"] = str(data["animation_style"]).strip()
+        updated_keys.append("animation_style")
+
+    # 6. Структура сцен, переходы и МОНТАЖ
+    if "structure" in data:
+        briefing["structure"] = str(data["structure"]).strip()
+        updated_keys.append("structure")
+
+    if "transitions" in data:
+        briefing["transitions"] = str(data["transitions"]).strip()
+        updated_keys.append("transitions")
+
+    if "montage" in data:
+        briefing["montage"] = str(data["montage"]).strip()
+        updated_keys.append("montage")
+
+    if "subtitles_enabled" in data:
+        subs = bool(data["subtitles_enabled"])
+        assemble_params["subtitles_enabled"] = subs
+        briefing["subtitles_enabled"] = subs
+        updated_keys.append(f"subs={'on' if subs else 'off'}")
+
+    # 7. Звуки SFX
+    if "sfx_enabled" in data or "sfx_mode" in data:
+        sfx_on = bool(data.get("sfx_enabled", True)) if "sfx_enabled" in data else (str(data.get("sfx_mode")).lower() not in ("none", "без", "off", "false"))
+        briefing["sfx_enabled"] = sfx_on
+        briefing["sfx_mode"] = str(data.get("sfx_mode", "full" if sfx_on else "none"))
+        disabled = set(meta.get("disabled_nodes") or [])
+        if sfx_on:
+            disabled.discard("sfx_plan")
+            disabled.discard("sfx_gen")
+            disabled.discard("n_sfx_plan")
+            disabled.discard("n_sfx_gen")
+        else:
+            disabled.add("sfx_plan")
+            disabled.add("sfx_gen")
+        meta["disabled_nodes"] = sorted(disabled)
+        updated_keys.append(f"sfx={'on' if sfx_on else 'off'}")
+
+    nsp["plan"] = plan_params
+    nsp["script"] = script_params
+    nsp["split"] = split_params
+    nsp["assemble"] = assemble_params
+    meta["node_step_params"] = nsp
+    meta["briefing"] = briefing
+    project.meta = meta
+    return ", ".join(updated_keys) if updated_keys else "briefing: ok"
 
 
 def _apply_set_prompt(project: Project, step: object, variant: object) -> str:
@@ -2230,6 +2390,78 @@ async def _build_orchestrator_prompt(
     return prompt, diagnose_only, canvas_keymap, diag_lines
 
 
+def _clean_orchestrator_human_reply(text: str | None) -> str:
+    """Очищает технические блоки actions, ops, choices из человеческого текста ответа."""
+    if not text:
+        return ""
+    # 1. Убираем <choices>...</choices>
+    t = re.sub(r"<choices>[\s\S]*?</choices>", "", text, flags=re.IGNORECASE)
+    # 2. Убираем markdown-блоки ```json ... ``` с техническими ключами
+    t = re.sub(
+        r"```(?:json)?\s*\{[\s\S]*?\"(?:actions|ops|choices)\"[\s\S]*?\}\s*```",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+
+    # 3. Балансированное удаление JSON-объектов с правильным подсчётом глубины { ... }
+    out = []
+    i = 0
+    n = len(t)
+    while i < n:
+        if t[i] == "{":
+            snippet = t[i : i + 100]
+            if any(k in snippet for k in ('"actions"', '"ops"', '"choices"')):
+                depth = 0
+                in_str = False
+                escape = False
+                j = i
+                found_end = False
+                while j < n:
+                    c = t[j]
+                    if escape:
+                        escape = False
+                    elif c == "\\":
+                        escape = True
+                    elif c == '"':
+                        in_str = not in_str
+                    elif not in_str:
+                        if c == "{":
+                            depth += 1
+                        elif c == "}":
+                            depth -= 1
+                            if depth == 0:
+                                found_end = True
+                                j += 1
+                                break
+                    j += 1
+                if found_end:
+                    block = t[i:j]
+                    try:
+                        parsed = json.loads(block)
+                        if isinstance(parsed, dict) and any(
+                            k in parsed for k in ("actions", "ops", "choices")
+                        ):
+                            i = j
+                            continue
+                    except Exception:
+                        i = j
+                        continue
+        out.append(t[i])
+        i += 1
+
+    cleaned = "".join(out)
+    # 4. Убираем любые висячие скобки, двоеточия, запятые или обрывки actions/choices в начале текста
+    cleaned = re.sub(
+        r'^(?:[\s\],}:)]+|"(?:actions|ops|choices)"\s*:\s*(?:\[[\s\S]*?\]|\{[\s\S]*?\})\s*\}?)+',
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"^[\s\],}:)]+", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
 async def _execute_orchestrator_reply(
     session: AsyncSession,
     project: Project,
@@ -2243,6 +2475,7 @@ async def _execute_orchestrator_reply(
     actions_run: list[dict] = []
     ui_actions: list[dict] = []
     pending_confirm: list[dict] = []
+    choices: list[str] = []
     error = None
     def _is_dummy_uuid(val: Any) -> bool:
         s = str(val or "").strip()
@@ -2254,6 +2487,19 @@ async def _execute_orchestrator_reply(
         )
 
     ops_data = db_apply.extract_apply_ops_json(reply or "")
+    if ops_data and isinstance(ops_data.get("choices"), list):
+        choices = [str(c).strip() for c in ops_data["choices"] if str(c).strip()]
+
+    if not choices and reply:
+        m_ch = re.search(r"<choices>\s*(\[[\s\S]*?\])\s*</choices>", reply, re.IGNORECASE)
+        if m_ch:
+            try:
+                parsed_ch = json.loads(m_ch.group(1))
+                if isinstance(parsed_ch, list):
+                    choices = [str(c).strip() for c in parsed_ch if str(c).strip()]
+            except Exception:
+                pass
+
     if ops_data:
         raw_ops = ops_data.get("ops") or []
         ops = [op for op in raw_ops if isinstance(op, dict) and not _is_dummy_uuid(op.get("frame_uuid"))]
@@ -2338,6 +2584,11 @@ async def _execute_orchestrator_reply(
                     label = _apply_set_prompt(project, spec.get("step"), spec.get("variant"))
                     await commit_with_retry(session)
                     actions_run.append({"set_prompt": label})
+                elif "set_briefing" in act:
+                    spec = act.get("set_briefing") or {}
+                    label = _apply_set_briefing(project, spec)
+                    await commit_with_retry(session)
+                    actions_run.append({"set_briefing": label})
                 elif "set_text_llm" in act:
                     spec = act.get("set_text_llm") or {}
                     from app.services.text_llm_catalog import write_choice
@@ -2535,7 +2786,7 @@ async def _execute_orchestrator_reply(
                     keys = sorted(str(k) for k in act)
                     raise db_apply.ApplyOpsError(
                         f"неизвестное действие {keys}; есть: run_step, stop_step, "
-                        "set_option, set_prompt, set_text_llm, open_ui, hitl_decision, "
+                        "set_option, set_prompt, set_briefing, set_text_llm, open_ui, hitl_decision, "
                         "set_topic, create_project, create_child, delete_projects, "
                         "add_node, connect_edges, remove_node, rename_node, repair_graph, "
                         "run_harness, read_file, edit_files, run_tests, git_commit_push"
@@ -2593,17 +2844,7 @@ async def _execute_orchestrator_reply(
             reply = human
 
     # Очищаем сырой JSON технических действий из ответа человеку для всех режимов
-    clean_human_reply = re.sub(
-        r"```(?:json)?\s*\{[\s\S]*?\"(?:actions|ops)\"[\s\S]*?\}\s*```",
-        "",
-        reply or "",
-    )
-    clean_human_reply = re.sub(
-        r'\{\s*"(?:actions|ops)"\s*:\s*\[[\s\S]*?\]\s*\}',
-        "",
-        clean_human_reply,
-    )
-    clean_human_reply = re.sub(r"\n{3,}", "\n\n", clean_human_reply).strip()
+    clean_human_reply = _clean_orchestrator_human_reply(reply)
     if clean_human_reply:
         reply = clean_human_reply
 
@@ -2613,6 +2854,7 @@ async def _execute_orchestrator_reply(
         "actions_run": actions_run,
         "ui_actions": ui_actions,
         "pending_confirm": pending_confirm,
+        "choices": choices,
         "error": error,
     }
 

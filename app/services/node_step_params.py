@@ -56,7 +56,30 @@ def build_duration_params_block(project: Project, step_code: str, *, header: str
     dur = duration_seconds_for_step(project, step_code)
     dur_s = _fmt_num(dur)
     chars_s = _fmt_num(int(round(dur * CHARS_PER_SEC)) if dur is not None else None)
-    return f"{header}\nДлина {dur_s} секунд\nКоличество символов (длина секунд × 14) = {chars_s}"
+    res = f"{header}\nДлина {dur_s} секунд\nКоличество символов (длина секунд × 14) = {chars_s}"
+    meta = getattr(project, "meta", None) or {}
+    briefing = meta.get("briefing") if isinstance(meta, dict) else None
+    if isinstance(briefing, dict) and briefing:
+        extra_lines = []
+        if step_code == "plan":
+            if briefing.get("target_frames"):
+                extra_lines.append(f"Целевое количество сцен/кадров: {briefing['target_frames']}")
+            if briefing.get("structure"):
+                extra_lines.append(f"Структура и темп сцен: {briefing['structure']}")
+            if briefing.get("visual_style"):
+                extra_lines.append(f"Визуальный стиль: {briefing['visual_style']}")
+            if briefing.get("items_note"):
+                extra_lines.append(f"Ключевые предметы (консистентность): {briefing['items_note']}")
+            elif briefing.get("items_consistent") is False:
+                extra_lines.append("Ключевых предметов для консистентности нет — не перегружай описание вещей.")
+        elif step_code == "script":
+            if briefing.get("voiceover_mode"):
+                extra_lines.append(f"Формат начитки: {briefing['voiceover_mode']}")
+            if briefing.get("voiceover_chars"):
+                extra_lines.append(f"Строгий лимит символов закадра: {briefing['voiceover_chars']}")
+        if extra_lines:
+            res += "\n" + "\n".join(extra_lines)
+    return res
 
 
 def split_cell_limits_from_project(
@@ -145,13 +168,24 @@ def build_split_params_block(project: Project) -> str:
         mx = mx if mx is not None else def_mx
         amn = amn if amn is not None else def_amn
         amx = amx if amx is not None else def_amx
-    return (
+    res = (
         "Разбивка\n"
         f"Минимальное количество символов в ячейке {_fmt_num(float(mn) if mn else None)}\n"
         f"Максимальное количество символов в ячейке {_fmt_num(float(mx) if mx else None)}\n"
         f"Средние значения от {_fmt_num(float(amn) if amn else None)} "
         f"до {_fmt_num(float(amx) if amx else None)}"
     )
+    meta = getattr(project, "meta", None) or {}
+    briefing = meta.get("briefing") if isinstance(meta, dict) else None
+    if isinstance(briefing, dict) and briefing:
+        extra = []
+        if briefing.get("structure"):
+            extra.append(f"Темп склеек: {briefing['structure']}")
+        if briefing.get("transitions"):
+            extra.append(f"Стиль переходов: {briefing['transitions']}")
+        if extra:
+            res += "\n" + "\n".join(extra)
+    return res
 
 
 def build_step_params_block(project: Project, step_code: str) -> str:
