@@ -71,8 +71,8 @@ EFFORT_TO_CANVAS = {"low": "low", "medium": "med", "high": "high"}
 EFFORT_RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 3}
 EFFORT_RU = {
     "low": "низкий (быстрее и дешевле)",
-    "medium": "средний",
-    "high": "высокий (по умолчанию)",
+    "medium": "средний (по умолчанию)",
+    "high": "высокий",
     "xhigh": "максимальный",
     # «Уровень рассуждений: off» модель читала как «отключён и не поддерживается» и отказывала.
     "off": "не задан (можно поставить низкий, средний или высокий)",
@@ -357,7 +357,17 @@ def model_applies(meta: dict | None, node: dict) -> tuple[bool, str]:
 def node_effort(node: dict) -> str:
     from app.services.vibecode_catalog import read_node_reasoning_effort
 
-    return read_node_reasoning_effort(node) or "high"
+    effort = read_node_reasoning_effort(node)
+    if not effort:
+        return "medium"
+    norm = effort.strip().lower()
+    if norm in ("med", "medium"):
+        return "medium"
+    if norm == "low":
+        return "low"
+    if norm == "high":
+        return "high"
+    return "medium"
 
 
 def _effort_raw(node: dict | None) -> str | None:

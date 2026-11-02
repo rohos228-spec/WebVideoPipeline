@@ -20,7 +20,7 @@ type CatalogModel = {
 };
 type CatalogVendor = { id: string; label: string; models: CatalogModel[] };
 
-const DEFAULT_LLM = "gpt-5.6-sol";
+const DEFAULT_LLM = "gpt-6.1-sol";
 const DEFAULT_IMAGE = "gpt-image-2-vip";
 const DEFAULT_VIDEO = "veo-3-1-lite";
 

@@ -134,15 +134,15 @@ function stripFilesNotice(content: string): string {
 
 /** Очистка названия модели от повторов, сайтов и скобок */
 function cleanModelTitle(label: string | undefined): string {
-  if (!label) return "GPT 5.6 Sol";
+  if (!label) return "GPT 6.1 Sol";
   let t = label.trim();
-  // If format is like "GPT 5.6 Luna · vibecode.moe (gpt-5.6-luna)" -> extract "GPT 5.6 Luna"
+  // If format is like "GPT 6.1 Luna · vibecode.moe (gpt-6-luna)" -> extract "GPT 6.1 Luna"
   if (t.includes("·")) {
     t = t.split("·")[0].trim();
   }
   // Strip trailing (id)
   t = t.replace(/\s*\([^)]*\)$/, "").trim();
-  return t || "GPT 5.6 Sol";
+  return t || "GPT 6.1 Sol";
 }
 
 const STARTER_PROMPTS = [

@@ -68,7 +68,7 @@ export type ModelCatalogPayload = {
 
 export const PRICE_MARKUP = 3;
 export const PRICE_MARKUP_STABLE = PRICE_MARKUP;
-export const DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol";
+export const DEFAULT_TEXT_MODEL_ID = "gpt-6.1-sol";
 export const DEFAULT_IMAGE_MODEL_ID = "gpt-image-2-vip";
 export const DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite";
 export const IMAGE_NODE_TYPES = new Set(["images", "hero", "items", "hitl_images"]);
