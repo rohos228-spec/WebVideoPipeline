@@ -8,7 +8,11 @@ from app.services.node_step_params import (
     build_split_params_block,
     subtitles_enabled_for_project,
 )
-from app.web.routers.db_browser import _apply_set_briefing, _execute_orchestrator_reply
+from app.web.routers.db_browser import (
+    _apply_set_briefing,
+    _clean_orchestrator_human_reply,
+    _execute_orchestrator_reply,
+)
 
 
 def test_apply_set_briefing():
@@ -97,3 +101,30 @@ async def test_execute_orchestrator_reply_choices(monkeypatch):
     assert '{"actions"' not in res["reply"]
     assert '{"choices"' not in res["reply"]
     assert (p.meta or {}).get("briefing", {}).get("duration_seconds") == 30.0
+
+
+def test_clean_orchestrator_human_reply_nested_json():
+    # 1. Nested set_briefing
+    t1 = '{"actions":[{"set_briefing":{"plan_prompt":"cinematic_story_plan"}}]}\n\nЗаписал: кинематографичная история'
+    res1 = _clean_orchestrator_human_reply(t1)
+    assert res1 == "Записал: кинематографичная история"
+
+    # 2. Multiple nested actions + choices (from screenshot)
+    t2 = (
+        '{"actions":[{"set_briefing":{"hero_mode":"no_hero"}},{"set_option":{"key":"hero_mode","value":"no_hero"}}],'
+        '"choices":["Кинематографичный фотореализм","3D мультфильм / CGI"]}\n\n'
+        "Записал: без постоянных героев"
+    )
+    res2 = _clean_orchestrator_human_reply(t2)
+    assert res2 == "Записал: без постоянных героев"
+
+    # 3. Stray trailing bracket
+    t3 = ')}] Записал: редкие фразы'
+    res3 = _clean_orchestrator_human_reply(t3)
+    assert res3 == "Записал: редкие фразы"
+
+    # 4. Partial choices cut remnant
+    t4 = '}],"choices":["Клиповый монтаж с субтитрами"]}\n\nЗаписал: клиповый монтаж'
+    res4 = _clean_orchestrator_human_reply(t4)
+    assert res4 == "Записал: клиповый монтаж"
+

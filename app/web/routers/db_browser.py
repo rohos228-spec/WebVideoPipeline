@@ -2390,6 +2390,78 @@ async def _build_orchestrator_prompt(
     return prompt, diagnose_only, canvas_keymap, diag_lines
 
 
+def _clean_orchestrator_human_reply(text: str | None) -> str:
+    """Очищает технические блоки actions, ops, choices из человеческого текста ответа."""
+    if not text:
+        return ""
+    # 1. Убираем <choices>...</choices>
+    t = re.sub(r"<choices>[\s\S]*?</choices>", "", text, flags=re.IGNORECASE)
+    # 2. Убираем markdown-блоки ```json ... ``` с техническими ключами
+    t = re.sub(
+        r"```(?:json)?\s*\{[\s\S]*?\"(?:actions|ops|choices)\"[\s\S]*?\}\s*```",
+        "",
+        t,
+        flags=re.IGNORECASE,
+    )
+
+    # 3. Балансированное удаление JSON-объектов с правильным подсчётом глубины { ... }
+    out = []
+    i = 0
+    n = len(t)
+    while i < n:
+        if t[i] == "{":
+            snippet = t[i : i + 100]
+            if any(k in snippet for k in ('"actions"', '"ops"', '"choices"')):
+                depth = 0
+                in_str = False
+                escape = False
+                j = i
+                found_end = False
+                while j < n:
+                    c = t[j]
+                    if escape:
+                        escape = False
+                    elif c == "\\":
+                        escape = True
+                    elif c == '"':
+                        in_str = not in_str
+                    elif not in_str:
+                        if c == "{":
+                            depth += 1
+                        elif c == "}":
+                            depth -= 1
+                            if depth == 0:
+                                found_end = True
+                                j += 1
+                                break
+                    j += 1
+                if found_end:
+                    block = t[i:j]
+                    try:
+                        parsed = json.loads(block)
+                        if isinstance(parsed, dict) and any(
+                            k in parsed for k in ("actions", "ops", "choices")
+                        ):
+                            i = j
+                            continue
+                    except Exception:
+                        i = j
+                        continue
+        out.append(t[i])
+        i += 1
+
+    cleaned = "".join(out)
+    # 4. Убираем любые висячие скобки, двоеточия, запятые или обрывки actions/choices в начале текста
+    cleaned = re.sub(
+        r'^(?:[\s\],}:)]+|"(?:actions|ops|choices)"\s*:\s*(?:\[[\s\S]*?\]|\{[\s\S]*?\})\s*\}?)+',
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"^[\s\],}:)]+", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
+
+
 async def _execute_orchestrator_reply(
     session: AsyncSession,
     project: Project,
@@ -2772,23 +2844,7 @@ async def _execute_orchestrator_reply(
             reply = human
 
     # Очищаем сырой JSON технических действий из ответа человеку для всех режимов
-    clean_human_reply = re.sub(
-        r"```(?:json)?\s*\{[\s\S]*?\"(?:actions|ops)\"[\s\S]*?\}\s*```",
-        "",
-        reply or "",
-    )
-    clean_human_reply = re.sub(
-        r'<choices>[\s\S]*?</choices>',
-        "",
-        clean_human_reply,
-        flags=re.IGNORECASE,
-    )
-    clean_human_reply = re.sub(
-        r'\{\s*"(?:actions|ops|choices)"\s*:[\s\S]*?\}',
-        "",
-        clean_human_reply,
-    )
-    clean_human_reply = re.sub(r"\n{3,}", "\n\n", clean_human_reply).strip()
+    clean_human_reply = _clean_orchestrator_human_reply(reply)
     if clean_human_reply:
         reply = clean_human_reply
 

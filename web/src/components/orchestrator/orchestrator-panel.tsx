@@ -105,15 +105,20 @@ function extractChoicesFromText(text: string | null | undefined): string[] {
 function cleanOrchestratorText(text: string | null | undefined): string {
   if (!text) return "";
   let t = text.replace(/<choices>[\s\S]*?<\/choices>/gi, "");
-  // 1. Убираем markdown-блоки ```json ... ``` с actions/ops
-  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops)"[\s\S]*?\}\s*```/gi, "");
+  // 1. Убираем markdown-блоки ```json ... ``` с actions/ops/choices
+  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops|choices)"[\s\S]*?\}\s*```/gi, "");
 
-  // 2. Убираем сырые JSON-объекты {"actions":[...]} или {"ops":[...]} любой вложенности
+  // 2. Убираем сырые JSON-объекты {"actions":[...]}, {"ops":[...]}, {"choices":[...]} любой вложенности
   let out = "";
   let i = 0;
   const n = t.length;
   while (i < n) {
-    if (t[i] === "{" && (t.slice(i, i + 60).includes('"actions"') || t.slice(i, i + 60).includes('"ops"'))) {
+    if (
+      t[i] === "{" &&
+      (t.slice(i, i + 100).includes('"actions"') ||
+        t.slice(i, i + 100).includes('"ops"') ||
+        t.slice(i, i + 100).includes('"choices"'))
+    ) {
       let depth = 0;
       let inString = false;
       let escape = false;
@@ -144,12 +149,16 @@ function cleanOrchestratorText(text: string | null | undefined): string {
         const block = t.slice(i, j);
         try {
           const parsed = JSON.parse(block);
-          if (parsed && typeof parsed === "object" && ("actions" in parsed || "ops" in parsed)) {
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            ("actions" in parsed || "ops" in parsed || "choices" in parsed)
+          ) {
             i = j;
             continue;
           }
         } catch {
-          // Если парсинг не прошел, но это явно блок с actions/ops, вырезаем до закрывающей скобки
+          // Если парсинг не прошел, но это явно блок с actions/ops/choices, вырезаем до закрывающей скобки
           i = j;
           continue;
         }
@@ -164,6 +173,12 @@ function cleanOrchestratorText(text: string | null | undefined): string {
     i++;
   }
 
+  // 3. Убираем любые висячие скобки, двоеточия, запятые или обрывки actions/choices в начале текста
+  out = out.replace(
+    /^(?:[\s\],}:)]+|"(?:actions|ops|choices)"\s*:\s*(?:\[[\s\S]*?\]|\{[\s\S]*?\})\s*\}?)+/,
+    ""
+  );
+  out = out.replace(/^[\s\],}:)]+/, "");
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }
 
