@@ -645,9 +645,10 @@ export interface OrchApprovalDecision {
   reason?: string;
 }
 
+/** Тело `POST /api/orchestrator/chat/{session}/kill` (KillIn, лишние поля — 422). */
 export interface OrchKillRequest {
-  session_id: string;
   reason?: string;
+  project_id?: number;
 }
 
 export interface OrchKillResult {

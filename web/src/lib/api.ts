@@ -34,7 +34,6 @@ import type {
 } from "./types";
 import type { BlockSelection } from "./prompt-styles";
 import type { ShotMenuDTO } from "./shot-menu";
-import { readOrchToken } from "./orchestratorApi";
 
 export interface StepTemplateBlock {
   number: number;
@@ -356,20 +355,16 @@ export interface LibraryConfigDTO {
 }
 
 /**
- * Bearer для легаси-ручек оркестратора (`/api/db/projects/{id}/orchestrator/**`).
+ * Заголовки для легаси-ручек оркестратора (`/api/db/projects/{id}/orchestrator/**`).
  *
- * A2 включает `orchestrator_chat_auth_required` (С3) на легаси-ручках: chat,
- * feedback, confirm-remove, confirm-delete-projects, apply-ops, confirm-plan
- * (`9771e75d5` + ручка плана). Токен тот же, что у нового чата — `ORCH_API_TOKEN`
- * бэкенда, хранится в localStorage под ключом `vp-orch-api-token` (`readOrchToken`).
- * Токена нет → заголовок не отправляем, бэкенд с выключенным флагом не против.
+ * Бэкенд больше не проверяет `ORCH_API_TOKEN` (см. `app/web/engine_access.py`):
+ * личность ставит IdentityMiddleware по cookie входа `vp_session`. Старый токен
+ * чата из localStorage (`vp-orch-api-token`) сюда НЕ кладём: заголовок
+ * `Authorization` побеждает cookie, бэкенд не узнаёт такой токен и отвечает 401.
+ * Функция оставлена, чтобы не трогать места вызова.
  */
 export function orchAuthHeaders(): Record<string, string> {
-  const token = readOrchToken();
-  if (!token || !/^[\x20-\x7E]+$/.test(token)) {
-    return {};
-  }
-  return { Authorization: `Bearer ${token}` };
+  return {};
 }
 
 export async function http<T>(
@@ -691,35 +686,91 @@ export function formatApiError(
     return "API устарел (Method not allowed) — закройте Studio и запустите RUN-STUDIO.ps1 после git pull / UPDATE";
   }
   if (typeof detail === "string") {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(detail) as { detail?: unknown };
-      if (typeof parsed.detail === "string") return parsed.detail;
+      parsed = JSON.parse(detail);
     } catch {
       return detail;
     }
+    if (parsed && typeof parsed === "object") {
+      return formatApiError(parsed as object, status);
+    }
     return detail;
+  }
+  if (Array.isArray(detail)) {
+    return validationErrorText(detail, true);
   }
   if (detail && typeof detail === "object") {
     const d = detail as Record<string, unknown>;
     if (Array.isArray(d.errors) && d.errors.length > 0) {
-      return d.errors.map(String).join("; ");
+      return validationErrorText(d.errors);
     }
     if (typeof d.error === "string" && d.error.trim()) return d.error;
     if (typeof d.message === "string" && d.message.trim()) return d.message;
     if ("detail" in d) {
       const inner = d.detail;
       if (typeof inner === "string") return inner;
-      if (Array.isArray(inner)) return inner.map(String).join("; ");
+      if (Array.isArray(inner)) return validationErrorText(inner, true);
       if (inner && typeof inner === "object") {
         const nested = inner as Record<string, unknown>;
         if (Array.isArray(nested.errors) && nested.errors.length > 0) {
-          return nested.errors.map(String).join("; ");
+          return validationErrorText(nested.errors);
         }
         if (typeof nested.error === "string") return nested.error;
       }
     }
   }
+  if (status === 422) return VALIDATION_GENERIC;
   return "Ошибка операции";
+}
+
+const VALIDATION_GENERIC = "Сервер не принял запрос.";
+
+/** Частые английские фразы pydantic → по-русски. Неизвестный английский не показываем. */
+const PYDANTIC_MSG_RU: Array<[RegExp, string]> = [
+  [/^field required$/i, "не заполнено обязательное поле"],
+  [/^extra inputs are not permitted$/i, "лишнее поле в запросе"],
+  [/^input should be a valid integer/i, "нужно целое число"],
+  [/^input should be a valid number/i, "нужно число"],
+  [/^input should be a valid string/i, "нужен текст"],
+  [/^input should be a valid boolean/i, "нужно да или нет"],
+  [/^input should be a valid (list|array)/i, "нужен список"],
+  [/^input should be a valid dictionary/i, "нужен набор полей"],
+  [/^input should be greater than/i, "значение слишком маленькое"],
+  [/^input should be less than/i, "значение слишком большое"],
+  [/^string should have at most/i, "слишком длинный текст"],
+  [/^string should have at least/i, "слишком короткий текст"],
+  [/^list should have at most/i, "слишком много элементов"],
+  [/^list should have at least/i, "слишком мало элементов"],
+  [/^input should be /i, "недопустимое значение"],
+];
+
+function validationItemText(item: unknown): string {
+  let raw = "";
+  if (typeof item === "string") raw = item;
+  else if (item && typeof item === "object") {
+    const o = item as { msg?: unknown; message?: unknown };
+    if (typeof o.msg === "string") raw = o.msg;
+    else if (typeof o.message === "string") raw = o.message;
+  }
+  raw = raw.trim().replace(/^value error,\s*/i, "");
+  if (!raw) return "";
+  if (/[А-Яа-яЁё]/.test(raw)) return raw;
+  for (const [re, ru] of PYDANTIC_MSG_RU) {
+    if (re.test(raw)) return ru;
+  }
+  return "";
+}
+
+/**
+ * Массив ошибок: 422 FastAPI (`detail` = `[{loc, msg, type}]`) или `errors: string[]`.
+ * Склеиваем читаемые `msg`, без `[object Object]`; нечего показать — общая фраза.
+ */
+function validationErrorText(items: unknown[], rejected = false): string {
+  const parts = [...new Set(items.map(validationItemText).filter(Boolean))];
+  if (parts.length === 0) return VALIDATION_GENERIC;
+  const text = parts.join("; ");
+  return rejected ? `Сервер не принял запрос: ${text}` : text;
 }
 
 // ── База (DB v2) типы ─────────────────────────────────────────────
@@ -871,6 +922,8 @@ export interface DbOrchestratorChatResult {
     hitl_decision?: string;
     set_topic?: string;
     create_group?: string;
+    /** Готовая подпись плашки по-русски (сервер). */
+    note?: string;
   }[];
   ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; label?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
   pending_confirm: {
@@ -891,6 +944,9 @@ export interface DbOrchestratorChatResult {
     risk?: string | null;
     steps?: { action_id: string }[];
     step_titles?: string[];
+    /** kind="action": одноразовый ключ кнопки «Подтвердить» и текст карточки. */
+    token?: string;
+    title?: string;
   }[];
   error: string | null;
 }
@@ -1048,6 +1104,7 @@ export const api = {
     const decoder = new TextDecoder();
     let buffer = "";
     let finalResult: DbOrchestratorChatResult | null = null;
+    let gotError = false;
 
     try {
       while (true) {
@@ -1070,6 +1127,7 @@ export const api = {
                 finalResult = data as DbOrchestratorChatResult;
                 callbacks?.onDone?.(finalResult);
               } else if (data.type === "error") {
+                gotError = true;
                 callbacks?.onError?.(data.error || "Ошибка генерации");
               }
             } catch {
@@ -1078,12 +1136,30 @@ export const api = {
           }
         }
       }
+    } catch (e: any) {
+      if (e?.name === "AbortError" || signal?.aborted) return null;
+      // Ответ уже начал приходить — не переспрашиваем модель второй раз (двойная оплата и
+      // двойные действия), а честно говорим, что связь оборвалась.
+      if (!finalResult && !gotError) {
+        gotError = true;
+        callbacks?.onError?.("Связь оборвалась во время ответа. Проверьте результат в проекте и повторите, если нужно.");
+      }
     } finally {
       reader.releaseLock();
     }
 
+    if (!finalResult && !gotError && !signal?.aborted) {
+      callbacks?.onError?.("Ответ не пришёл до конца. Проверьте проект и повторите просьбу.");
+    }
     return finalResult;
   },
+  /** Кнопка «Подтвердить»/«Отмена» под ответом чата проекта (запуск шага, настройка, проверка…). */
+  dbOrchestratorConfirmAction: (projectId: number, body: { token: string; approve: boolean }) =>
+    http<{ ok: boolean; reply: string; notes: string[]; error?: string | null }>(
+      `/api/db/projects/${projectId}/orchestrator/confirm-action`,
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
+      180_000,
+    ),
   dbOrchestratorConfirmRemove: (projectId: number, body: { node_key?: string | null; node_type?: string | null; only?: string | null }) =>
     http<{ remove_node: string }>(`/api/db/projects/${projectId}/orchestrator/confirm-remove`, {
       method: "POST",
@@ -3176,6 +3252,8 @@ export const api = {
     const decoder = new TextDecoder();
     let buffer = "";
     let doneReceived = false;
+    // Ошибка пришла событием в потоке — onError уже вызван, второй раз не зовём.
+    let errorReceived = false;
 
     try {
       while (true) {
@@ -3198,7 +3276,10 @@ export const api = {
                 doneReceived = true;
                 callbacks?.onDone?.(data.session, data.message);
               } else if (data.type === "error" && data.error) {
-                callbacks?.onError?.(data.error);
+                if (!errorReceived) {
+                  errorReceived = true;
+                  callbacks?.onError?.(data.error);
+                }
               }
             } catch {
               // ignore JSON parse error
@@ -3207,12 +3288,12 @@ export const api = {
         }
       }
     } catch (err: any) {
-      if (err?.name === "AbortError" || signal?.aborted || doneReceived) {
+      if (err?.name === "AbortError" || signal?.aborted || doneReceived || errorReceived) {
         return;
       }
       throw err;
     }
-    if (!doneReceived && !signal?.aborted) {
+    if (!doneReceived && !errorReceived && !signal?.aborted) {
       callbacks?.onError?.("Стрим оборвался без ответа от модели");
     }
   },

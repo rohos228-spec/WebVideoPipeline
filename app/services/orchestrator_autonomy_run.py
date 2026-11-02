@@ -120,10 +120,12 @@ async def _bare_diag(project_id: int) -> dict | None:
         )
     if nr is None:
         return None
+    from app.services.action_layer.card_text import node_key_ru
+
     return {
         "found": True,
         "node_key": nr.node_key,
-        "title": nr.node_key,
+        "title": node_key_ru(str(nr.node_key or "")),
         "errors": [str(nr.error)[:1500]] if nr.error else [],
         "cause": {"code": "unknown", "title_ru": CAUSE_RU["unknown"], "explain_ru": ""},
         "fix_options": [],

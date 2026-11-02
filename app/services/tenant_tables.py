@@ -43,42 +43,6 @@ BASE_TENANT_TABLES: tuple[str, ...] = (
     # в режиме владельца, клиентские — только своему арендатору. Разрешение
     # «системный → арендатор» держит `prompt_store`, изоляцию — политика.
     "prompt_library",
-    # Слой действий и контроль изменений движка (#98). Таблицы создаёт
-    # create_all в lifespan, не alembic — RLS навешивает rls_apply / 0019.
-    "action_layer_plans",
-    "action_layer_steps",
-    "action_layer_approvals",
-    "action_layer_spend",
-    "action_layer_history",
-    "action_layer_plan_context",
-    "action_layer_macros",
-    "action_layer_calls",
-    "action_layer_snapshots",
-    "action_layer_attachments",
-    "change_proposals",
-    "config_versions",
-    "config_pointers",
-    # Слой оркестратора v1, решения, диагностика, запуски и медиа
-    "action_execution_controls",
-    "action_node_recoveries",
-    "action_v1_records",
-    "decision_execution_controls",
-    "decision_records",
-    "decision_runtime_bindings",
-    "decision_turns",
-    "managed_launches",
-    "managed_run_allowances",
-    "node_profile_overlays",
-    "observation_commit_uncertainty",
-    "observation_degradations",
-    "observation_diagnosis",
-    "observation_events",
-    "observation_executions",
-    "observation_incidents",
-    "observation_outbox",
-    "orchestrator_media_jobs",
-    "orchestrator_media_requests",
-    "outsee_idempotency",
 )
 
 #: Таблицы движка оркестратора (перенесён из video-pipeline int/chat-v1),
@@ -180,12 +144,6 @@ INFRA_TABLES: frozenset[str] = frozenset(
         "email_verifications",
         "coupons",
         "coupon_redemptions",
-        # Глобальный рубильник супервизора: без tenant_id, общий на узел.
-        "supervisor_kill_switch",
-        "supervisor_kill_switch_history",
-        # Учёт расходов и задач провайдеров на уровне узла (без tenant_id)
-        "spend_ledger",
-        "provider_task_ledger",
     }
 )
 

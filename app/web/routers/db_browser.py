@@ -20,7 +20,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import SessionLocal, commit_with_retry
+from app.db import SessionLocal
+
+# isort: split
+from app.db import commit_with_retry  # отдельной строкой — её ищет test_customer_fork_2_roadmap
 from app.models import (
     Entity,
     Frame,
@@ -441,9 +444,7 @@ _ORCHESTRATOR_SYSTEM = (
     "просит починить/исправить баг В КОДЕ программы / закоммитить. "
     "Наличие раздела ДИАГНОСТИКА само по себе НЕ включает режим кодинга. "
     "Правь только app/, tests/, prompts/. Не трогай .env и data/.\n"
-    "ПОРЯДОК ШАГОВ — ТОЛЬКО ТАКОЙ (другого не существует, не выдумывай):\n"
-    "plan → script → split → hero → items → enrich_1..5 → img_pr → img → "
-    "anim_pr → video → audio → music → assemble → publish.\n"
+    "ПОРЯДОК ШАГОВ — ровно как в разделе ШАГИ ПАЙПЛАЙНА ниже (другого нет, не выдумывай).\n"
     "Отвечая про «следующий шаг», называй шаги из этого списка и опирайся "
     "на состояние шагов из контекста.\n"
     'ДЕЙСТВИЯ (можно совместить в одном JSON: {"ops":[...], "actions":[...]}):\n'
@@ -810,8 +811,7 @@ def _human_reply_from_diagnostics(diag_lines: list[str]) -> str:
         return (
             "Проблема в персонажах (не в статусе ноды): "
             + " ".join(hero_bits[1:4] if len(hero_bits) > 1 else hero_bits)
-            + " Перегенерируй проблемные cNN. "
-            "Если нужна правка кода — напиши «почини код»."
+            + " Перегенерируйте персонажей с ошибками (их номера выше)."
         )
     if not err and not node:
         if hero_bits:
@@ -1018,7 +1018,7 @@ async def _canvas_nodes_context(session: AsyncSession, project: Project) -> tupl
         pairs = [f"{e.get('source')}→{e.get('target')}" for e in side]
         lines.append(f"СВЯЗИ К ХРАНИЛИЩУ / сбоку ({len(pairs)}): " + ", ".join(pairs))
     else:
-        lines.append('СВЯЗИ К ХРАНИЛИЩУ: нет — нужен {"connect_edges":{"from":"each","to_type":"storage"}}')
+        lines.append("СВЯЗИ К ХРАНИЛИЩУ: нет (провести можно действием connect_edges, только если попросят).")
     return ["НОДЫ КАНВАСА (ключ → «название» (тип) — статус):", *lines], keymap
 
 
@@ -2174,6 +2174,24 @@ class OrchestratorChatBody(BaseModel):
     auto_apply: bool = False
 
 
+def _system_prompt(code_ok: bool) -> str:
+    """Системная подсказка; без правки кода — без разделов про read_file/edit_files/git."""
+    if code_ok:
+        return _ORCHESTRATOR_SYSTEM
+    text = _ORCHESTRATOR_SYSTEM
+    for start, end in (
+        ("ФОРМАТ ОТВЕТА ПРИ ФИКСЕ КОДА", "ПОРЯДОК ШАГОВ"),
+        ("16) ПРОЧИТАТЬ КОД", "20) УДАЛИТЬ ПРОЕКТЫ"),
+    ):
+        i, j = text.find(start), text.find(end)
+        if 0 <= i < j:
+            text = text[:i] + text[j:]
+    return text + (
+        "\nПРАВКИ КОДА ПРОГРАММЫ из этого чата нет: read_file, edit_files, run_tests, git не используй. "
+        "Если просят починить программу — коротко скажи, что это делает разработчик, и опиши проблему словами."
+    )
+
+
 async def _build_orchestrator_prompt(
     session: AsyncSession,
     project: Project,
@@ -2191,10 +2209,13 @@ async def _build_orchestrator_prompt(
     catalog_lines = await _projects_catalog_context(session)
     fix_bugs = _is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
     diagnose_only = _is_diagnose_only_question(body.message, fix_bugs=fix_bugs)
-    code_lines = [] if diagnose_only else await asyncio.to_thread(_code_workspace_context)
+    from app.services.project_chat_guard import code_edits_allowed
+
+    code_ok = code_edits_allowed()
+    code_lines = [] if (diagnose_only or not code_ok) else await asyncio.to_thread(_code_workspace_context)
     topic_snip = (project.topic or "").strip().replace("\n", " ")[:160]
     prompt = (
-        _ORCHESTRATOR_SYSTEM + "\n\n" + "\n".join(catalog_lines) + "\n\nТЕКУЩИЙ ПРОЕКТ В ЧАТЕ: "
+        _system_prompt(code_ok) + "\n\n" + "\n".join(catalog_lines) + "\n\nТЕКУЩИЙ ПРОЕКТ В ЧАТЕ: "
         f"#{project.id} | {project.slug} | {(project.title or '') or '—'} | "
         f"{getattr(project.status, 'value', project.status)}"
         + (f"\nТЕМА: {topic_snip}" if topic_snip else "")
@@ -2234,7 +2255,10 @@ async def _build_orchestrator_prompt(
             "Пользователь включил автоматический режим. Все действия, изменения темы/промтов/настроек, генерацию и запуск шагов выполняй сразу через JSON ops/actions без запроса подтверждения!"
             if (getattr(body, "auto_apply", False) or "[РЕЖИМ: АВТОНОМНЫЙ" in body.message)
             else (
-                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ.\n"
+                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ. Запуски шагов, решения по проверке, "
+                "смена настроек/темы/графа и создание проектов НЕ выполняются сразу: человек увидит "
+                "кнопку «Подтвердить». Поэтому пиши «Предлагаю…» / «Подготовил…», а не «Запустил» и "
+                "не «Сделал». Правки текста кадров (ops) выполняются сразу.\n"
                 "Любые важные операции (удаление нод/проектов, push, запуск планов) предлагай пользователю и выводи подтверждение."
             )
         )
@@ -2253,9 +2277,19 @@ async def _execute_orchestrator_reply(
     diag_lines: list[str],
     body_message: str,
     fix_bugs: bool = False,
+    *,
+    auto_apply: bool = False,
+    confirmed: bool = False,
 ) -> dict:
+    from app.services import project_chat_guard as guard
     from app.services.chat_humanize import build_labels, humanize_reply, step_title
+    from app.services.project_state import is_running_status
 
+    auto = bool(auto_apply or confirmed or "[РЕЖИМ: АВТОНОМНЫЙ" in (body_message or ""))
+    code_ok = guard.code_edits_allowed()
+    errors: list[str] = []
+    raw_errors: list[str] = []
+    skipped_code = False
     applied = None
     actions_run: list[dict] = []
     ui_actions: list[dict] = []
@@ -2276,7 +2310,7 @@ async def _execute_orchestrator_reply(
         ops = [op for op in raw_ops if isinstance(op, dict) and not _is_dummy_uuid(op.get("frame_uuid"))]
         chars = ops_data.get("characters") or []
         scenes = ops_data.get("scenes") or []
-        if ops or chars or scenes:
+        if (ops or chars or scenes) and not diagnose_only:
             try:
                 applied = await db_apply.apply_ops(
                     session,
@@ -2291,8 +2325,9 @@ async def _execute_orchestrator_reply(
                 await session.rollback()
                 err_msg = str(e)
                 # Если в ошибке фигурируют заглушки '...' / '<...>', это был просто пример из текста
-                if not any(x in err_msg for x in ("'...' ", "['...']", "['…']", "<", ">")):
-                    error = err_msg
+                if not any(x in err_msg for x in ("'...' ", "['...']", "['…']")):
+                    errors.append("правка кадров не сохранилась: " + guard.human_error(err_msg, canvas_keymap))
+                    raw_errors.append(err_msg)
         raw_actions = list(ops_data.get("actions") or [])
 
         def _flatten_orchestrator_actions(items: list) -> list[dict]:
@@ -2322,8 +2357,27 @@ async def _execute_orchestrator_reply(
         )
         for act in _flatten_orchestrator_actions(raw_actions):
             act = act or {}
-            if diagnose_only and any(k in act for k in _CODE_ACT_KEYS):
-                # Вопрос про ошибку — код в чат не тащим и не читаем.
+            if diagnose_only:
+                # Вопрос про ошибку — только объяснение, ничего не запускаем и не меняем.
+                continue
+            if any(k in act for k in _CODE_ACT_KEYS) and not code_ok:
+                # Правка кода программы из чата выключена (флаг + админ).
+                skipped_code = True
+                continue
+            if guard.needs_confirm(act, auto=auto):
+                title = guard.action_title(act, canvas_keymap)
+                if "run_step" in act and is_running_status(project.status):
+                    title += " Сейчас идёт другой шаг — он будет прерван."
+                pending_confirm.append(
+                    {
+                        "kind": "action",
+                        "token": guard.put_pending(project.id, act, title),
+                        "title": title,
+                        "message": title,
+                        "count": 1,
+                        "nodes": [],
+                    }
+                )
                 continue
             try:
                 if "run_step" in act:
@@ -2336,7 +2390,9 @@ async def _execute_orchestrator_reply(
                         )
                     from app.services.project_steps import start_step
 
-                    new_status = await start_step(session, project, step, explicit_ui_start=True)
+                    # Кнопка «Подтвердить» = ручной ▶ (как в Studio). Автономный режим без
+                    # кнопки не обрывает идущую генерацию и уважает очередь.
+                    new_status = await start_step(session, project, step, explicit_ui_start=confirmed)
                     await commit_with_retry(session)
                     actions_run.append(
                         {
@@ -2564,10 +2620,18 @@ async def _execute_orchestrator_reply(
                         "run_harness, read_file, edit_files, run_tests, git_commit_push"
                     )
             except db_apply.ApplyOpsError as e:
-                error = str(e)
+                errors.append(guard.human_error(e, canvas_keymap))
+                raw_errors.append(str(e))
             except Exception as e:  # noqa: BLE001
                 await session.rollback()
-                error = f"действие {act}: {e}"
+                logger.warning("[#{}] orchestrator chat action {} failed: {}", project.id, act, e)
+                errors.append(guard.human_error(e, canvas_keymap))
+                raw_errors.append(f"{act}: {e}")
+    for entry in actions_run:
+        note = guard.action_note(entry, canvas_keymap)
+        if note:
+            entry["note"] = note
+    error = "; ".join(dict.fromkeys(errors)) or None
     # Контур самообучения: каждый диалог — в ops-журнал проекта.
     try:
         from app.services.agent_harness import append_ops_event
@@ -2583,6 +2647,7 @@ async def _execute_orchestrator_reply(
                 "ui_actions": [u.get("kind") for u in ui_actions],
                 "pending_confirm": bool(pending_confirm),
                 "error": error,
+                "error_raw": raw_errors[:5],
             },
         )
     except Exception:  # noqa: BLE001
@@ -2629,8 +2694,17 @@ async def _execute_orchestrator_reply(
     clean_human_reply = re.sub(r"\n{3,}", "\n\n", clean_human_reply).strip()
     if clean_human_reply:
         reply = clean_human_reply
-    keep_code = _is_fix_bugs_mode(body_message, flag=fix_bugs)
+    keep_code = code_ok and _is_fix_bugs_mode(body_message, flag=fix_bugs)
     reply = humanize_reply(reply or "", canvas_keymap, keep_code=keep_code) or reply
+    tail: list[str] = []
+    if error:
+        tail.append(f"Не получилось: {error}.")
+    if any(p.get("kind") == "action" for p in pending_confirm):
+        tail.append("Это нужно подтвердить — кнопка ниже.")
+    if skipped_code:
+        tail.append("Правку кода программы из этого чата делает разработчик — здесь она выключена.")
+    if tail:
+        reply = ((reply or "").strip() + "\n\n" + "\n".join(tail)).strip()
     for item in ui_actions:
         nk = str(item.get("node_key") or "")
         nt = str(item.get("node_type") or "")
@@ -2645,6 +2719,7 @@ async def _execute_orchestrator_reply(
         "ui_actions": ui_actions,
         "pending_confirm": pending_confirm,
         "error": error,
+        "error_raw": raw_errors[:5],
     }
 
 
@@ -2670,7 +2745,15 @@ async def orchestrator_chat(
         raise HTTPException(502, str(e)[:800]) from None
 
     return await _execute_orchestrator_reply(
-        session, project, reply, diagnose_only, canvas_keymap, diag_lines, body.message, body.fix_bugs
+        session,
+        project,
+        reply,
+        diagnose_only,
+        canvas_keymap,
+        diag_lines,
+        body.message,
+        body.fix_bugs,
+        auto_apply=body.auto_apply,
     )
 
 
@@ -2728,6 +2811,7 @@ async def orchestrator_chat_stream(
 
             full_reply = ""
             saw_deltas = False
+            last_ping = asyncio.get_running_loop().time()
             shown = StreamHumanizer(
                 canvas_keymap, keep_code=_is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
             )
@@ -2753,6 +2837,10 @@ async def orchestrator_chat_stream(
                     except TimeoutError:
                         if task.done() and queue.empty():
                             break
+                        now = asyncio.get_running_loop().time()
+                        if now - last_ping >= 15.0:
+                            last_ping = now
+                            yield ": ping\n\n"
             finally:
                 if not task.done():
                     task.cancel()
@@ -2769,6 +2857,7 @@ async def orchestrator_chat_stream(
                     diag_lines,
                     body.message,
                     body.fix_bugs,
+                    auto_apply=body.auto_apply,
                 )
                 yield f"data: {json.dumps({'type': 'done', **result}, ensure_ascii=False)}\n\n"
             except Exception as e:
@@ -2859,14 +2948,58 @@ class ConfirmGitPushBody(BaseModel):
     files: list[str] | None = None
 
 
+class ConfirmActionBody(BaseModel):
+    token: str = Field(min_length=1)
+    approve: bool = True
+
+
+@router.post("/projects/{project_id}/orchestrator/confirm-action")
+async def orchestrator_confirm_action(
+    project_id: int,
+    body: ConfirmActionBody,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Кнопка «Подтвердить» под ответом чата: выполнить ровно то действие, что было на карточке."""
+    from app.services import project_chat_guard as guard
+
+    project = await _project(session, project_id)
+    pending = guard.take_pending(project.id, body.token)
+    if pending is None:
+        return {"ok": False, "reply": "Эта кнопка устарела — повторите просьбу в чате.", "notes": []}
+    if not body.approve:
+        return {"ok": True, "reply": "Отменено — ничего не менял.", "notes": []}
+    _lines, keymap = await _canvas_nodes_context(session, project)
+    res = await _execute_orchestrator_reply(
+        session,
+        project,
+        json.dumps({"actions": [pending["action"]]}, ensure_ascii=False),
+        False,
+        keymap,
+        [],
+        f"подтверждено: {pending['title']}",
+        confirmed=True,
+    )
+    notes = [str(a["note"]) for a in res["actions_run"] if a.get("note")]
+    ok = not res.get("error")
+    if ok:
+        reply = ("Готово: " + "; ".join(notes) + ".") if notes else "Готово."
+    else:
+        reply = f"Не получилось: {res['error']}."
+    return {"ok": ok, "reply": reply, "notes": notes, "ui_actions": res["ui_actions"], "error": res.get("error")}
+
+
 @router.post("/projects/{project_id}/orchestrator/confirm-git-push")
 async def orchestrator_confirm_git_push(
     project_id: int,
     body: ConfirmGitPushBody,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Подтверждённый commit+push в origin/main (кнопка в чате оркестратора)."""
+    """Подтверждённый commit+push в ветку этого ПК (кнопка в чате оркестратора)."""
     await _project(session, project_id)  # auth / existence
+    from app.services.project_chat_guard import code_edits_allowed
+
+    if not code_edits_allowed():
+        raise HTTPException(403, "Отправка изменений кода из чата выключена.")
     from app.services.code_autofix import CodeAutofixError
     from app.services.git_ops import GitOpsError, commit_and_push
 

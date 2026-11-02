@@ -150,6 +150,23 @@ def member_view() -> bool:
     return not ident.is_admin
 
 
+def held_actions() -> frozenset[str]:
+    """Действия, которых на этой линии нет (нет ручек доски / мастер-промты из чата не пишутся).
+
+    Один список с исполнителем супервизора (``executor._HELD_UNTIL_R2``): старая панель
+    «Слой действий» и кнопки-макросы не должны обходить его — шаг падал 404 уже после
+    подтверждения человеком.
+    """
+    try:
+        from app.orchestrator.actions.executor import _HELD_UNTIL_R2
+    except Exception:  # noqa: BLE001 — без исполнителя список пуст, как раньше
+        return frozenset()
+    return frozenset(_HELD_UNTIL_R2)
+
+
+HELD_MESSAGE_RU = "это действие в этой версии студии пока недоступно"
+
+
 def member_hidden_actions() -> frozenset[str]:
     """Действия всей студии, которых участнику в каталоге планировщика нет.
 
@@ -157,13 +174,14 @@ def member_hidden_actions() -> frozenset[str]:
     каталог лишь не даёт планировщику вставить его в план. Сбой проверки
     личности — прячем (лишний отказ дешевле предложенного действия всей студии).
     """
+    held = held_actions()
     try:
-        return ADMIN_ONLY_HIDDEN_FROM_MEMBERS if member_view() else frozenset()
+        return (ADMIN_ONLY_HIDDEN_FROM_MEMBERS if member_view() else frozenset()) | held
     except Exception:  # noqa: BLE001
         from loguru import logger
 
         logger.exception("planner catalog: identity check failed")
-        return ADMIN_ONLY_HIDDEN_FROM_MEMBERS
+        return ADMIN_ONLY_HIDDEN_FROM_MEMBERS | held
 
 
 def admin_only_refused(action_id: str, params: dict | None = None) -> bool:
@@ -241,6 +259,12 @@ async def build_preview(plan: Plan, registry: ActionRegistry, ctx) -> dict:
             item["valid"] = False
             steps_out.append(item)
             errors.append(f"шаг {step.index + 1}: неизвестное действие {step.action_id!r}")
+            continue
+        if spec.id in held_actions():
+            item["errors"].append(HELD_MESSAGE_RU)
+            item["valid"] = False
+            steps_out.append(item)
+            errors.append(f"шаг {step.index + 1}: {HELD_MESSAGE_RU}")
             continue
         if admin_only_refused(spec.id, step.params):
             refusal = admin_only_message(spec.id)

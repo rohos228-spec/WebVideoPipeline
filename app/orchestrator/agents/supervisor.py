@@ -6130,7 +6130,11 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
             shown = f" «{value}»" if value not in (None, "") else ""
             human.append(f"«{title}»: недопустимое значение{shown} ({label}).")
         elif reason == "not_in_whitelist":
-            human.append(f"«{action}»: такого действия нет среди разрешённых.")
+            human.append(
+                f"«{title}»: это действие сейчас недоступно."
+                if title and title != action
+                else "Один из шагов плана сейчас недоступен."
+            )
         elif reason == "missing_verify_code_state":
             human.append(f"«{title}»: перед запуском нет проверки состояния проекта.")
         else:

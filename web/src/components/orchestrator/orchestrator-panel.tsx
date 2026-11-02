@@ -67,8 +67,27 @@ interface PendingConfirm {
   risk?: string | null;
   steps?: { action_id: string }[];
   step_titles?: string[];
+  token?: string;
+  title?: string;
   resolved?: boolean;
   locked?: boolean;
+}
+
+/** История для модели: текст и что реально сделано (плашки), чтобы она не путала «предложил» и «сделал». */
+function historyItem(m: ChatMsg): { role: string; content: string } {
+  const notes = (m as { notes?: string[] }).notes;
+  const tail = m.role === "assistant" && notes?.length ? `\n[Сделано: ${notes.slice(0, 6).join("; ")}]` : "";
+  return { role: m.role, content: `${m.content}${tail}` };
+}
+
+/** Ошибку провайдера/сервера — словами, без кодов и английского. */
+function friendlyChatError(err: unknown): string {
+  const s = String(err ?? "");
+  if (/[А-Яа-яЁё]/.test(s) && !/Traceback|Exception|Error:|\{|\[/.test(s)) return s;
+  if (/timeout|timed out|504|408/i.test(s)) return "Модель долго не отвечает. Повторите чуть позже.";
+  if (/401|403|unauthor/i.test(s)) return "Вход в студию закончился. Обновите страницу и войдите снова.";
+  if (/429|rate|quota|balance|insufficient/i.test(s)) return "Модель сейчас перегружена или кончился лимит. Повторите позже.";
+  return "Модель ответила ошибкой. Повторите просьбу.";
 }
 
 interface ChatMsg {
@@ -732,8 +751,9 @@ export function OrchestratorPanel({ projectId }: Props) {
       }
       for (const a of r.actions_run ?? []) {
         const firstNote = notes.length;
-        if (a.error) notes.push(`ошибка: ${a.error}`);
-        else if (a.inspect_project || a.project_graph) notes.push(`граф: ${JSON.stringify(a.inspect_project ?? a.project_graph)}`);
+        if (a.error) notes.push(`не получилось: ${a.error}`);
+        else if (a.note) notes.push(a.note);
+        else if (a.inspect_project || a.project_graph) notes.push("посмотрел схему проекта");
         else if (a.run_step) notes.push(`запущен шаг «${a.step_label ?? a.run_step}»`);
         else if (a.stop_step) notes.push("генерация остановлена");
         else if (a.set_option) notes.push(`настройка: ${a.set_option}`);
@@ -750,7 +770,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         else if (a.delete_projects) notes.push(`проекты: ${a.delete_projects}`);
         else if (a.create_project) notes.push(`создан проект: ${a.create_project}`);
         else if (a.create_child) notes.push(`дочерний: ${a.create_child}`);
-        else if (a.add_node) notes.push(`нода: ${typeof a.add_node === "string" ? a.add_node : JSON.stringify(a.add_node)}`);
+        else if (a.add_node) notes.push(`нода: ${typeof a.add_node === "string" ? a.add_node : "добавлена"}`);
         else if (a.connect_edges) notes.push(`связи: ${a.connect_edges}`);
         else if (a.rename_node) notes.push(`переименовано: ${a.rename_node}`);
         else if (a.repair_graph) notes.push(`граф: ${a.repair_graph}`);
@@ -832,7 +852,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           notes.push("открыл Create / Outsee");
         }
       }
-      if (r.error) notes.push(`ошибка: ${r.error}`);
+      if (r.error) notes.push(`не получилось: ${r.error}`);
       const pendAll = (r.pending_confirm ?? []).map((p) => ({ ...p, resolved: false }));
       for (const p of pendAll) {
         if (p.kind === "delete_projects") {
@@ -840,7 +860,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         } else if (p.kind === "remove_node") {
           notes.push(`к удалению нод: ${p.count} — кнопки ниже`);
         } else if (p.kind === "git_commit_push") {
-          notes.push(`к push: подтверди кнопку ниже`);
+          notes.push("отправка изменений кода ждёт кнопку ниже");
         } else if (p.kind === "action_plan") {
           notes.push(`план #${p.plan_id}: подтверди кнопку ниже`);
         }
@@ -849,7 +869,15 @@ export function OrchestratorPanel({ projectId }: Props) {
       const cleanReply = cleanOrchestratorText(r.reply || "");
       const assistantMsg: ChatMsg = {
         role: "assistant",
-        content: cleanReply || (notes.length ? "Действие выполнено." : "(пустой ответ)"),
+        content:
+          cleanReply ||
+          (r.error
+            ? "Не получилось — подробности ниже."
+            : pendAll.length
+              ? "Нужно ваше подтверждение — кнопка ниже."
+              : notes.length
+                ? "Готово."
+                : "Ответ пустой — повторите просьбу другими словами."),
         notes: notes.length ? notes : undefined,
         confirms: pendAll.length ? pendAll : undefined,
         created_at: Date.now(),
@@ -962,7 +990,7 @@ export function OrchestratorPanel({ projectId }: Props) {
       let streamFinished = false;
 
       try {
-        const historyPayload = next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content }));
+        const historyPayload = next.slice(-9, -1).map(historyItem);
         const r = await api.dbOrchestratorChatStream(
           targetProjectId,
           messageForAgent,
@@ -989,7 +1017,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               setStreamingSessionId(null);
               streamingSessionIdRef.current = null;
               setBusy(false);
-              const errMsg: ChatMsg = { role: "assistant", content: `Ошибка: ${err}`, created_at: Date.now() };
+              const errMsg: ChatMsg = { role: "assistant", content: friendlyChatError(err), created_at: Date.now() };
               setChatLogsMap((prev) => {
                 const existing = prev[targetSessionId] || next;
                 const updated = [...existing, errMsg];
@@ -1034,12 +1062,14 @@ export function OrchestratorPanel({ projectId }: Props) {
           return;
         }
 
-        // Graceful fallback to non-streaming if stream endpoint had an issue
+        // Запасной обычный запрос — только если поток не начался вовсе (сеть/прокси).
+        // Если ответ уже шёл, повтор = второй платный вызов и второй запуск действий.
+        if (streamFinished) return;
         try {
           const fallbackRes = await api.dbOrchestratorChat(
             targetProjectId,
             messageForAgent,
-            next.slice(-9, -1).map((m) => ({ role: m.role, content: m.content })),
+            next.slice(-9, -1).map(historyItem),
             { signal: ac.signal },
           );
           handleChatResult(fallbackRes, targetSessionId, next, targetProjectId);
@@ -1049,7 +1079,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             role: "assistant",
             content: unauthorized
               ? "Сессия истекла или требуется авторизация в студии."
-              : `Ошибка: ${fallbackErr instanceof Error ? fallbackErr.message : fallbackErr}`,
+              : "Не получилось получить ответ. Проверьте связь и повторите.",
             created_at: Date.now(),
           };
           setChatLogsMap((prev) => {
@@ -1398,6 +1428,39 @@ export function OrchestratorPanel({ projectId }: Props) {
     [projectId, busy, setChatLog, withConfirmResolved],
   );
 
+  const resolveAction = useCallback(
+    async (msgIndex: number, confirmIndex: number, confirm: PendingConfirm, approve: boolean) => {
+      if (projectId == null || busy || !confirm.token) return;
+      setBusy(true);
+      try {
+        const r = await api.dbOrchestratorConfirmAction(projectId, { token: confirm.token, approve });
+        setChatLog((prev) =>
+          withConfirmResolved(prev, msgIndex, confirmIndex, {
+            role: "assistant",
+            content: r.reply,
+            notes: r.notes?.length ? r.notes : undefined,
+            created_at: Date.now(),
+          }),
+        );
+      } catch (e) {
+        const unauthorized = e instanceof ApiError && e.status === 401;
+        setChatLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            content: unauthorized
+              ? "Вход в студию закончился. Обновите страницу и войдите снова."
+              : "Не получилось выполнить — повторите просьбу в чате.",
+            created_at: Date.now(),
+          },
+        ]);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [projectId, busy, setChatLog, withConfirmResolved],
+  );
+
   const resolveGitPush = useCallback(
     async (
       msgIndex: number,
@@ -1424,7 +1487,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           setChatLog((prev) =>
             withConfirmResolved(prev, msgIndex, confirmIndex, {
               role: "assistant",
-              content: "Push отменён — правки на диске остались, в git не ушли.",
+              content: "Отправка отменена — правки на этом компьютере остались, никуда не ушли.",
               created_at: Date.now(),
             }),
           );
@@ -1434,7 +1497,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           ...prev,
           {
             role: "assistant",
-            content: `Ошибка push: ${e instanceof Error ? e.message : e}`,
+            content: "Не получилось отправить изменения — подробности в журнале.",
             created_at: Date.now(),
           },
         ]);
@@ -1512,13 +1575,12 @@ export function OrchestratorPanel({ projectId }: Props) {
   useEffect(() => {
     autoResolveRef.current = (confirms: PendingConfirm[], msgIndex: number) => {
       confirms.forEach((c, ci) => {
+        // Удаление проектов/нод и отправка кода — даже в автономном режиме только кнопкой.
         if (c.kind === "action_plan") void resolvePlan(msgIndex, ci, c, true);
-        else if (c.kind === "remove_node") void resolveRemove(msgIndex, ci, c, true);
-        else if (c.kind === "delete_projects") void resolveDeleteProjects(msgIndex, ci, c, true);
-        else if (c.kind === "git_commit_push") void resolveGitPush(msgIndex, ci, c, true);
+        else if (c.kind === "action") void resolveAction(msgIndex, ci, c, true);
       });
     };
-  }, [resolvePlan, resolveRemove, resolveDeleteProjects, resolveGitPush]);
+  }, [resolvePlan, resolveAction]);
 
   if (!open) return null;
 
@@ -2045,6 +2107,34 @@ export function OrchestratorPanel({ projectId }: Props) {
                           </div>
                         );
                       }
+                      if (c.kind === "action") {
+                        return (
+                          <div
+                            key={`act-${ci}`}
+                            className="mt-2.5 flex items-center gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-3 py-2"
+                          >
+                            <Play className="h-4 w-4 text-sky-300 shrink-0" />
+                            <span className="flex-1 text-[11px] text-white/85">{c.title || c.message}</span>
+                            <Button
+                              size="sm"
+                              className="h-7 text-[11px]"
+                              disabled={busy}
+                              onClick={() => void resolveAction(i, ci, c, true)}
+                            >
+                              Подтвердить
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-[11px]"
+                              disabled={busy}
+                              onClick={() => void resolveAction(i, ci, c, false)}
+                            >
+                              Отмена
+                            </Button>
+                          </div>
+                        );
+                      }
                       if (c.kind === "git_commit_push") {
                         return (
                           <div
@@ -2053,7 +2143,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                           >
                             <GitBranch className="h-4 w-4 text-emerald-400 shrink-0" />
                             <span className="flex-1 text-[11px] text-white/85">
-                              Push: {c.message || "commit"}
+                              Отправить изменения кода: {c.message || "правка"}
                               {(c.files ?? c.nodes).length
                                 ? ` (${(c.files ?? c.nodes).slice(0, 3).join(", ")})`
                                 : ""}
@@ -2064,7 +2154,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                               disabled={busy}
                               onClick={() => void resolveGitPush(i, ci, c, true)}
                             >
-                              Подтвердить push
+                              Отправить
                             </Button>
                             <Button
                               size="sm"

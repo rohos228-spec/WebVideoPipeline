@@ -16,7 +16,7 @@ from collections import Counter
 from app.services.action_layer import builtin_insight as bi
 
 # Как ноды называются на канвасе (подпись по умолчанию у нового проекта).
-_TYPE_DEFAULT: dict[str, str] = {**bi._TYPE_RU, "plan": "Сценарий"}
+_TYPE_DEFAULT: dict[str, str] = {**bi._TYPE_RU, "plan": "Сценарий", "hitl_gate": "Проверка человеком"}
 
 _STEP_EXTRA: dict[str, str] = {f"enrich_{i}": f"Обогащение {i}" for i in range(1, 6)}
 

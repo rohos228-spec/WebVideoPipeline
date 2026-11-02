@@ -39,6 +39,9 @@ export type ConnPhase = "idle" | "live" | "reconnecting" | "restored";
 /** Сколько ждём подтверждение kill. Дольше — ошибка и «Повторить». */
 const KILL_CONFIRM_MS = 12_000;
 
+/** 401 при входе по cookie студии: сессия входа кончилась. */
+const AUTH_LOST = "Вход в студию закончился. Обновите страницу и войдите снова.";
+
 function approvalPostAccepted(
   result: { ok?: boolean; matched?: boolean; approval_id?: string } | undefined,
   approvalId: string,
@@ -84,7 +87,7 @@ export function useOrchestratorChat() {
   );
 
   useEffect(() => {
-    if (!ready || !token || blocked) return;
+    if (!ready || blocked) return;
     const ac = new AbortController();
     let stopped = false;
     let attempt = 0;
@@ -118,7 +121,8 @@ export function useOrchestratorChat() {
         } catch (error) {
           if (stopped || ac.signal.aborted || isAbortError(error)) return;
           if (error instanceof OrchApiError && error.status === 401) {
-            setAuthError(error.message);
+            setAuthError(AUTH_LOST);
+            setSendError(AUTH_LOST);
             setBlocked(true);
             setConn("idle");
             return;
@@ -139,11 +143,11 @@ export function useOrchestratorChat() {
       stopped = true;
       ac.abort();
     };
-  }, [blocked, cfg, ready, token]);
+  }, [blocked, cfg, ready]);
 
   const snapshotSeen = useRef(0);
   useEffect(() => {
-    if (!ready || !token || blocked) return;
+    if (!ready || blocked) return;
     const ac = new AbortController();
     const started = snapshotSeen.current;
     void getOrchSessionStatus(cfg, ac.signal)
@@ -159,16 +163,18 @@ export function useOrchestratorChat() {
       .catch((error: unknown) => {
         if (isAbortError(error)) return;
         if (error instanceof OrchApiError && error.status === 401) {
-          setAuthError(error.message);
+          setAuthError(AUTH_LOST);
+          setSendError(AUTH_LOST);
           setBlocked(true);
         }
       });
     return () => ac.abort();
-  }, [blocked, cfg, ready, token]);
+  }, [blocked, cfg, ready]);
 
   const noteAuth = useCallback((error: unknown): boolean => {
     if (error instanceof OrchApiError && error.status === 401) {
-      setAuthError(error.message);
+      setAuthError(AUTH_LOST);
+      setSendError(AUTH_LOST);
       setBlocked(true);
       return true;
     }
@@ -209,7 +215,7 @@ export function useOrchestratorChat() {
   const sendMessage = useCallback(
     async (text: string, mode?: "task") => {
       const trimmed = text.trim();
-      if (!trimmed || !token || blocked) return;
+      if (!trimmed || blocked) return;
       dispatch({
         type: "user-message",
         id: `user-${Date.now()}-${state.messages.length}`,
@@ -237,13 +243,13 @@ export function useOrchestratorChat() {
         setPending(false);
       }
     },
-    [blocked, cfg, noteAuth, state.messages.length, token],
+    [blocked, cfg, noteAuth, state.messages.length],
   );
 
   const sendReportEdit = useCallback(
     async (reportId: number, instruction: string) => {
       const body = reportEditBody(reportId, instruction);
-      if (!body.text || !token || blocked) return false;
+      if (!body.text || blocked) return false;
       dispatch({
         type: "user-message",
         id: `user-report-${reportId}-${state.messages.length}`,
@@ -261,13 +267,13 @@ export function useOrchestratorChat() {
         return false;
       }
     },
-    [blocked, cfg, noteAuth, state.messages.length, token],
+    [blocked, cfg, noteAuth, state.messages.length],
   );
 
   const sendRestore = useCallback(
     async (restoreAction: string, snapshotId: string | null, archiveRef: string | null) => {
       const body = restoreBody(restoreAction, snapshotId, archiveRef);
-      if (!body.text || !token || blocked) return false;
+      if (!body.text || blocked) return false;
       dispatch({
         type: "user-message",
         id: `user-restore-${snapshotId ?? archiveRef ?? restoreAction}-${state.messages.length}`,
@@ -285,13 +291,13 @@ export function useOrchestratorChat() {
         return false;
       }
     },
-    [blocked, cfg, noteAuth, state.messages.length, token],
+    [blocked, cfg, noteAuth, state.messages.length],
   );
 
   const sendConflictRetry = useCallback(
     async (actionName: string, baseVersion: number | null) => {
       const body = conflictRetryBody(actionName, baseVersion);
-      if (!body.text || !token || blocked) return false;
+      if (!body.text || blocked) return false;
       dispatch({
         type: "user-message",
         id: `user-conflict-${body.action.name}-${state.messages.length}`,
@@ -309,7 +315,7 @@ export function useOrchestratorChat() {
         return false;
       }
     },
-    [blocked, cfg, noteAuth, state.messages.length, token],
+    [blocked, cfg, noteAuth, state.messages.length],
   );
 
   const decide = useCallback(
@@ -623,7 +629,7 @@ export function useOrchestratorChat() {
     try {
       const result = (await postOrchKill(
         cfg,
-        { session_id: boot.session, reason: "kill switch из чата" },
+        { reason: "Остановка из чата" },
         ac.signal,
       )) as { ok?: boolean; detail?: string; stop_key_set?: boolean } | undefined;
       const body = result ?? {};
@@ -658,7 +664,8 @@ export function useOrchestratorChat() {
     ready,
     token,
     authError,
-    needsToken: !ready || !token || blocked,
+    // Токен чата больше не спрашиваем: бэкенд пускает по cookie входа в студию.
+    needsToken: !ready,
     conn,
     sendError,
     pending,

@@ -48,11 +48,17 @@ const NODE_CATEGORY: Record<NodeCategory, string> = {
   hitl: "проверка",
 };
 
+/** WorkflowRunStatus и NodeRunStatus из app/models.py (+ старое completed). */
 const RUN_STATUS: Record<string, string> = {
   new: "новый",
+  pending: "ожидает",
+  queued: "в очереди",
   running: "работает",
   paused: "пауза",
+  waiting_hitl: "ждёт проверки",
+  done: "готово",
   completed: "завершён",
+  skipped: "пропущен",
   cancelled: "отменён",
   failed: "ошибка",
 };

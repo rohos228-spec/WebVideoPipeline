@@ -462,7 +462,7 @@ async def test_orchestrator_chat_applies_ops(api_client, monkeypatch) -> None:
     monkeypatch.setattr("app.services.gpt_client.get_gpt_client", lambda: _FakeGpt(reply))
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "перепиши закадр в 1 кадре", "history": []},
+        json={"message": "перепиши закадр в 1 кадре", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -485,7 +485,7 @@ async def test_orchestrator_chat_plain_text_no_write(api_client, monkeypatch) ->
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "сколько кадров?", "history": []},
+        json={"message": "сколько кадров?", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -507,7 +507,7 @@ async def test_orchestrator_chat_runs_step_action(api_client, monkeypatch) -> No
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "запусти промты видео", "history": []},
+        json={"message": "запусти промты видео", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -524,10 +524,11 @@ async def test_orchestrator_chat_runs_step_action(api_client, monkeypatch) -> No
     )
     r_bad = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "запусти hack", "history": []},
+        json={"message": "запусти hack", "history": [], "auto_apply": True},
     )
     assert r_bad.status_code == 200
-    assert "неизвестный шаг" in (r_bad.json()["error"] or "")
+    assert "такого шага в проекте нет" in (r_bad.json()["error"] or "")
+    assert any("неизвестный шаг" in x for x in r_bad.json()["error_raw"])
 
 
 @pytest.mark.asyncio
@@ -554,7 +555,7 @@ async def test_orchestrator_chat_settings_actions(api_client, monkeypatch, tmp_p
     monkeypatch.setattr("app.services.gpt_client.get_gpt_client", lambda: _FakeGpt(reply))
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "настрой всё и останови", "history": []},
+        json={"message": "настрой всё и останови", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -588,10 +589,11 @@ async def test_orchestrator_chat_invalid_setting_rejected(api_client, monkeypatc
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "поставь 16k", "history": []},
+        json={"message": "поставь 16k", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200
-    assert "неизвестное значение" in (r.json()["error"] or "")
+    assert "у этой настройки нет такого значения" in (r.json()["error"] or "")
+    assert any("неизвестное значение" in x for x in r.json()["error_raw"])
     async with factory() as session:
         p = await session.get(Project, project_id)
         assert p.image_resolution is None  # не тронут
@@ -659,7 +661,7 @@ async def test_orchestrator_chat_open_ui_action(api_client, monkeypatch) -> None
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "покажи варианты промтов видео", "history": []},
+        json={"message": "покажи варианты промтов видео", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -680,7 +682,7 @@ async def test_orchestrator_chat_open_ui_action(api_client, monkeypatch) -> None
     )
     r_bad = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "x", "history": []},
+        json={"message": "x", "history": [], "auto_apply": True},
     )
     assert "неизвестный kind" in (r_bad.json()["error"] or "")
 
@@ -701,7 +703,7 @@ async def test_orchestrator_chat_open_ui_all_kinds(api_client, monkeypatch) -> N
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "открой окна", "history": []},
+        json={"message": "открой окна", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     kinds = [u["kind"] for u in r.json()["ui_actions"]]
@@ -714,9 +716,10 @@ async def test_orchestrator_chat_open_ui_all_kinds(api_client, monkeypatch) -> N
     )
     r_bad = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "открой hitl", "history": []},
+        json={"message": "открой hitl", "history": [], "auto_apply": True},
     )
-    assert "нет ожидающих HITL" in (r_bad.json()["error"] or "")
+    assert "сейчас ничего не ждёт проверки человеком" in (r_bad.json()["error"] or "")
+    assert any("нет ожидающих HITL" in x for x in r_bad.json()["error_raw"])
 
     # Конфиг-ноды (topic/storage) не имеют студии промтов — вежливый отказ.
     monkeypatch.setattr(
@@ -725,9 +728,10 @@ async def test_orchestrator_chat_open_ui_all_kinds(api_client, monkeypatch) -> N
     )
     r_cfg = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "открой студию темы", "history": []},
+        json={"message": "открой студию темы", "history": [], "auto_apply": True},
     )
-    assert "нет промтов/студии" in (r_cfg.json()["error"] or "")
+    assert "нет окна промтов" in (r_cfg.json()["error"] or "")
+    assert any("нет промтов/студии" in x for x in r_cfg.json()["error_raw"])
 
 
 @pytest.mark.asyncio
@@ -746,7 +750,7 @@ async def test_orchestrator_chat_hitl_decision_and_topic(api_client, monkeypatch
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "аппрувь и поменяй тему", "history": []},
+        json={"message": "аппрувь и поменяй тему", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -796,7 +800,7 @@ async def test_orchestrator_chat_canvas_nodes_and_node_key(api_client, monkeypat
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "открой сценарий", "history": []},
+        json={"message": "открой сценарий", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -813,9 +817,10 @@ async def test_orchestrator_chat_canvas_nodes_and_node_key(api_client, monkeypat
     )
     r_bad = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "x", "history": []},
+        json={"message": "x", "history": [], "auto_apply": True},
     )
-    assert "неизвестный node_key" in (r_bad.json()["error"] or "")
+    assert "такой ноды на канвасе нет" in (r_bad.json()["error"] or "")
+    assert any("неизвестный node_key" in x for x in r_bad.json()["error_raw"])
 
 
 @pytest.mark.asyncio
@@ -828,7 +833,7 @@ async def test_orchestrator_chat_create_project(api_client, monkeypatch) -> None
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "создай новый проект тест оркестра", "history": []},
+        json={"message": "создай новый проект тест оркестра", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -865,7 +870,7 @@ async def test_orchestrator_chat_create_child_and_catalog(api_client, monkeypatc
     # чат с другого проекта — parent_title должен найти #project_id
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "найди история ведьм и сделай дочерний", "history": []},
+        json={"message": "найди история ведьм и сделай дочерний", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -940,7 +945,7 @@ async def test_orchestrator_chat_add_node_each_and_single(api_client, monkeypatc
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "к каждой ноде добавь ноду проверки", "history": []},
+        json={"message": "к каждой ноде добавь ноду проверки", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -961,7 +966,7 @@ async def test_orchestrator_chat_add_node_each_and_single(api_client, monkeypatc
     )
     r2 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "добавь проверку после плана", "history": []},
+        json={"message": "добавь проверку после плана", "history": [], "auto_apply": True},
     )
     assert r2.status_code == 200
     assert r2.json()["error"] is None
@@ -978,7 +983,7 @@ async def test_orchestrator_chat_add_node_each_and_single(api_client, monkeypatc
     )
     r3 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "к каждой ноде добавь проверку ещё раз", "history": []},
+        json={"message": "к каждой ноде добавь проверку ещё раз", "history": [], "auto_apply": True},
     )
     assert r3.status_code == 200
     assert r3.json()["error"] is None
@@ -1035,7 +1040,7 @@ async def test_orchestrator_chat_remove_node(api_client, monkeypatch) -> None:
     )
     r1 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "к каждой ноде добавь проверку", "history": []},
+        json={"message": "к каждой ноде добавь проверку", "history": [], "auto_apply": True},
     )
     assert r1.json()["error"] is None
     # за n_plan уже стоит hitl-нода → дубль не добавился, только после n_script
@@ -1048,7 +1053,7 @@ async def test_orchestrator_chat_remove_node(api_client, monkeypatch) -> None:
     )
     r2 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "удали все ноды проверки", "history": []},
+        json={"message": "удали все ноды проверки", "history": [], "auto_apply": True},
     )
     assert r2.status_code == 200, r2.text
     assert r2.json()["error"] is None
@@ -1084,7 +1089,7 @@ async def test_orchestrator_chat_remove_node(api_client, monkeypatch) -> None:
     )
     r4 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "удали старую проверку", "history": []},
+        json={"message": "удали старую проверку", "history": [], "auto_apply": True},
     )
     assert r4.json()["pending_confirm"][0]["node_key"] == "n_hitl_gate_old"
     r5 = await client.post(
@@ -1098,9 +1103,10 @@ async def test_orchestrator_chat_remove_node(api_client, monkeypatch) -> None:
     )
     r6 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "удали n_hack", "history": []},
+        json={"message": "удали n_hack", "history": [], "auto_apply": True},
     )
-    assert "неизвестный node_key" in (r6.json()["error"] or "")
+    assert "такой ноды на канвасе нет" in (r6.json()["error"] or "")
+    assert any("неизвестный node_key" in x for x in r6.json()["error_raw"])
 
 
 @pytest.mark.asyncio
@@ -1209,7 +1215,7 @@ async def test_add_node_excel_gpt_gets_slot_index(api_client, monkeypatch) -> No
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "добавь работу с гпт после плана", "history": []},
+        json={"message": "добавь работу с гпт после плана", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     assert r.json()["error"] is None
@@ -1256,7 +1262,7 @@ async def test_add_node_labels_by_parent_and_rename(api_client, monkeypatch) -> 
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "добавь работу с гпт после каждой", "history": []},
+        json={"message": "добавь работу с гпт после каждой", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     assert r.json()["error"] is None
@@ -1277,7 +1283,7 @@ async def test_add_node_labels_by_parent_and_rename(api_client, monkeypatch) -> 
     )
     r2 = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "переименуй n_plan", "history": []},
+        json={"message": "переименуй n_plan", "history": [], "auto_apply": True},
     )
     assert r2.status_code == 200, r2.text
     assert r2.json()["error"] is None
@@ -1436,7 +1442,7 @@ async def test_repair_then_add_each_works(api_client, monkeypatch) -> None:
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "почини и добавь проверки", "history": []},
+        json={"message": "почини и добавь проверки", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     assert r.json()["error"] is None
@@ -1556,7 +1562,7 @@ async def test_orchestrator_chat_run_harness_action(api_client, monkeypatch) -> 
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "прогони проверки", "history": []},
+        json={"message": "прогони проверки", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -1594,7 +1600,7 @@ async def test_orchestrator_chat_diagnostics_in_context(api_client, monkeypatch)
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "почему img упал?", "history": []},
+        json={"message": "почему img упал?", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200
     assert "ДИАГНОСТИКА" in _FakeGpt.last_prompt
@@ -1612,7 +1618,7 @@ async def test_orchestrator_chat_writes_feedback_journal(api_client, monkeypatch
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "привет оркестратор", "history": []},
+        json={"message": "привет оркестратор", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200
     fb = await client.get(f"/api/db/projects/{project_id}/orchestrator/feedback")
@@ -1642,7 +1648,7 @@ async def test_orchestrator_chat_without_gpt_key_503(api_client, monkeypatch) ->
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "привет", "history": []},
+        json={"message": "привет", "history": [], "auto_apply": True},
     )
     assert r.status_code == 503
     assert "не настроен" in r.json()["detail"]
@@ -1881,7 +1887,7 @@ async def test_orchestrator_chat_connect_edges_action(api_client, monkeypatch) -
     )
     r = await client.post(
         f"/api/db/projects/{project_id}/orchestrator/chat",
-        json={"message": "подведи все ноды к хранилищу", "history": []},
+        json={"message": "подведи все ноды к хранилищу", "history": [], "auto_apply": True},
     )
     assert r.status_code == 200, r.text
     data = r.json()
@@ -1892,3 +1898,147 @@ async def test_orchestrator_chat_connect_edges_action(api_client, monkeypatch) -
         p = await session.get(Project, project_id)
         g = (p.meta or {}).get("canvas_graph") or {}
         assert any(n.get("type") == "storage" for n in g.get("nodes") or [])
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_chat_confirm_mode_waits_for_button(api_client, monkeypatch) -> None:
+    """Режим «С подтверждением»: запуск шага — карточка с кнопкой, сам шаг не стартует до кнопки."""
+    from app.services import project_chat_guard as guard
+
+    guard._PENDING.clear()
+    client, project_id, factory = api_client
+    monkeypatch.setattr(
+        "app.services.gpt_client.get_gpt_client",
+        lambda: _FakeGpt('Запустил промты видео. {"actions":[{"run_step":"anim_pr"}]}'),
+    )
+    r = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/chat",
+        json={"message": "запусти промты видео", "history": []},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["actions_run"] == []
+    cards = [p for p in data["pending_confirm"] if p.get("kind") == "action"]
+    assert len(cards) == 1 and cards[0]["token"]
+    assert "Запустить шаг" in cards[0]["title"]
+    assert "anim_pr" not in cards[0]["title"]
+    assert "подтвердить" in data["reply"]
+    async with factory() as session:
+        p = await session.get(Project, project_id)
+        assert p.status is not ProjectStatus.generating_animation_prompts
+
+    # Чужой проект / неверный токен — ничего.
+    bad = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/confirm-action",
+        json={"token": "nope", "approve": True},
+    )
+    assert bad.json()["ok"] is False
+
+    ok = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/confirm-action",
+        json={"token": cards[0]["token"], "approve": True},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["ok"] is True
+    assert ok.json()["reply"].startswith("Готово")
+    async with factory() as session:
+        p = await session.get(Project, project_id)
+        assert p.status is ProjectStatus.generating_animation_prompts
+
+    # Одноразово: второй клик устаревший.
+    again = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/confirm-action",
+        json={"token": cards[0]["token"], "approve": True},
+    )
+    assert again.json()["ok"] is False
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_chat_confirm_card_cancel(api_client, monkeypatch) -> None:
+    from app.services import project_chat_guard as guard
+
+    guard._PENDING.clear()
+    client, project_id, factory = api_client
+    monkeypatch.setattr(
+        "app.services.gpt_client.get_gpt_client",
+        lambda: _FakeGpt('{"actions":[{"set_topic":"Совсем другая тема"}]}'),
+    )
+    r = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/chat",
+        json={"message": "смени тему", "history": []},
+    )
+    tok = r.json()["pending_confirm"][0]["token"]
+    no = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/confirm-action",
+        json={"token": tok, "approve": False},
+    )
+    assert no.json()["ok"] is True and "Отменено" in no.json()["reply"]
+    async with factory() as session:
+        p = await session.get(Project, project_id)
+        assert (p.topic or "") != "Совсем другая тема"
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_chat_diagnose_runs_nothing(api_client, monkeypatch) -> None:
+    """Вопрос «почему упало» — только объяснение: действия из ответа модели не выполняются."""
+    client, project_id, factory = api_client
+    monkeypatch.setattr(
+        "app.services.gpt_client.get_gpt_client",
+        lambda: _FakeGpt('Упал шаг картинок. {"actions":[{"run_step":"anim_pr"}]}'),
+    )
+    r = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/chat",
+        json={"message": "почему упало?", "history": [], "auto_apply": True},
+    )
+    data = r.json()
+    assert data["actions_run"] == [] and data["pending_confirm"] == []
+    async with factory() as session:
+        p = await session.get(Project, project_id)
+        assert p.status is not ProjectStatus.generating_animation_prompts
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_chat_code_edits_off_by_default(api_client, monkeypatch) -> None:
+    """Без флага ORCHESTRATOR_CHAT_CODE_EDITS чат не читает и не правит код, git-кнопка закрыта."""
+    monkeypatch.delenv("ORCHESTRATOR_CHAT_CODE_EDITS", raising=False)
+    client, project_id, _factory = api_client
+    monkeypatch.setattr(
+        "app.services.gpt_client.get_gpt_client",
+        lambda: _FakeGpt('{"actions":[{"read_file":"app/main.py"},{"run_tests":["tests/x.py"]}]}'),
+    )
+    r = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/chat",
+        json={"message": "почини код", "history": [], "auto_apply": True, "fix_bugs": True},
+    )
+    data = r.json()
+    assert data["actions_run"] == []
+    assert "разработчик" in data["reply"]
+    g = await client.post(
+        f"/api/db/projects/{project_id}/orchestrator/confirm-git-push",
+        json={"message": "x", "files": ["app/main.py"]},
+    )
+    assert g.status_code in (403, 422)
+
+
+def test_held_actions_are_refused_in_old_action_panel() -> None:
+    """Старая панель «Слой действий»: действий без ручек на этой линии нет ни в каталоге, ни в плане."""
+    from app.services.action_layer.macros import MacroSpec
+    from app.services.action_layer.plan import held_actions, member_hidden_actions
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    held = held_actions()
+    for a in ("montage.split_scene", "prompt.save_master", "kill_switch.engage", "publish.send"):
+        assert a in held
+        assert a in member_hidden_actions()
+    m = MacroSpec(
+        id="t",
+        title_ru="t",
+        description_ru="",
+        steps=({"action_id": "montage.split_scene", "params": {}},),
+        params_schema={},
+        builtin=True,
+        owner="",
+        shared=False,
+    )
+    assert "montage.split_scene" in m.missing_actions(registry)

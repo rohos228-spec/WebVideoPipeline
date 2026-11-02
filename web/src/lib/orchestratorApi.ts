@@ -253,12 +253,14 @@ function apiUrl(apiBase: string, path: string): string {
   return `${apiBase}${path}`;
 }
 
-/** Bearer всегда. X-Orch-Scenario — только в тестовой сборке, значение сценария не важно. */
+/**
+ * Заголовки запросов чата. Bearer больше не шлём: бэкенд не проверяет
+ * `ORCH_API_TOKEN` (см. `app/web/engine_access.py`), личность ставит cookie входа
+ * `vp_session`, а чужой заголовок `Authorization` её перебил бы и дал 401.
+ * X-Orch-Scenario — только в тестовой сборке, значение сценария не важно.
+ */
 export function orchAuthHeaders(cfg: OrchClientConfig, extra?: Record<string, string>): Headers {
   const headers = new Headers(extra);
-  if (cfg.token && /^[\x20-\x7E]+$/.test(cfg.token)) {
-    headers.set("Authorization", `Bearer ${cfg.token}`);
-  }
   if (orchTestModeEnabled() && cfg.scenario && /^[\x20-\x7E]+$/.test(cfg.scenario)) {
     headers.set("X-Orch-Scenario", cfg.scenario);
   }
@@ -457,8 +459,14 @@ export function postOrchProject(
   );
 }
 
+/** Стоп задачи чата: `POST /api/orchestrator/chat/{session}/kill`, тело KillIn `{reason?, project_id?}`. */
 export function postOrchKill(cfg: OrchClientConfig, body: OrchKillRequest, signal?: AbortSignal): Promise<OrchKillResult> {
-  return postJson(cfg, "/api/orchestrator/kill", body, signal);
+  const payload: OrchKillRequest = {};
+  if (typeof body.reason === "string" && body.reason) payload.reason = body.reason.slice(0, 500);
+  if (typeof body.project_id === "number" && Number.isInteger(body.project_id) && body.project_id > 0) {
+    payload.project_id = body.project_id;
+  }
+  return postJson(cfg, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/kill`, payload, signal);
 }
 
 /** Ответ POST /api/orchestrator/chat/{session}/resume. Тела у ручки нет. */

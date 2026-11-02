@@ -52,7 +52,10 @@ class MacroSpec:
         return [s["action_id"] for s in self.steps]
 
     def missing_actions(self, registry: ActionRegistry) -> list[str]:
-        return sorted({a for a in self.action_ids() if registry.find(a) is None})
+        from app.services.action_layer.plan import held_actions
+
+        held = held_actions()
+        return sorted({a for a in self.action_ids() if registry.find(a) is None or a in held})
 
     def to_json(self, registry: ActionRegistry, operator: str = "") -> dict:
         missing = self.missing_actions(registry)

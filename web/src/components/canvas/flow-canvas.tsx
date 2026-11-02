@@ -1557,7 +1557,7 @@ function RunOverlay({
   const controls = (
     <div className="flex flex-col gap-2.5 border-b border-white/10 pb-3">
       <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Run:</span>
+          <span className="text-muted-foreground">Прогон:</span>
           <span className="font-medium">
             {formatRunOverlayLabel(run) ?? "не запущен"}
           </span>

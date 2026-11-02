@@ -290,6 +290,18 @@ _READ_ONLY_FIXES = frozenset(
     {"node.output", "logs.tail", "diag.node_failure", "diag.incidents", "diag.content_checks"}
 )
 
+def _model_label(model_id: str) -> str:
+    """Название модели из каталога для карточки (а не её код)."""
+    try:
+        from app.services.node_edit import find_catalog_model
+
+        found = find_catalog_model(model_id)
+    except Exception:  # noqa: BLE001
+        found = None
+    label = str(found.get("label") or "").strip() if isinstance(found, dict) else ""
+    return label or model_id
+
+
 def decide_fix(
     *,
     cause: dict | str,
@@ -356,7 +368,7 @@ def decide_fix(
             elif not fix_on:
                 why = "автоисправление выключено"
             name = "node.set_model" if cheaper else "node.set_model_costly"
-            models.append(FixStep(name, params, f"Поставить модель «{new_model_id}»", not why, why))
+            models.append(FixStep(name, params, f"Поставить модель «{_model_label(new_model_id)}»", not why, why))
             continue
         if action == "step.run_step" and opt.get("upstream"):
             upstream.append(FixStep(action, params, title, False, "это другой платный шаг, не повтор: только с подтверждением"))

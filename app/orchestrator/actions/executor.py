@@ -48,6 +48,11 @@ _HELD_UNTIL_R2 = frozenset(
         "montage.generate_scene",
         # coverage_vo_span на этой линии нет (нет apply_vo_span): HTTP 400 после подтверждения.
         "montage.set_voiceover_span",
+        # Ручки /projects/{id}/observations/kill-switch на этой линии нет (404 после кнопки),
+        # а рубильник студии общий на весь сервер — подключать его к кнопке решает владелец.
+        "kill_switch.engage",
+        # Ручки GET /projects/{id}/publications нет — проверка подтверждений всегда отказывала.
+        "publish.send",
     }
 )
 # Общие (мастер) промты из чата не пишутся: правка бьёт по всем проектам сразу. Чат
