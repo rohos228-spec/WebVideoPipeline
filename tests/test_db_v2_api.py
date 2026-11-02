@@ -665,7 +665,13 @@ async def test_orchestrator_chat_open_ui_action(api_client, monkeypatch) -> None
     data = r.json()
     assert data["error"] is None
     assert data["ui_actions"] == [
-        {"kind": "step_prompts", "step": "anim_pr", "node_type": "animation_prompts"}
+        {
+            "kind": "step_prompts",
+            "step": "anim_pr",
+            "node_type": "animation_prompts",
+            # Подпись для плашки «открыл окно промтов шага …» — как на канвасе, не код.
+            "label": "Промты анимации",
+        }
     ]
 
     monkeypatch.setattr(

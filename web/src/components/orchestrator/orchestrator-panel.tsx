@@ -80,6 +80,19 @@ interface ChatMsg {
   confirm?: PendingConfirm;
 }
 
+const HITL_DECISION_RU: Record<string, string> = {
+  approved: "одобрено",
+  regenerate: "на перегенерацию",
+  rejected: "отклонено",
+  edit_prompt: "правка промта",
+};
+
+/** «approved → image_prompts» → «одобрено»: служебные коды человеку не показываем. */
+function hitlDecisionRu(value: string): string {
+  const head = String(value).split("→")[0].trim();
+  return HITL_DECISION_RU[head] ?? head;
+}
+
 function cleanOrchestratorText(text: string | null | undefined): string {
   if (!text) return "";
   let t = text;
@@ -721,7 +734,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         const firstNote = notes.length;
         if (a.error) notes.push(`ошибка: ${a.error}`);
         else if (a.inspect_project || a.project_graph) notes.push(`граф: ${JSON.stringify(a.inspect_project ?? a.project_graph)}`);
-        else if (a.run_step) notes.push(`запущен шаг «${a.run_step}» → ${a.status}`);
+        else if (a.run_step) notes.push(`запущен шаг «${a.step_label ?? a.run_step}»`);
         else if (a.stop_step) notes.push("генерация остановлена");
         else if (a.set_option) notes.push(`настройка: ${a.set_option}`);
         else if (a.set_prompt) notes.push(`промт: ${a.set_prompt}`);
@@ -741,7 +754,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         else if (a.connect_edges) notes.push(`связи: ${a.connect_edges}`);
         else if (a.rename_node) notes.push(`переименовано: ${a.rename_node}`);
         else if (a.repair_graph) notes.push(`граф: ${a.repair_graph}`);
-        else if (a.hitl_decision) notes.push(`HITL: ${a.hitl_decision}`);
+        else if (a.hitl_decision) notes.push(`проверка человеком: ${hitlDecisionRu(a.hitl_decision)}`);
         else if (a.set_topic) notes.push(`тема: ${a.set_topic}`);
         else if (a.create_group) notes.push(`группа: ${a.create_group}`);
         if (a.project_id != null) {
@@ -756,17 +769,17 @@ export function OrchestratorPanel({ projectId }: Props) {
           window.dispatchEvent(
             new CustomEvent("studio-open-node-prompts", { detail: { nodeKey } }),
           );
-          notes.push(`открыл окно промтов шага «${u.step}»`);
+          notes.push(`открыл окно промтов шага «${u.label ?? u.step}»`);
         } else if (u.kind === "node_studio" && nodeKey) {
           window.dispatchEvent(
             new CustomEvent("studio-open-node-prompts", { detail: { nodeKey } }),
           );
-          notes.push(`открыл студию ноды «${u.node_type}»`);
+          notes.push(`открыл студию ноды «${u.label ?? u.node_type}»`);
         } else if (u.kind === "prompt_builder" && nodeKey) {
           window.dispatchEvent(
             new CustomEvent("studio-open-node-prompts", { detail: { nodeKey } }),
           );
-          notes.push(`открыл промпты ноды «${u.node_type}»`);
+          notes.push(`открыл промпты ноды «${u.label ?? u.node_type}»`);
         } else if (u.kind === "hitl" && u.hitl_id != null) {
           window.dispatchEvent(
             new CustomEvent("canvas-open-hitl-modal", { detail: { hitlId: u.hitl_id } }),

@@ -570,7 +570,15 @@ _ORCHESTRATOR_SYSTEM = (
     "Технический JSON (actions, ops) помещай строго в самый конец ответа после текста. "
     "В человеческом тексте НИКОГДА не выводи сырой JSON (например, не пиши "
     "{\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде интерактивных плашек "
-    "интерфейса, а твой текст должен содержать только естественный живой русский ответ."
+    "интерфейса, а твой текст должен содержать только естественный живой русский ответ.\n"
+    "ЯЗЫК ДЛЯ ЧЕЛОВЕКА: человек видит на канвасе только НАЗВАНИЯ нод. В тексте называй "
+    "ноды и шаги так, как они подписаны в разделе НОДЫ КАНВАСА, в «ёлочках» "
+    "(«Промты картинок», «Картинки», «Работа с GPT 2»). В тексте НИКОГДА не пиши коды шагов "
+    "(img_pr, img, anim_pr…), ключи нод (n_plan, n_excel_gpt_1), типы нод (images, excel_gpt, "
+    "hitl_gate), статусы по-английски (waiting_hitl, done), слова harness, HITL, uuid, ops, "
+    "пути файлов и не выделяй слова `обратными кавычками`. Вместо harness — «автопроверка», "
+    "вместо HITL — «проверка человеком». Коды и ключи — только внутри JSON в хвосте ответа. "
+    "Исключение — пользователь сам просит починить код программы."
 )
 
 _STEP_RU: dict[str, str] = {
@@ -603,6 +611,7 @@ def _pipeline_state_lines(project: Project) -> list[str]:
         NODE_TYPE_TO_RUNNING,
         NODE_TYPE_TO_STEP_CODE,
     )
+    from app.services.chat_humanize import step_title
 
     ordered: list[str] = []
     for _run, node_type in LINEAR_RUNNING_PIPELINE:
@@ -621,7 +630,7 @@ def _pipeline_state_lines(project: Project) -> list[str]:
         else:
             state = "ждёт"
         step_code = NODE_TYPE_TO_STEP_CODE.get(node_type, node_type)
-        lines.append(f"- {step_code} ({_STEP_RU.get(step_code, step_code)}): {state}")
+        lines.append(f"- «{step_title(step_code)}» (код для JSON: {step_code}): {state}")
     return lines
 
 
@@ -2243,7 +2252,10 @@ async def _execute_orchestrator_reply(
     canvas_keymap: dict,
     diag_lines: list[str],
     body_message: str,
+    fix_bugs: bool = False,
 ) -> dict:
+    from app.services.chat_humanize import build_labels, humanize_reply, step_title
+
     applied = None
     actions_run: list[dict] = []
     ui_actions: list[dict] = []
@@ -2326,7 +2338,13 @@ async def _execute_orchestrator_reply(
 
                     new_status = await start_step(session, project, step, explicit_ui_start=True)
                     await commit_with_retry(session)
-                    actions_run.append({"run_step": step, "status": new_status.value})
+                    actions_run.append(
+                        {
+                            "run_step": step,
+                            "status": new_status.value,
+                            "step_label": step_title(step, canvas_keymap),
+                        }
+                    )
                 elif act.get("stop_step"):
                     from app.services.project_control import stop_project_running
 
@@ -2611,6 +2629,14 @@ async def _execute_orchestrator_reply(
     clean_human_reply = re.sub(r"\n{3,}", "\n\n", clean_human_reply).strip()
     if clean_human_reply:
         reply = clean_human_reply
+    keep_code = _is_fix_bugs_mode(body_message, flag=fix_bugs)
+    reply = humanize_reply(reply or "", canvas_keymap, keep_code=keep_code) or reply
+    for item in ui_actions:
+        nk = str(item.get("node_key") or "")
+        nt = str(item.get("node_type") or "")
+        if nk or nt:
+            labels = build_labels(canvas_keymap)
+            item["label"] = (labels.get(nk) or labels.get(nt) or nt).strip("«»")
 
     return {
         "reply": reply,
@@ -2644,7 +2670,7 @@ async def orchestrator_chat(
         raise HTTPException(502, str(e)[:800]) from None
 
     return await _execute_orchestrator_reply(
-        session, project, reply, diagnose_only, canvas_keymap, diag_lines, body.message
+        session, project, reply, diagnose_only, canvas_keymap, diag_lines, body.message, body.fix_bugs
     )
 
 
@@ -2698,8 +2724,13 @@ async def orchestrator_chat_stream(
 
             task = asyncio.create_task(_runner())
 
+            from app.services.chat_humanize import StreamHumanizer
+
             full_reply = ""
             saw_deltas = False
+            shown = StreamHumanizer(
+                canvas_keymap, keep_code=_is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
+            )
             try:
                 while True:
                     try:
@@ -2707,11 +2738,14 @@ async def orchestrator_chat_stream(
                         if kind == "delta":
                             saw_deltas = True
                             full_reply += data
-                            yield f"data: {json.dumps({'type': 'delta', 'delta': data}, ensure_ascii=False)}\n\n"
+                            piece = shown.feed(data)
+                            if piece:
+                                yield f"data: {json.dumps({'type': 'delta', 'delta': piece}, ensure_ascii=False)}\n\n"
                         elif kind == "done":
                             full_reply = data or full_reply
-                            if not saw_deltas and full_reply:
-                                yield f"data: {json.dumps({'type': 'delta', 'delta': full_reply}, ensure_ascii=False)}\n\n"
+                            piece = shown.flush() if saw_deltas else shown.feed(full_reply) + shown.flush()
+                            if piece:
+                                yield f"data: {json.dumps({'type': 'delta', 'delta': piece}, ensure_ascii=False)}\n\n"
                             break
                         elif kind == "error":
                             yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
@@ -2727,7 +2761,14 @@ async def orchestrator_chat_stream(
 
             try:
                 result = await _execute_orchestrator_reply(
-                    session, project, full_reply, diagnose_only, canvas_keymap, diag_lines, body.message
+                    session,
+                    project,
+                    full_reply,
+                    diagnose_only,
+                    canvas_keymap,
+                    diag_lines,
+                    body.message,
+                    body.fix_bugs,
                 )
                 yield f"data: {json.dumps({'type': 'done', **result}, ensure_ascii=False)}\n\n"
             except Exception as e:

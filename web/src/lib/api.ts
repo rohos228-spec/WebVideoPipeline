@@ -850,6 +850,7 @@ export interface DbOrchestratorChatResult {
     project_graph?: unknown;
     error?: string;
     run_step?: string;
+    step_label?: string;
     status?: string;
     stop_step?: boolean;
     set_option?: string;
@@ -871,7 +872,7 @@ export interface DbOrchestratorChatResult {
     set_topic?: string;
     create_group?: string;
   }[];
-  ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
+  ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; label?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
   pending_confirm: {
     kind: string;
     project_id?: number;
