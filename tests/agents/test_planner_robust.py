@@ -361,3 +361,24 @@ def test_generate_phrases_reach_step_run(text: str) -> None:
 
     ensure_builtin_actions()
     assert "step.run_step" in select_catalog(text, None, registry, 12).ids
+
+
+@pytest.mark.parametrize("text", [
+    "напиши сценарий по брифингу",
+    "сделай картинки ко всем кадрам",
+    "сгенерируй озвучку для проекта",
+    "озвучь ролик",
+    "собери видео из готовых кадров",
+])
+def test_make_words_offer_step_run(text: str) -> None:
+    """«Напиши сценарий» — тоже запуск шага: раньше чат отвечал «Этого чат пока не умеет»."""
+    assert wants_launch(text)
+
+
+@pytest.mark.parametrize("text", [
+    "сделай кадр 3 короче",
+    "объедини кадры 7, 8 и 9",
+    "подготовь проект, спроси что нужно",
+])
+def test_edit_words_do_not_force_launch(text: str) -> None:
+    assert not wants_launch(text)
