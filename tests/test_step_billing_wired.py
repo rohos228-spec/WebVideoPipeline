@@ -229,6 +229,7 @@ async def _noop_advance(session, project, bot) -> None:
 async def test_no_credits_timeout_auto_stops_project(db, monkeypatch) -> None:
     """Если за 90с средства не появились, running-шаг останавливается, не крутясь бесконечно."""
     import time
+
     from app.services.advance_runner import _NO_CREDITS_FIRST_SEEN, _NO_CREDITS_LOGGED, advance_project_job
     from app.services.noop_bot import get_worker_bot
     from app.services.tenant import tenant_scope
