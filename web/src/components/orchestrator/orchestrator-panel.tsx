@@ -1824,22 +1824,7 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
           </div>
 
-        {busy || isStreaming ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="destructive"
-            className="h-7 shrink-0 gap-1.5 text-[11px] px-2.5"
-            onClick={(e) => {
-              e.stopPropagation();
-              cancelBusy();
-            }}
-            title="Прервать генерацию"
-          >
-            <Square className="h-3 w-3 fill-current" />
-            Отмена
-          </Button>
-        ) : null}
+
 
         <Button
           type="button"
@@ -1905,21 +1890,21 @@ export function OrchestratorPanel({ projectId }: Props) {
               if (isUser) {
                 return (
                   <div key={i} className="flex justify-end max-w-4xl mx-auto w-full">
-                    <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-[#102738] to-[#0c1c28] border border-cyan-500/35 px-4 py-3 shadow-md shadow-black/40">
+                    <div className="max-w-[80%] rounded-2xl rounded-tr-sm bg-white/[0.04] hover:bg-white/[0.06] border border-white/[0.10] px-4 py-3 shadow-md shadow-black/30 backdrop-blur-md transition-colors">
                       <div className="flex items-center justify-between gap-3 mb-1.5">
-                        <div className="flex items-center gap-1.5 text-cyan-300">
-                          <Clapperboard className="h-3 w-3 text-cyan-400" />
-                          <span className="text-[10px] font-semibold tracking-wider uppercase text-cyan-200">
+                        <div className="flex items-center gap-1.5 text-white/70">
+                          <Clapperboard className="h-3 w-3 text-white/50" />
+                          <span className="text-[10px] font-semibold tracking-wider uppercase text-white/70">
                             Режиссёр
                           </span>
                         </div>
                         {m.created_at ? (
-                          <span className="text-[10px] text-cyan-300/40 font-mono">
+                          <span className="text-[10px] text-white/35 font-mono">
                             {formatTime(m.created_at)}
                           </span>
                         ) : null}
                       </div>
-                      <div className="text-xs text-white/95 leading-relaxed whitespace-pre-wrap selection:bg-cyan-500/30 font-medium">
+                      <div className="text-xs text-white/90 leading-relaxed whitespace-pre-wrap selection:bg-white/20 font-medium">
                         {m.content}
                       </div>
                     </div>
@@ -2237,8 +2222,8 @@ export function OrchestratorPanel({ projectId }: Props) {
                     ? "Сначала открой проект"
                     : isStreaming || busy
                       ? streamingSessionId === activeSessionId
-                        ? "Я думаю, пожалуйста, подождите… жми Отмена для остановки"
-                        : "ИИ-агент занят в другом диалоге… жми Отмена для остановки"
+                        ? "Я думаю, пожалуйста, подождите… (нажмите кнопку стоп для отмены)"
+                        : "ИИ-агент занят в другом диалоге… (нажмите кнопку стоп для отмены)"
                       : "Введите сообщение или задачу..."
                 }
                 style={{ outline: "none", boxShadow: "none" }}
@@ -2349,22 +2334,33 @@ export function OrchestratorPanel({ projectId }: Props) {
                 <div className="flex items-center gap-1.5">
                   <TextLlmPicker className="h-7 max-w-[140px] sm:max-w-[180px] bg-white/[0.04] hover:bg-white/[0.08] border-white/10 rounded-lg text-[11px] text-white/70 hover:text-white cursor-pointer transition-colors" />
 
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="default"
-                    disabled={
-                      projectId == null ||
-                      busy ||
-                      isStreaming ||
-                      (!chatInput.trim() && attachments.length === 0)
-                    }
-                    onClick={() => void sendChat()}
-                    className="h-7 w-7 p-0 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-950/40 transition-all shrink-0 flex items-center justify-center disabled:opacity-40 cursor-pointer"
-                    title="Отправить (Enter)"
-                  >
-                    <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
-                  </Button>
+                  {busy || isStreaming ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      onClick={() => cancelBusy()}
+                      className="h-7 w-7 p-0 rounded-lg bg-red-600 hover:bg-red-500 text-white shadow-md shadow-red-950/50 transition-all shrink-0 flex items-center justify-center cursor-pointer"
+                      title="Остановить генерацию"
+                    >
+                      <Square className="h-3 w-3 fill-current" />
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      disabled={
+                        projectId == null ||
+                        (!chatInput.trim() && attachments.length === 0)
+                      }
+                      onClick={() => void sendChat()}
+                      className="h-7 w-7 p-0 rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-950/40 transition-all shrink-0 flex items-center justify-center disabled:opacity-40 cursor-pointer"
+                      title="Отправить (Enter)"
+                    >
+                      <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
