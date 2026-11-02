@@ -89,6 +89,7 @@ import { NodeStyleVars } from "@/components/studio/node-style-vars";
 const STREAM_NODE_TYPES = new Set(["images", "videos", "hero"]);
 import { nodeBgFor, promptBgFor } from "@/components/prompts/prompt-card-catalog";
 import { PromptFilesPanel } from "@/components/studio/prompt-files-panel";
+import { TopicEditor } from "@/components/inspector/topic-editor";
 import { GptTextPanel } from "@/components/studio/gpt-text-panel";
 import { ResultAudioCard } from "@/components/canvas/custom-audio-player";
 import { shouldShowStopBar } from "@/lib/project-running";
@@ -832,7 +833,10 @@ export function NodeStudio({
       }}
     >
       <aside
-        className="vp-menu nowheel nopan relative isolate flex max-h-[88vh] h-[720px] w-[min(880px,96vw)] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl"
+        className={cn(
+          "vp-menu nowheel nopan relative isolate flex max-h-[88vh] cursor-auto flex-col overflow-hidden rounded-[14px] border border-white/[0.12] bg-[#0c0c0e] text-left text-white shadow-2xl backdrop-blur-xl",
+          nodeType === "topic" ? "h-auto w-[min(680px,96vw)]" : "h-[720px] w-[min(880px,96vw)]",
+        )}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -877,6 +881,7 @@ export function NodeStudio({
               <XIcon className="h-4 w-4" />
             </button>
           </div>
+        {nodeType !== "topic" && (
         <div className="flex shrink-0 cursor-grab items-stretch gap-2 p-3 pb-0 active:cursor-grabbing" title="Перетащите за верхнюю панель">
           {detailOpen ? <div id={`vp-detail-actions-${nodeKey}`} className="flex flex-1" /> : (
           <div className={cn("grid flex-1 border border-white/10", tabsList.length === 2 ? "grid-cols-2" : "grid-cols-3")}>
@@ -896,7 +901,33 @@ export function NodeStudio({
           </div>
           )}
         </div>
-        {inTab === "settings" ? (
+        )}
+        {nodeType === "topic" ? (
+          <div className="nodrag flex flex-col gap-4 p-5 sm:p-6 overflow-y-auto max-h-[calc(88vh-80px)]">
+            {nodeDisabled ? (
+              <div className="flex flex-col gap-2 rounded-[10px] border border-amber-400/30 px-4 py-3">
+                <p className="text-[13px] text-amber-300">Нода отключена в графе — шаг не запустится.</p>
+                {onEnableNode ? (
+                  <button
+                    type="button"
+                    className="h-9 w-fit rounded-md border border-amber-400/40 px-3 text-[13px] text-amber-200"
+                    onClick={onEnableNode}
+                  >
+                    Включить ноду
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {projectId ? (
+              <TopicEditor
+                projectId={projectId}
+                initialTopic={project.data?.topic ?? project.data?.title ?? ""}
+              />
+            ) : (
+              <p className="text-sm text-zinc-400">Сначала выберите проект.</p>
+            )}
+          </div>
+        ) : inTab === "settings" ? (
           <div data-vp-settings className="nodrag flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
             {nodeDisabled ? (
               <div className="flex flex-col gap-2 rounded-[10px] border border-amber-400/30 px-4 py-3">

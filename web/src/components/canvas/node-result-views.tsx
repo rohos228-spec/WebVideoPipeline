@@ -1304,7 +1304,7 @@ function TopicEditView({
   snapshot: NodeResultSnapshot;
 }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 pb-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-1 pb-4">
       <TopicEditor
         projectId={projectId}
         initialTopic={snapshot.items[0]?.content ?? ""}
@@ -1583,7 +1583,7 @@ function SfxPlanView({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 pb-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-1 pb-4">
       {/* Сводная карточка */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-amber-500/5 via-violet-500/5 to-transparent p-4">
         <div className="flex items-center gap-3">
@@ -1840,7 +1840,7 @@ function SfxGenView({
     : "Локальный синтез";
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-1 pb-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-1 pb-4">
       {/* Сводная карточка */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-emerald-500/5 via-violet-500/5 to-transparent p-4">
         <div className="flex items-center gap-3">
