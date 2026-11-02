@@ -33,6 +33,8 @@ export interface Me {
   provisioned_now: boolean;
   /** Роль в студии (``admin`` / ``member``); в режиме владельца пусто. */
   role?: string;
+  /** false — режим владельца: учётных записей нет, бэкенд ничего не прячет. */
+  accounts_enabled?: boolean;
 }
 
 export interface FreeTier {

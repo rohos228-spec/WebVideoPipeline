@@ -1559,7 +1559,7 @@ function RunOverlay({
       <div className="flex items-center gap-2 text-xs">
           <span className="text-muted-foreground">Прогон:</span>
           <span className="font-medium">
-            {formatRunOverlayLabel(run) ?? "не запущен"}
+            {formatRunOverlayLabel(run, project?.status) ?? "не запущен"}
           </span>
         </div>
       {project ? (

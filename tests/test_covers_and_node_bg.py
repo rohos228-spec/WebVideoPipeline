@@ -105,8 +105,12 @@ async def test_node_bg_upload_s3(cover_client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_project_cover_not_found(cover_client):
+    """Обложки нет — 204 без тела (не 404: браузер не сыпет ошибками на каждую карточку)."""
     c, pid, _, _ = cover_client
     r = await c.get(f"/api/artifacts/project-cover/{pid}")
+    assert r.status_code == 204
+    assert r.content == b""
+    r = await c.get("/api/artifacts/project-cover/999999")
     assert r.status_code == 404
 
 
