@@ -426,6 +426,29 @@ def classify(
     return {"code": code, "title_ru": CAUSE_RU[code], "explain_ru": explain, **found}
 
 
+def note_current_budget(cause: dict[str, Any], current_usd: float | None) -> dict[str, Any]:
+    """Сбой бюджета в прошлом, а лимит уже подняли: сказать это и не предлагать поднять ещё раз.
+
+    Текст ошибки ноды хранит лимит на момент сбоя ($0.10), и чат отвечал «нужно поднять
+    бюджет», хотя владелец уже поставил $10. ``current_usd`` 0 — бюджет выключен.
+    """
+    pb = cause.get("project_budget")
+    if cause.get("code") != "budget_cap" or not isinstance(pb, dict) or current_usd is None:
+        return cause
+    spent = float(pb.get("spent_usd") or 0.0)
+    current = float(current_usd)
+    if current != 0.0 and current <= spent:
+        return cause
+    out = dict(cause)
+    out["project_budget"] = dict(pb, current_budget_usd=current, raised=True)
+    now = "бюджет выключен" if current == 0.0 else f"сейчас бюджет ${current:g}"
+    out["explain_ru"] = (
+        f"Тогда кончился бюджет текстов проекта: потрачено ${pb.get('spent_usd')} из ${pb.get('budget_usd')}. "
+        f"Его уже подняли ({now}) — можно просто повторить запуск ноды."
+    )
+    return out
+
+
 def suggest_budget_usd(spent: float, budget: float) -> float:
     """Предлагаемый бюджет текстов: вдвое больше потраченного, не меньше +$1 к текущему, целое."""
     want = max(spent * 2, budget + 1.0, 1.0)
@@ -563,6 +586,8 @@ def fix_options(
         return [dict(retry, title_ru="Повторить позже: сбой был у провайдера"), models]
     if code == "budget_cap":
         pb = cause.get("project_budget")
+        if isinstance(pb, dict) and pb.get("raised"):
+            return [dict(retry, title_ru="Повторить запуск ноды: бюджет уже поднят (с подтверждением)")]
         if isinstance(pb, dict):
             amount = suggest_budget_usd(float(pb.get("spent_usd") or 0), float(pb.get("budget_usd") or 0))
             raise_budget = {
@@ -761,6 +786,13 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     metrics = metrics_line(data_dir, key) if data_dir is not None else None
     is_check = _is_check(meta, key)
     cause = classify(errors=errors, rejects=rejects, frames=(size or {}).get("frames"), is_check=is_check)
+    if cause.get("project_budget"):
+        from app.services.llm_ledger import budget_from_meta
+
+        try:
+            cause = note_current_budget(cause, budget_from_meta(meta))
+        except Exception:  # noqa: BLE001 — подсказка о лимите не должна ронять разбор сбоя
+            pass
     up = _upstream(meta, key)
     up_node = nodes.get(up) if up else None
     up_title = (bi._labels(meta).get(up) or bi._node_title(up_node, bi._node_types(up_node, "")[1])) if up else None

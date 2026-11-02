@@ -80,6 +80,9 @@ _FAILURE = ("почему", "ошиб", "упал", "сломал", "встал"
 # «Разберись, в чём проблема», «найди саму причину»: без разбора ноды чат пересказывал
 # «схема отклонена» и говорил, что причину установить нельзя.
 _NODE_FAILURE = ("причин", "разбер", "что не так", "в чем проблем", "упал", "сломал", "сломан", "ошиб", "не работ")
+# «Почему встал закадровый текст»: шаг назван по-русски, ключа ноды нет — без разбора сбоя
+# чат пересказывал старую ошибку («лимит $0.10»), хотя лимит уже подняли.
+_WHY_STOPPED = ("встал", "стоит", "останов", "пауз", "завис", "не идет", "не запуска")
 FAILURE_TITLE = "Почему упала нода"
 FAILURE_RULE = (
     f"Факт «{FAILURE_TITLE}» — разбор падения по данным студии: назови причину из него своими "
@@ -399,7 +402,9 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         return _allowed([("diag.content_checks", checks), ("project.status", {"project_id": int(pid)})])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
-    node_failure = _has(norm, _NODE_FAILURE) or (_has(norm, ("почему",)) and (bool(nodes) or _has(norm, ("нод",))))
+    node_failure = _has(norm, _NODE_FAILURE) or (
+        _has(norm, ("почему",)) and (bool(nodes) or _has(norm, ("нод",)) or _has(norm, _WHY_STOPPED))
+    )
     asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q or node_failure
     if not asked and not wants_data_report(text):
         return []

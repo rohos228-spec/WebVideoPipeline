@@ -462,3 +462,26 @@ def test_suggested_budget_is_round_and_above_current() -> None:
     assert nf.suggest_budget_usd(0.15, 0.1) == 2.0
     assert nf.suggest_budget_usd(9.7, 10.0) == 20.0
     assert nf.suggest_budget_usd(3.0, 1.0) == 6.0
+
+
+def test_budget_already_raised_says_so_and_offers_only_retry() -> None:
+    """Ошибка ноды помнит старый лимит $0.10, а владелец уже поставил $10: не просить поднять снова."""
+    cause = nf.classify(errors=["бюджет исчерпан: $0.15 из $0.10 (проект #26)"], rejects=[], frames=3, is_check=False)
+    raised = nf.note_current_budget(cause, 10.0)
+    assert raised["project_budget"]["raised"] is True
+    assert "сейчас бюджет $10" in raised["explain_ru"] and "повторить" in raised["explain_ru"]
+    opts = nf.fix_options(raised, project_id=26, node_key="n_script", step_code="script")
+    assert [o["action"] for o in opts] == ["step.run_step"]
+    # Лимит всё ещё ниже потраченного — прежняя подсказка «поднять».
+    same = nf.note_current_budget(cause, 0.1)
+    assert same is cause
+    assert nf.note_current_budget(cause, 0.0)["project_budget"]["raised"] is True
+
+
+def test_why_step_stopped_in_plain_words_reads_node_failure() -> None:
+    """«Почему встал закадровый текст» — без ключа ноды, но это вопрос о сбое."""
+    from app.orchestrator.agents.question_context import plan_reads
+
+    assert "diag.node_failure" in [a for a, _ in plan_reads("почему встал закадровый текст?", 26)]
+    assert "diag.node_failure" in [a for a, _ in plan_reads("почему проект на паузе?", 26)]
+    assert "diag.node_failure" not in [a for a, _ in plan_reads("как дела у проекта?", 26)]
