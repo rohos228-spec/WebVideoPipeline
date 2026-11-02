@@ -40,6 +40,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, type DbOrchestratorChatResult } from "@/lib/api";
 import { usePersistedState } from "@/hooks/use-persisted-state";
@@ -279,6 +280,11 @@ interface ChatSession {
 }
 
 export function OrchestratorPanel({ projectId }: Props) {
+  const { data: project } = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => api.getProject(projectId!),
+    enabled: projectId != null,
+  });
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -1852,32 +1858,26 @@ export function OrchestratorPanel({ projectId }: Props) {
                 <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 border border-[#0c0c0e] shadow-[0_0_6px_#34d399]" />
               )}
             </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="font-semibold text-white/95 text-xs tracking-wide">ИИ-агент</span>
-              <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="font-semibold text-white/95 text-xs tracking-wide shrink-0">ИИ-агент</span>
+              <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300 shrink-0">
                 AI Director
               </span>
-              <span
-                className="text-[11px] text-white/40 font-normal truncate max-w-[140px] hidden sm:inline"
-                title={currentSession?.title}
-              >
-                · «{currentSession?.title || "Основной чат"}»
-              </span>
+              {(() => {
+                const topic = project?.topic?.trim();
+                const displayTitle = topic || currentSession?.title || "Основной чат";
+                return (
+                  <span
+                    className="text-[11px] text-white/80 font-medium truncate max-w-[320px] hidden sm:inline-flex items-center gap-1 hover:text-white transition-colors cursor-default"
+                    title={topic ? `Тема проекта: «${topic}»` : currentSession?.title}
+                  >
+                    · <span className="text-white/40 font-normal">{topic ? "Тема:" : null}</span>
+                    <span className="truncate">«{displayTitle}»</span>
+                  </span>
+                );
+              })()}
             </div>
           </div>
-
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={projectId == null || busy || isStreaming}
-          onClick={() => void sendMessage("Брифинг проекта")}
-          className="h-6 gap-1 rounded-md border border-emerald-500/30 hover:border-emerald-400/60 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 text-[11px] font-medium text-emerald-200 hover:text-white shadow-none transition-all active:scale-95 cursor-pointer mr-1 hidden sm:inline-flex"
-          title="Запустить опросник брифинга проекта"
-        >
-          <ListChecks className="h-3 w-3 text-emerald-400" />
-          <span>Брифинг проекта</span>
-        </Button>
 
         <Button
           type="button"
