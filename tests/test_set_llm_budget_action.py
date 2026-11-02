@@ -51,3 +51,43 @@ def test_contract_is_medium_not_deletion() -> None:
 
     meta = metadata_of("project.set_llm_budget")
     assert (meta.risk, meta.destructive, meta.paid) == ("medium", False, False)
+
+
+@pytest.mark.asyncio
+async def test_run_card_warns_when_text_budget_is_spent(monkeypatch) -> None:
+    from app.services import llm_ledger
+    from app.services.action_layer import builtin_launch as bl
+
+    async def budget(pid, fresh=False):
+        return 0.1
+
+    async def spent(pid, fresh=False):
+        return 0.15
+
+    monkeypatch.setattr(llm_ledger, "budget_usd", budget)
+    monkeypatch.setattr(llm_ledger, "spent_usd", spent)
+    note = await bl.text_budget_warning(26)
+    assert note and "$0.15 из $0.10" in note and "до 2 доллара" in note
+
+    async def spent_low(pid, fresh=False):
+        return 0.05
+
+    monkeypatch.setattr(llm_ledger, "spent_usd", spent_low)
+    assert await bl.text_budget_warning(26) is None
+
+
+def test_run_cap_pause_has_no_text_budget_hint() -> None:
+    meta = {
+        "auto_paused_reason": "потолок запуска исчерпан: $0.31 из $0.30",
+        "pause_reason": {"code": "budget_exhausted", "kind": "run_cap"},
+    }
+    assert "подними бюджет" not in stop_reason(meta)
+
+
+def test_run_cap_exception_text_differs_from_project_budget() -> None:
+    from app.services.llm_ledger import BudgetExhausted
+
+    assert str(BudgetExhausted(project_id=1, spent_usd=1, budget_usd=1)).startswith("бюджет исчерпан")
+    assert str(BudgetExhausted(project_id=1, spent_usd=1, budget_usd=1, kind="run_cap")).startswith(
+        "потолок запуска исчерпан"
+    )

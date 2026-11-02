@@ -434,10 +434,31 @@ def test_summary_drops_quoted_request():
 def test_budget_stop_is_its_own_cause_and_never_auto_retried() -> None:
     from app.services import orchestrator_autonomy as oa
 
-    cause = nf.classify(errors=["бюджет исчерпан: $0.31 из $0.30 (проект #10)"], rejects=[], frames=3, is_check=False)
+    cause = nf.classify(errors=["потолок запуска исчерпан: $0.31 из $0.30 (проект #10)"], rejects=[], frames=3, is_check=False)
     assert cause["code"] == "budget_cap"
     opts = nf.fix_options(cause, project_id=10, node_key="n_image_prompts", step_code="img_pr")
     assert [o["action"] for o in opts] == ["step.run_step"]
     cfg = {"auto_fix_on_failure": True, "auto_retry": True, "updated_by": "owner"}
     d = oa.decide_fix(cause=cause, fix_options=opts, cfg=cfg, retries_done=0, retry_cost_usd=0.01)
     assert not d.auto_steps and "тот же результат" in d.steps[0].why_ru
+
+
+def test_project_text_budget_suggests_raising_it_not_retry() -> None:
+    """Кончился бюджет текстов проекта: первая подсказка — поднять его, автоматически не делается."""
+    from app.services import orchestrator_autonomy as oa
+
+    cause = nf.classify(errors=["бюджет исчерпан: $0.15 из $0.10 (проект #26)"], rejects=[], frames=3, is_check=False)
+    assert cause["code"] == "budget_cap"
+    assert cause["project_budget"] == {"spent_usd": 0.15, "budget_usd": 0.1}
+    opts = nf.fix_options(cause, project_id=26, node_key="n_script", step_code="script")
+    assert [o["action"] for o in opts] == ["project.set_llm_budget", "step.run_step"]
+    assert opts[0]["params"] == {"project_id": 26, "amount_usd": 2.0}
+    cfg = {"auto_fix_on_failure": True, "auto_retry": True, "updated_by": "owner"}
+    d = oa.decide_fix(cause=cause, fix_options=opts, cfg=cfg, retries_done=0, retry_cost_usd=0.01)
+    assert not d.auto_steps
+
+
+def test_suggested_budget_is_round_and_above_current() -> None:
+    assert nf.suggest_budget_usd(0.15, 0.1) == 2.0
+    assert nf.suggest_budget_usd(9.7, 10.0) == 20.0
+    assert nf.suggest_budget_usd(3.0, 1.0) == 6.0

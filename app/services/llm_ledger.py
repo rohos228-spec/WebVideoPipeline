@@ -408,11 +408,15 @@ class BudgetExhausted(Exception):
     re-raise это исключение (иначе шаг «успешно» доедет с мусором).
     """
 
-    def __init__(self, *, project_id: int, spent_usd: float, budget_usd: float):
+    def __init__(self, *, project_id: int, spent_usd: float, budget_usd: float, kind: str = "project"):
         self.project_id = project_id
         self.spent_usd = spent_usd
         self.budget_usd = budget_usd
-        super().__init__(f"бюджет исчерпан: ${spent_usd:.2f} из ${budget_usd:.2f} (проект #{project_id})")
+        # project — бюджет текстов проекта (поднимается project.set_llm_budget);
+        # run_cap — потолок запуска из чата/автономии (новый запуск с новым потолком).
+        self.kind = kind
+        what = "потолок запуска исчерпан" if kind == "run_cap" else "бюджет исчерпан"
+        super().__init__(f"{what}: ${spent_usd:.2f} из ${budget_usd:.2f} (проект #{project_id})")
 
 
 def _now() -> float:
@@ -651,11 +655,13 @@ async def check_run_cap(project_id: int, *, estimate_usd: float = 0.0, reserve: 
             spent = await _chain_spent_usd(project_id, started)
         except Exception as e:  # noqa: BLE001
             logger.warning("llm_ledger: траты цепочки не прочитаны — вызов не отправлен: {}", e)
-            raise BudgetExhausted(project_id=project_id, spent_usd=cap_usd, budget_usd=cap_usd) from e
+            raise BudgetExhausted(
+                project_id=project_id, spent_usd=cap_usd, budget_usd=cap_usd, kind="run_cap"
+            ) from e
         spent += reserved_usd(project_id)
         est = max(0.0, float(estimate_usd or 0.0))
         if spent >= cap_usd or spent + est > cap_usd + 1e-9:
-            raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=cap_usd)
+            raise BudgetExhausted(project_id=project_id, spent_usd=spent, budget_usd=cap_usd, kind="run_cap")
         if reserve and _held_reserve.get() is None and est > 0:
             token = next(_llm_reserve_seq)
             _llm_reserved[project_id][token] = est

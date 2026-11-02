@@ -54,7 +54,11 @@ _PROVIDER = re.compile(
     re.I,
 )
 # llm_ledger.BudgetExhausted: «бюджет исчерпан: $0.31 из $0.30 (проект #10)».
-_BUDGET = re.compile(r"бюджет исчерпан|budget exhausted|spend_cap_\w+|потол\w* (?:трат|расход)", re.I)
+_BUDGET = re.compile(
+    r"бюджет исчерпан|budget exhausted|spend_cap_\w+|потол\w* (?:трат|расход|запуска)", re.I
+)
+# «бюджет исчерпан: $0.15 из $0.10» — запись llm_ledger.BudgetExhausted про бюджет текстов проекта.
+_PROJECT_BUDGET = re.compile(r"бюджет исчерпан:\s*\$([0-9]+(?:\.[0-9]+)?)\s*из\s*\$([0-9]+(?:\.[0-9]+)?)", re.I)
 _TRUNC = re.compile(
     r"finish_reason\W*length|max_tokens|unterminated|обрез|оборван|незакрыт",
     re.I,
@@ -352,6 +356,17 @@ def classify(
             "Модель остановлена потолком трат: на этот запуск или проект деньги кончились. "
             "Повтор упрётся в тот же потолок — нужно поднять его или подтвердить запуск."
         )
+        project_budget = _PROJECT_BUDGET.search(all_err)
+        if project_budget:
+            # Бюджет текстов проекта, не потолок запуска: поднимать надо его.
+            found["project_budget"] = {
+                "spent_usd": float(project_budget.group(1)),
+                "budget_usd": float(project_budget.group(2)),
+            }
+            explain = (
+                f"Кончился бюджет текстов проекта: потрачено ${project_budget.group(1)} "
+                f"из ${project_budget.group(2)}. Повтор упрётся в него же — сначала поднимите бюджет."
+            )
     elif _PROVIDER.search(all_err) and not rejects:
         code = "provider_error"
         explain = "Запрос не дошёл до ответа модели: провайдер вернул сбой, таймаут или кончилась квота."
@@ -409,6 +424,12 @@ def classify(
         code = "unknown"
         explain = "Отклонённых ответов модели и ошибок пачек на диске нет — по данным причина не видна."
     return {"code": code, "title_ru": CAUSE_RU[code], "explain_ru": explain, **found}
+
+
+def suggest_budget_usd(spent: float, budget: float) -> float:
+    """Предлагаемый бюджет текстов: вдвое больше потраченного, не меньше +$1 к текущему, целое."""
+    want = max(spent * 2, budget + 1.0, 1.0)
+    return float(int(want) + (0 if want == int(want) else 1))
 
 
 def _looks_cut(reply: str) -> bool:
@@ -541,6 +562,16 @@ def fix_options(
     if code == "provider_error":
         return [dict(retry, title_ru="Повторить позже: сбой был у провайдера"), models]
     if code == "budget_cap":
+        pb = cause.get("project_budget")
+        if isinstance(pb, dict):
+            amount = suggest_budget_usd(float(pb.get("spent_usd") or 0), float(pb.get("budget_usd") or 0))
+            raise_budget = {
+                "action": "project.set_llm_budget",
+                "params": {"project_id": pid, "amount_usd": amount},
+                "title_ru": f"Поднять бюджет текстов проекта до ${amount:g} (с подтверждением)",
+                "phrase_ru": f"подними бюджет текстов проекта {pid} до {amount:g} доллара",
+            }
+            return [raise_budget, dict(retry, title_ru="Потом повторить запуск ноды")]
         return [dict(retry, title_ru="Перезапустить ноду с новым потолком (с подтверждением)")]
     if code == "schema_other":
         return [

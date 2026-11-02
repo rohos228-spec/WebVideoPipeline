@@ -435,6 +435,7 @@ async def record_step_failure(
             "code": BUDGET_CODE,
             "spent_usd": round(float(error.spent_usd), 4),
             "budget_usd": round(float(error.budget_usd), 4),
+            "kind": str(getattr(error, "kind", "project")),
             "node": running.value,
         }
         project.meta = meta
