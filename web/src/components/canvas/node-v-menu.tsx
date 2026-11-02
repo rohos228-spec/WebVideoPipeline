@@ -10,7 +10,6 @@ import {
   FileSpreadsheet,
   FileText,
   MessageSquareText,
-  Milestone,
   Play,
   Plus,
   Trash2,
@@ -176,7 +175,7 @@ export function NodeVMenu({
     : "project.xlsx";
   const excelAttachmentTitle = isExcelGptNode(nodeType)
     ? excelGptAttachmentChipTitle(source)
-    : "Excel";
+    : "Кадры";
 
   if (!open || !mounted) return null;
 
@@ -406,21 +405,11 @@ export function NodeVMenu({
           {excelSlot != null && projectId != null && (
             <MenuAction
               icon={FileSpreadsheet}
-              label="Просмотр Excel"
+              label="Таблица кадров"
               onClick={() => openPromptSlot(excelSlot, onClose, onSelectPrompt)}
             />
           )}
           <MenuAction icon={Unlink} label="Открепить связи" onClick={onDetachNode} />
-          <MenuAction
-            icon={Milestone}
-            label="Убрать, соединив соседей"
-            onClick={() => {
-              window.dispatchEvent(
-                new CustomEvent("canvas-remove-bridge", { detail: { nodeKey } }),
-              );
-              onClose();
-            }}
-          />
           <MenuAction
             icon={Ban}
             label={disabled ? "Включить ноду" : "Отключить ноду"}

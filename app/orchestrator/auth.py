@@ -82,7 +82,7 @@ def request_allowed(scope: dict) -> bool:
 
 async def require_orch_token(request: Request) -> None:
     """Зависимость роутера: закрывает эндпоинты, даже если middleware не повесили."""
-    if not request_allowed(request.scope):
+    if not request_allowed(dict(request.scope)):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
@@ -97,26 +97,26 @@ class OrchestratorAuthMiddleware:
         # Websocket под /api/orchestrator/** не обходит Bearer: эндпоинтов нет,
         # но открытый upgrade был бы дырой.
         if scope.get("type") == "websocket" and is_orchestrator_path(path):
-            await send(  # type: ignore[misc]
+            await send(  # type: ignore[misc,operator]
                 {
                     "type": "websocket.http.response.start",
                     "status": 401,
                     "headers": [(b"content-type", b"application/json")],
                 }
             )
-            await send(  # type: ignore[misc]
+            await send(  # type: ignore[misc,operator]
                 {"type": "websocket.http.response.body", "body": b'{"detail":"unauthorized"}'}
             )
             return
         if scope.get("type") != "http":
-            await self.app(scope, receive, send)  # type: ignore[misc]
+            await self.app(scope, receive, send)  # type: ignore[misc,operator]
             return
         if not is_orchestrator_path(path) or scope.get("method") == "OPTIONS":
-            await self.app(scope, receive, send)  # type: ignore[misc]
+            await self.app(scope, receive, send)  # type: ignore[misc,operator]
             return
         if not request_allowed(scope):
             body = b'{"detail":"unauthorized"}'
-            await send(  # type: ignore[misc]
+            await send(  # type: ignore[misc,operator]
                 {
                     "type": "http.response.start",
                     "status": 401,
@@ -126,6 +126,6 @@ class OrchestratorAuthMiddleware:
                     ],
                 }
             )
-            await send({"type": "http.response.body", "body": body})  # type: ignore[misc]
+            await send({"type": "http.response.body", "body": body})  # type: ignore[misc,operator]
             return
-        await self.app(scope, receive, send)  # type: ignore[misc]
+        await self.app(scope, receive, send)  # type: ignore[misc,operator]

@@ -8,8 +8,6 @@ import {
   ChevronDown,
   ChevronRight,
   Save,
-  Plus,
-  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -19,15 +17,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
 /**
- * Панель конфигурации предметов (Items / Props) проекта.
- * Поддерживает полноразмерный режим студии (inStudio) и компактный режим на холсте.
+ * Inline-редактор данных предметов (Items) прямо в ноде «Предметы».
  */
 export function ItemsConfigPanel({
   projectId,
-  inStudio = false,
 }: {
   projectId: number;
-  inStudio?: boolean;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -36,14 +31,8 @@ export function ItemsConfigPanel({
   const projectQ = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId),
-    enabled: true,
+    enabled: open,
   });
-
-  const apiDescs: string[] = useMemo(() => {
-    return (projectQ.data?.item_descriptions ?? []).filter(
-      (d: string) => typeof d === "string" && d.trim().length > 0
-    );
-  }, [projectQ.data?.item_descriptions]);
 
   const [count, setCount] = useState<number>(1);
   const [descriptions, setDescriptions] = useState<string[]>([""]);
@@ -57,15 +46,16 @@ export function ItemsConfigPanel({
 
   useEffect(() => {
     if (!projectQ.data) return;
+    const apiDescs = projectQ.data.item_descriptions ?? [];
     const n = Math.max(1, Math.min(5, apiDescs.length || 1));
     setCount(n);
     setDescriptions(
       Array.from({ length: n }, (_, i) => apiDescs[i] ?? "")
     );
     if (apiDescs.length > 0) {
-      setShowManual(false);
+      setShowManual(true);
     }
-  }, [projectHash, apiDescs]);
+  }, [projectHash]);
 
   const setN = (n: number) => {
     const clamped = Math.max(1, Math.min(5, Math.floor(n) || 1));
@@ -78,27 +68,11 @@ export function ItemsConfigPanel({
   const saveManual = useMutation({
     mutationFn: () =>
       api.patchProject(projectId, {
-        item_descriptions: descriptions.map((s) => s.trim()).filter(Boolean),
+        item_descriptions: descriptions.map((s) => s.trim()),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project", projectId] });
       toast.success("Описания предметов сохранены");
-      setShowManual(false);
-    },
-    onError: (e) => toast.error(errorMessageFromUnknown(e)),
-  });
-
-  const resetItems = useMutation({
-    mutationFn: () =>
-      api.patchProject(projectId, {
-        item_descriptions: [],
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["project", projectId] });
-      setDescriptions([""]);
-      setCount(1);
-      setShowManual(false);
-      toast.success("Предметы сброшены");
     },
     onError: (e) => toast.error(errorMessageFromUnknown(e)),
   });
@@ -106,216 +80,32 @@ export function ItemsConfigPanel({
   const canSaveManual =
     count >= 1 && descriptions.some((d) => d.trim().length >= 3);
 
-  const savedCount = apiDescs.length;
+  const savedCount = (projectQ.data?.item_descriptions ?? []).filter((d: string) => d.trim().length > 0).length;
 
-  // ── РЕЖИМ СТУДИИ (в инспекторе ноды) ──────────────────────────────
-  if (inStudio) {
-    return (
-      <div className="flex flex-col gap-3 rounded-xl border border-cyan-500/20 bg-cyan-500/[0.03] p-3.5">
-        {/* Шапка блока */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
-              <Package className="h-4 w-4" />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="font-semibold text-xs text-foreground">
-                Реквизит и ключевые предметы
-              </span>
-              {savedCount > 0 && (
-                <span className="rounded-full bg-cyan-500/15 border border-cyan-500/30 px-2 py-0.5 text-[10px] font-medium text-cyan-300">
-                  Задано: {savedCount} {savedCount === 1 ? "предмет" : "предметов"}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {savedCount > 0 && !showManual && (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2.5 text-[11px] text-cyan-300 hover:bg-cyan-500/10"
-                onClick={() => setShowManual(true)}
-              >
-                Редактировать
-              </Button>
-            )}
-            {savedCount > 0 && (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-[11px] text-muted-foreground hover:text-destructive"
-                disabled={resetItems.isPending}
-                onClick={() => resetItems.mutate()}
-                title="Очистить список предметов"
-              >
-                <Trash2 className="h-3 w-3 mr-1" />
-                Сброс
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {/* Если предметы уже есть и не открыт редактор — показываем карточки */}
-        {savedCount > 0 && !showManual ? (
-          <div className="flex flex-col gap-2">
-            {apiDescs.map((desc, idx) => (
-              <div
-                key={idx}
-                className="flex flex-col gap-1 rounded-lg border border-white/10 bg-black/30 p-2.5 transition hover:border-cyan-500/30"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 uppercase">
-                    Предмет {idx + 1}
-                  </span>
-                </div>
-                <p className="text-xs text-foreground/90 leading-relaxed pl-0.5 pt-0.5">
-                  {desc}
-                </p>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {/* Если предметов нет и не открыт редактор */}
-        {savedCount === 0 && !showManual ? (
-          <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 p-3 text-xs">
-            <span className="text-muted-foreground text-xs">Реквизит не задан</span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10 shrink-0"
-              onClick={() => setShowManual(true)}
-            >
-              + Добавить предмет
-            </Button>
-          </div>
-        ) : null}
-
-        {/* Редактор предметов */}
-        {showManual && (
-          <div className="flex flex-col gap-2.5 rounded-lg border border-white/10 bg-black/25 p-3">
-            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span>Количество предметов:</span>
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="number"
-                  min={1}
-                  max={5}
-                  value={count}
-                  onChange={(e) => setN(Number(e.target.value))}
-                  className="h-7 w-16 text-xs bg-black/40 border-white/15 text-center font-medium"
-                />
-                {count < 5 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 px-2.5 text-xs text-cyan-300 hover:bg-cyan-500/10"
-                    onClick={() => setN(count + 1)}
-                  >
-                    <Plus className="h-3 w-3 mr-1" />
-                    Добавить
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {descriptions.map((desc, i) => (
-              <div
-                key={i}
-                className="flex flex-col gap-1.5 rounded-lg border border-white/10 bg-black/35 p-2.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-cyan-300">
-                    Предмет {i + 1}
-                  </span>
-                </div>
-                <Textarea
-                  value={desc}
-                  placeholder="Опиши предмет: название, форма, материал, детали, свечение, эпоха…"
-                  onChange={(e) =>
-                    setDescriptions((prev) => {
-                      const next = [...prev];
-                      next[i] = e.target.value;
-                      return next;
-                    })
-                  }
-                  className="min-h-[50px] resize-y text-xs leading-relaxed bg-black/40 border-white/15"
-                  rows={2}
-                />
-              </div>
-            ))}
-
-            <div className="flex items-center justify-between pt-1">
-              {!canSaveManual ? (
-                <p className="text-[10px] text-amber-400/90">
-                  Укажите описание хотя бы одного предмета (≥ 3 символов)
-                </p>
-              ) : (
-                <span />
-              )}
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-3 text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setShowManual(false)}
-                >
-                  Отмена
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-7 px-4 text-xs bg-cyan-600 hover:bg-cyan-500 text-white font-medium"
-                  disabled={!canSaveManual || saveManual.isPending}
-                  onClick={() => saveManual.mutate()}
-                >
-                  {saveManual.isPending ? (
-                    <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Save className="mr-1.5 h-3 w-3" />
-                  )}
-                  Сохранить
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── РЕЖИМ КАНВАСА (аккордеон внизу узла на холсте) ─────────────────
   return (
     <div
-      className="nodrag nopan nowheel border-t border-cyan-500/20 bg-cyan-500/[0.04]"
+      className="nodrag nopan nowheel border-t border-white/10 bg-transparent"
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
     >
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-[10px] text-cyan-200/90 transition hover:bg-cyan-500/[0.08]"
+        className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-[10px] text-foreground/80 transition hover:bg-white/[0.04]"
         onClick={() => setOpen((v) => !v)}
       >
         <span className="flex items-center gap-1.5">
-          <Package className="h-3 w-3 text-cyan-400" />
+          <Package className="h-3 w-3 text-muted-foreground" />
           Предметы
           {savedCount > 0 ? (
-            <span className="ml-1 text-cyan-300 font-medium">
+            <span className="ml-1 text-muted-foreground font-mono">
               ({savedCount})
             </span>
           ) : null}
         </span>
         {open ? (
-          <ChevronDown className="h-3 w-3" />
+          <ChevronDown className="h-3 w-3 text-muted-foreground" />
         ) : (
-          <ChevronRight className="h-3 w-3" />
+          <ChevronRight className="h-3 w-3 text-muted-foreground" />
         )}
       </button>
 
@@ -323,7 +113,7 @@ export function ItemsConfigPanel({
         <div className="flex flex-col gap-2 px-3 pb-2.5">
           <button
             type="button"
-            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-cyan-300 transition"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
             onClick={() => setShowManual((v) => !v)}
           >
             {showManual ? (
@@ -331,16 +121,14 @@ export function ItemsConfigPanel({
             ) : (
               <ChevronRight className="h-3 w-3" />
             )}
-            <span>
-              {showManual ? "Скрыть ручной ввод" : "Ввести описание вручную"}
-            </span>
+            Ввести описание
             {savedCount > 0 ? (
-              <span className="text-cyan-300">· {savedCount}</span>
+              <span className="text-muted-foreground">· {savedCount}</span>
             ) : null}
           </button>
 
           {showManual && (
-            <div className="flex flex-col gap-2 rounded-md border border-white/10 bg-black/25 p-2">
+            <div className="flex flex-col gap-2 rounded-md border border-white/10 bg-black/20 p-2">
               <label className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                 <span>Сколько предметов</span>
                 <Input
@@ -349,17 +137,17 @@ export function ItemsConfigPanel({
                   max={5}
                   value={count}
                   onChange={(e) => setN(Number(e.target.value))}
-                  className="h-6 w-14 text-[11px] bg-black/40 border-white/15 text-center"
+                  className="h-6 w-14 text-[11px]"
                 />
               </label>
 
               {descriptions.map((desc, i) => (
                 <div
                   key={i}
-                  className="flex flex-col gap-1 rounded-md border border-white/10 bg-black/35 p-1.5"
+                  className="flex flex-col gap-1 rounded-md border border-white/10 bg-black/20 p-1.5"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-cyan-300">
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                       Предмет {i + 1}
                     </span>
                   </div>
@@ -373,40 +161,32 @@ export function ItemsConfigPanel({
                         return next;
                       })
                     }
-                    className="min-h-[42px] resize-y text-[10.5px] leading-snug bg-black/40 border-white/15"
+                    className="min-h-[42px] resize-y text-[10.5px] leading-snug"
                     rows={2}
                   />
                 </div>
               ))}
 
-              <div className="flex items-center justify-between pt-1">
-                <Button
-                  type="button"
-                  size="sm"
-                  className="h-6 px-3 text-[10px] font-semibold bg-cyan-600 hover:bg-cyan-500 text-white"
-                  disabled={!canSaveManual || saveManual.isPending}
-                  onClick={() => saveManual.mutate()}
-                >
-                  {saveManual.isPending ? (
-                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                  ) : (
-                    <Save className="mr-1 h-3 w-3" />
-                  )}
-                  Сохранить
-                </Button>
-
-                {savedCount > 0 && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
-                    onClick={() => resetItems.mutate()}
-                  >
-                    Сброс
-                  </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-7 w-32 self-center text-xs font-semibold bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-md shadow-cyan-500/20 border-none transition-colors"
+                disabled={!canSaveManual || saveManual.isPending}
+                onClick={() => saveManual.mutate()}
+              >
+                {saveManual.isPending ? (
+                  <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin text-slate-950" />
+                ) : (
+                  <Save className="mr-1.5 h-3.5 w-3.5 text-slate-950" />
                 )}
-              </div>
+                Сохранить
+              </Button>
+
+              {!canSaveManual && (
+                <p className="text-center text-[9px] text-muted-foreground">
+                  заполните описание хотя бы одного предмета
+                </p>
+              )}
             </div>
           )}
         </div>

@@ -3,6 +3,7 @@
  * Дедуп по seq делает вызывающий код до dispatch.
  */
 
+import { readActionEnvelope, type ActionResultView } from "./orchestratorActionCards";
 import {
   AGENT_ROLES,
   BLOCK_OUTCOMES,
@@ -56,20 +57,11 @@ export function readNodeDef(value: unknown): NodeDef | null {
   };
 }
 
-export type ChatMessageKind = "text" | "done" | "failed";
-
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   text: string;
   taskId: string | null;
-  seq: number | null;
-  messageId: string | null;
-  streaming: boolean;
-  final: boolean;
-  kind: ChatMessageKind;
-  summary?: boolean;
-  detail?: boolean;
 }
 
 export interface AgentView {
@@ -83,11 +75,9 @@ export interface StepView {
   title: string;
   action: string;
   paid: boolean;
-  status: "running" | "done" | "failed" | "skipped";
+  status: "running" | "done" | "failed";
   note: string;
   node: NodeDef | null;
-  progress: number | null;
-  result: string;
 }
 
 /** Шаг из CheckpointData.plan. Поля как у PlanStep. */
@@ -133,6 +123,36 @@ export function readPlanSteps(value: unknown): PlanStepView[] {
   return steps;
 }
 
+/**
+ * `approval_required.plan` (A6, kind="approval_plan") → шаги карточки.
+ *
+ * Формат ядра компактный: `{action, risk, cost, group}` (в отличие от
+ * `CheckpointData.plan` с `estimated_cost`/`parallel_group`). Принимаем оба:
+ * карточка не должна зависеть от того, чей формат пришёл в payload.
+ */
+export function readApprovalPlan(value: unknown): PlanStepView[] {
+  if (!Array.isArray(value)) return [];
+  const steps: PlanStepView[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const action = typeof raw.action === "string" ? raw.action : "";
+    if (!action) continue;
+    const group = raw.group ?? raw.parallel_group;
+    const cost = raw.cost ?? raw.estimated_cost;
+    steps.push({
+      action,
+      expected: typeof raw.expected === "string" ? raw.expected : "",
+      paid: raw.paid === true,
+      mutating: raw.mutating === true,
+      risk: typeof raw.risk === "string" && raw.risk ? raw.risk : "none",
+      parallelGroup: typeof group === "string" && group ? group : null,
+      estimatedCost: typeof cost === "number" && Number.isFinite(cost) ? cost : 0,
+    });
+  }
+  return steps;
+}
+
 /** Read-only шаг можно класть в параллельную группу: не mutating, не paid, риск не medium/high. */
 export function isParallelReadonly(step: PlanStepView): boolean {
   return Boolean(step.parallelGroup) && !step.mutating && !step.paid && !BLOCKING_PLAN_RISK.has(step.risk);
@@ -161,6 +181,8 @@ export interface CheckpointView {
   stepId: string;
   summary: string;
   spend: number | null;
+  /** CheckpointData.change_ids — id шагов, не orch-appr. */
+  changeIds: string[];
 }
 
 export interface ValidatorView {
@@ -172,142 +194,81 @@ export interface ValidatorView {
 
 export interface ApprovalView {
   id: string;
-  /** id пришёл в payload сервера. Выдуманный ключ карточку не закрывает. */
+  /**
+   * true, если id пришёл с сервера (`approval_id` или `change_id`).
+   * Кнопки решения смотрят на этот флаг.
+   * Событие закрывает карточку по `changeId`, а если его нет — по `id`.
+   */
   serverId: boolean;
+  /** Серверный `change_id` карточки, формат `orch-appr-<задача>-<n>`. Старый `approval_id` карточку открывает, но в /approve не уходит. `step_change_id` сюда не попадает. */
+  changeId: string | null;
+  /** Сессия события, которое открыло карточку. Без change_id закрытие сверяет и её. */
+  sessionId: string | null;
   taskId: string | null;
   title: string;
   reason: string;
   risk: string;
   action: string;
   costEstimate: number | null;
-  costCredits: { low: number; high: number } | null;
-  warnings: string[];
-  effects: string[];
-  steps: ApprovalStepView[];
-  costText: string;
-  /** Проекты групповой карточки: одно нажатие одобряет шаг в каждом. */
-  groupProjects?: number[];
-  /** Проверка перед запуском уже нашла причину, по которой шаг не пройдёт. */
-  blocked?: boolean;
-  blockReasons?: string[];
-  /** Последствия обратимы (откат правки): заголовок без «безвозвратно». */
-  effectsReversible?: boolean;
-  resolved: "approved" | "rejected" | "closed" | null;
-  seq?: number;
+  /** ApprovalEvent / payload `retry_armed`. Нет поля — null. Кнопки из этого флага не рисуются. */
+  retryArmed: boolean | null;
+  /** `approval_required.actions`. null — поля не было, остаются Approve/Reject. */
+  actions: string[] | null;
+  /** `approval_required.step_change_id`. null — поля не было, список берётся из чекпоинта. */
+  stepChangeId: string | null;
+  /**
+   * `approval_required.plan` — план целиком, если ядро его прислало (A6, «подтверждение
+   * плана»). Пусто — поля не было, карточка рисует только кнопки. Формат шагов как у
+   * `CheckpointData.plan` (`readPlanSteps`).
+   */
+  plan: PlanStepView[];
+  resolved: "approved" | "rejected" | "retried" | "closed" | null;
 }
 
-export interface ApprovalStepView {
-  title: string;
-  action: string;
-  paramsText: string;
-  paid: boolean;
-  risk: string;
-}
+/** Подписи `APPROVAL_DECISION_LABELS`. В массиве `actions` их нет. */
+export const PAID_DECISION_LABEL = {
+  approve: "Шаг выполнен, продолжить",
+  retry_step: "Перезапустить шаг",
+  deny: "Остановить задачу",
+} as const;
 
-function readApprovalSteps(value: unknown): ApprovalStepView[] {
-  if (!Array.isArray(value)) return [];
-  const out: ApprovalStepView[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
-    const row = item as Record<string, unknown>;
-    const title = typeof row.title === "string" ? row.title.trim() : "";
-    if (!title) continue;
-    out.push({
-      title,
-      action: typeof row.action === "string" ? row.action : "",
-      paramsText: typeof row.params_text === "string" ? row.params_text.trim() : "",
-      paid: row.paid === true,
-      risk: typeof row.risk === "string" ? row.risk : "",
-    });
-  }
-  return out;
-}
+export type PaidDecision = keyof typeof PAID_DECISION_LABEL;
 
-function readGroupProjects(value: unknown): number[] {
-  if (!value || typeof value !== "object") return [];
-  const projects = (value as Record<string, unknown>).projects;
-  if (!Array.isArray(projects)) return [];
-  return projects.filter((item): item is number => typeof item === "number" && Number.isInteger(item) && item > 0);
-}
-
-function textList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const out: string[] = [];
-  for (const item of value) {
-    if (typeof item === "string" && item.trim()) out.push(item.trim());
-    else if (item && typeof item === "object") {
-      const text = (item as Record<string, unknown>).text;
-      if (typeof text === "string" && text.trim()) out.push(text.trim());
-    }
-  }
-  return out;
-}
-
-function unique(items: string[]): string[] {
-  return [...new Set(items)];
-}
-
-const WARNING_PREFIX = "Внимание: ";
-
-export function readApprovalExtras(
-  body: Record<string, unknown>,
-): Pick<
-  ApprovalView,
-  | "warnings"
-  | "effects"
-  | "costCredits"
-  | "steps"
-  | "costText"
-  | "groupProjects"
-  | "blocked"
-  | "blockReasons"
-  | "effectsReversible"
-> {
-  const preview = body.preview && typeof body.preview === "object" ? (body.preview as Record<string, unknown>) : {};
-  const warnings = unique([...textList(body.warnings), ...textList(preview.warnings)]);
-  const effects = unique(
-    [...textList(body.destructive_effects), ...textList(preview.destructive_effects)].filter(
-      (text) => !(text.startsWith(WARNING_PREFIX) && warnings.includes(text.slice(WARNING_PREFIX.length))),
-    ),
+/** Кнопки paid_outcome_unknown только из массива `actions`. Иная причина и пустое поле — null. */
+export function paidDecisionsOf(approval: ApprovalView): PaidDecision[] | null {
+  if (approval.reason !== "paid_outcome_unknown" || approval.actions == null) return null;
+  const known = approval.actions.filter(
+    (item): item is PaidDecision => item === "approve" || item === "retry_step" || item === "deny",
   );
-  const cost = preview.cost && typeof preview.cost === "object" ? (preview.cost as Record<string, unknown>) : null;
-  const low = typeof cost?.low === "number" ? cost.low : null;
-  const high = typeof cost?.high === "number" ? cost.high : null;
-  return {
-    warnings,
-    effects,
-    costCredits: low != null && high != null && high > 0 ? { low, high } : null,
-    steps: readApprovalSteps(body.steps),
-    costText: typeof body.cost_text === "string" ? body.cost_text.trim() : "",
-    groupProjects: readGroupProjects(body.group),
-    blocked: body.blocked === true,
-    blockReasons: unique([...textList(body.preview_errors), ...textList(preview.preview_errors)]),
-    effectsReversible: body.effects_reversible === true,
-  };
+  return known.length ? known : null;
 }
 
-function readProgress(value: unknown): number | null {
-  const n = optNum(value);
-  if (n == null || n < 0) return null;
-  const share = n > 1 ? n / 100 : n;
-  return Math.max(0, Math.min(1, share));
+/**
+ * partial_write: grant принимает approve и deny.
+ * На проводе `actions` обычно только `["approve"]` — deny всё равно есть.
+ */
+export function partialDecisionsOf(approval: ApprovalView): PaidDecision[] | null {
+  if (approval.reason !== "partial_write") return null;
+  return ["approve", "deny"];
 }
 
 export interface TaskView {
   id: string;
   title: string;
   status: TaskStatus;
+  /** Сессия клиента, если событие её совпало. Чужая сессия задачу не создаёт. */
+  sessionId: string | null;
   steps: StepView[];
   checkpoints: CheckpointView[];
   validators: ValidatorView[];
   summary: string;
   error: string;
-  reason: string;
   plan: PlanStepView[];
-  lastSeq: number;
-  stepSeq: number;
-  waitSeq?: number;
-  decidedSeq?: number;
+  /**
+   * `agent_status.resume_allowed`. null — поля ещё не было, кнопка смотрит на статус и чекпоинт.
+   * true/false перекрывают этот вывод.
+   */
+  resumeAllowed: boolean | null;
 }
 
 export interface AckView {
@@ -326,6 +287,14 @@ export interface ClassificationView {
 
 export type KillPhase = "stopping" | "stopped" | "error" | "unconfirmed";
 
+/** Событие `partial_write`. Список на экране берётся из GET, не из этого payload. */
+export interface PartialWriteView {
+  seq: number;
+  taskId: string | null;
+  level: string;
+  position: number | null;
+}
+
 export interface KillNoticeView {
   text: string;
   /** Платный шаг останавливается на границе. UI не ищет эту фразу в тексте. */
@@ -335,6 +304,8 @@ export interface KillNoticeView {
   /** Задача, которую останавливали. Чужой task_id баннер не двигает. */
   taskId: string | null;
   sessionId: string | null;
+  /** Поздний stop_key_set=false. «Остановлено» не откатывается. */
+  lateStopWarning: string;
 }
 
 export interface OrchScreenState {
@@ -342,15 +313,23 @@ export interface OrchScreenState {
   agents: AgentView[];
   tasks: TaskView[];
   approvals: ApprovalView[];
+  actionResults: ActionResultView[];
   ack: AckView | null;
   classification: ClassificationView | null;
   killNotice: KillNoticeView | null;
+  /** cfg.session. Пустая строка — старые тесты без своей сессии. */
+  ownSession: string;
+  partialWrite: PartialWriteView | null;
+}
+
+/** Истина, если по этому change_id уже был 409: повторное решение из UI не отправляем. */
+export function isDecisionLocked(locked: ReadonlySet<string>, changeId: string | null): boolean {
+  return changeId != null && locked.has(changeId);
 }
 
 export type OrchScreenAction =
   | { type: "event"; event: OrchEvent }
   | { type: "user-message"; id: string; text: string; taskId: string | null }
-  | { type: "user-message-unsent"; id: string }
   | {
       type: "kill-notice";
       detail: string;
@@ -359,7 +338,11 @@ export type OrchScreenAction =
       taskId?: string | null;
       sessionId?: string | null;
     }
-  | { type: "approval-resolved"; id: string; decision: "approved" | "rejected" | "closed" }
+  | { type: "approval-resolved"; id: string; decision: "approved" | "rejected" | "retried" | "closed" }
+  | { type: "snapshot"; taskId: string | null; status: string }
+  | { type: "task-status"; taskId: string; status: TaskStatus; resumeAllowed?: boolean }
+  | { type: "session-snapshot"; taskId: string; status: TaskStatus; resumeAllowed: boolean }
+  | { type: "whitelist-denied"; approvalId: string; taskId: string | null }
   | { type: "reset" };
 
 const IDLE_AGENTS: AgentView[] = AGENT_ROLES.map((role) => ({
@@ -368,16 +351,41 @@ const IDLE_AGENTS: AgentView[] = AGENT_ROLES.map((role) => ({
   detail: "",
 }));
 
-export function initialOrchScreen(): OrchScreenState {
+export function initialOrchScreen(ownSession = ""): OrchScreenState {
   return {
     messages: [],
     agents: IDLE_AGENTS.map((agent) => ({ ...agent })),
     tasks: [],
     approvals: [],
+    actionResults: [],
     ack: null,
     classification: null,
     killNotice: null,
+    ownSession,
+    partialWrite: null,
   };
+}
+
+/**
+ * Статусы, из которых FSM пускает в `executing`.
+ * Фолбэк, если в `agent_status` ещё не было `resume_allowed`.
+ * `cancelled` терминальный (kill в planning → 404, чекпоинта нет; с чекпоинтом resume даёт 409).
+ * `executing` не показываем: живой прогон — 409, а признака «прогон мёртв» в событиях нет.
+ */
+const RESUME_STATUSES = new Set<TaskStatus>(["paused", "waiting_approval", "critic_review"]);
+
+export function canResumeTask(task: TaskView | null): boolean {
+  if (!task) return false;
+  if (!RESUME_STATUSES.has(task.status)) return false;
+  return task.checkpoints.length > 0;
+}
+
+/** Кнопка «Продолжить». Явный `resume_allowed` важнее статуса и чекпоинта. */
+export function resumeButtonVisible(task: TaskView | null): boolean {
+  if (!task) return false;
+  if (task.resumeAllowed === true) return true;
+  if (task.resumeAllowed === false) return false;
+  return canResumeTask(task);
 }
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
@@ -389,7 +397,7 @@ export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
   waiting_approval: "ждёт подтверждения",
   done: "готово",
   failed: "ошибка",
-  cancelled: "отменена",
+  cancelled: "отменено",
 };
 
 export const AGENT_LABEL: Record<AgentRole, string> = {
@@ -425,9 +433,60 @@ export function blockOutcome(reason: string): TaskStatus | null {
   return null;
 }
 
+/** Текст отказа #370: имени нет в белом списке, карточка approval не открывается. */
+export const NOT_IN_WHITELIST = "not_in_whitelist";
+export const NOT_IN_WHITELIST_TEXT =
+  "Действия нет в белом списке. Одобрить и выполнить его нельзя.";
+
+/**
+ * Терминальная блокировка: grant такой план не исполняет.
+ * Зеркало `contracts.grant_forbidden`: `not_in_whitelist` в BLOCK_OUTCOMES нет,
+ * но причина терминальная; остальные неизвестные причины — не терминальные
+ * (risk, plan_sanity и прочие approval-причины кнопки сохраняют).
+ */
 export function isTerminalBlock(reason: string): boolean {
+  if (reason === NOT_IN_WHITELIST) return true;
   const outcome = blockOutcome(reason);
   return outcome != null && TERMINAL_TASK.has(outcome);
+}
+
+export type ApprovalButton = "approve" | "deny" | "retry_step";
+
+/** Кнопки карточки. `missing_project_id` снимается через POST .../project, не через /approve. */
+export function approvalButtons(reason: string): ApprovalButton[] {
+  if (reason === "missing_project_id") return [];
+  if (reason === "paid_outcome_unknown" || reason === "paid_unknown_outcome") return ["retry_step", "deny"];
+  if (isTerminalBlock(reason)) return [];
+  return ["approve", "deny"];
+}
+
+function readStringList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const items: string[] = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim()) items.push(item);
+  }
+  return items;
+}
+
+function readStepChangeId(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function approvalWire(body: Record<string, unknown>): { actions: string[] | null; stepChangeId: string | null } {
+  return {
+    actions: readStringList(body.actions),
+    stepChangeId: readStepChangeId(body.step_change_id),
+  };
+}
+
+function readChangeIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids: string[] = [];
+  for (const item of value) {
+    if (typeof item === "string" && item.trim()) ids.push(item);
+  }
+  return ids;
 }
 
 function taskKey(value: unknown): string | null {
@@ -441,34 +500,124 @@ export function serverApprovalId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/** Серверный id карточки approval. `step_change_id` — id шага, не карточки. */
+const APPROVAL_CHANGE_ID = /^orch-appr-[0-9]+-[0-9]+$/;
+
+export function approvalChangeId(value: unknown): string | null {
+  const id = serverApprovalId(value);
+  return id && APPROVAL_CHANGE_ID.test(id) ? id : null;
+}
+
 /**
- * Id решения из шины ws3-r3.3: `ApprovalEvent.change_id`.
- * Явный `approval_id` оставлен для моков, у которых это поле уже есть.
- * Вложенный `payload` — тот же объект, если событие завернуло ApprovalEvent.
+ * Id карточки из шины: `approval_id`, иначе серверный `change_id`.
+ * `step_change_id` карточку не открывает и в /approve не уходит.
  */
 export function approvalServerKey(body: Record<string, unknown>): string | null {
-  const direct = serverApprovalId(body.approval_id) ?? serverApprovalId(body.change_id);
+  const direct = serverApprovalId(body.approval_id) ?? approvalChangeId(body.change_id);
   if (direct) return direct;
   const nested = body.payload;
   if (!nested || typeof nested !== "object") return null;
   const inner = nested as Record<string, unknown>;
-  return serverApprovalId(inner.approval_id) ?? serverApprovalId(inner.change_id);
+  return serverApprovalId(inner.approval_id) ?? approvalChangeId(inner.change_id);
+}
+
+/**
+ * `change_id` для `ApproveIn`: только `^orch-appr-[0-9]+-[0-9]+$` с карточки.
+ * `step_change_id` не подставляется, даже если другого id нет.
+ */
+export function approvalWireChangeId(body: Record<string, unknown>): string | null {
+  const direct = approvalChangeId(body.change_id);
+  if (direct) return direct;
+  const nested = body.payload;
+  if (!nested || typeof nested !== "object") return null;
+  return approvalChangeId((nested as Record<string, unknown>).change_id);
 }
 
 function approvalDecision(value: unknown): "approved" | "rejected" | null {
   if (value === "approved" || value === "approve") return "approved";
-  if (value === "rejected" || value === "reject") return "rejected";
+  if (value === "rejected" || value === "reject" || value === "deny") return "rejected";
   return null;
 }
 
-function closeServerApproval(
-  state: OrchScreenState,
-  id: string,
-  decision: "approved" | "rejected" | "closed",
-): void {
-  const item = state.approvals.find((entry) => entry.id === id && entry.serverId);
-  if (!item || item.resolved) return;
+/** `change_id` события. `step_change_id` не подставляется. */
+function approvalEventChangeId(body: Record<string, unknown>): string | null {
+  const direct = serverApprovalId(body.change_id);
+  if (direct) return direct;
+  const nested = body.payload;
+  if (!nested || typeof nested !== "object") return null;
+  return serverApprovalId((nested as Record<string, unknown>).change_id);
+}
+
+function approvalLegacyId(body: Record<string, unknown>): string | null {
+  const direct = serverApprovalId(body.approval_id);
+  if (direct) return direct;
+  const nested = body.payload;
+  if (!nested || typeof nested !== "object") return null;
+  return serverApprovalId((nested as Record<string, unknown>).approval_id);
+}
+
+/**
+ * Ключ закрытия: `change_id`, иначе старый `approval_id`.
+ *
+ * ws3-r3.4 (#370 @ 1cfbcb7c) в `publish_approval_required` и payload
+ * `approval_decided` всегда кладёт серверный id `orch-appr-<task_id>-<n>`
+ * (`app/orchestrator/agents/supervisor.py`, `_mint_change_id` / `_APPR_ID`).
+ * `ApprovalEvent.change_id` в `app/orchestrator/contracts.py` на том же
+ * коммите остаётся `str | None`; `app/orchestrator/events.py` payload не
+ * проверяет. События #342 могли прийти только с `approval_id`.
+ */
+function approvalDecisionKey(body: Record<string, unknown>): string | null {
+  return approvalEventChangeId(body) ?? approvalLegacyId(body);
+}
+
+function closeServerApproval(state: OrchScreenState, key: string, decision: "approved" | "rejected"): void {
+  const item = state.approvals.find((entry) => {
+    if (!entry.serverId || entry.resolved) return false;
+    if (entry.changeId) return entry.changeId === key;
+    return entry.id === key;
+  });
+  if (!item) return;
   item.resolved = decision;
+}
+
+/**
+ * Карточка без change_id закрывается только сменой статуса своей задачи и сессии.
+ * Если сервер не прислал session_id, карточку не закрываем: нельзя понять, чья это сессия.
+ * Терминальная block-* карточка тоже без change_id и закрывается тем же правилом.
+ */
+function closeApprovalsWithoutChange(state: OrchScreenState, taskId: string, sessionId: string | null): void {
+  if (!taskId || !sessionId) return;
+  for (const item of state.approvals) {
+    if (item.resolved || item.changeId) continue;
+    if (item.taskId !== taskId || item.sessionId !== sessionId) continue;
+    item.resolved = "closed";
+  }
+}
+
+/** Своя сессия cfg.session. Без session_id и чужую сессию не принимаем. */
+function acceptsTaskSession(state: OrchScreenState, sessionId: string | null): boolean {
+  if (!sessionId) return false;
+  if (state.ownSession && sessionId !== state.ownSession) return false;
+  return true;
+}
+
+function applyTaskStatus(
+  state: OrchScreenState,
+  taskId: string,
+  status: TaskStatus,
+  sessionId: string | null,
+  title?: string,
+): TaskView | null {
+  // Отклонённое событие не отдаёт задачу: иначе task_done/task_failed пишут summary и error.
+  if (!acceptsTaskSession(state, sessionId)) return null;
+  const task = ensureTask(state.tasks, taskId, title);
+  if (task.sessionId && task.sessionId !== sessionId) return task;
+  if (!task.sessionId) task.sessionId = sessionId;
+  if (task.status !== status) {
+    closeApprovalsWithoutChange(state, taskId, sessionId);
+    task.status = status;
+  }
+  return task;
 }
 
 function isTerminalKillStatus(value: string): boolean {
@@ -497,6 +646,7 @@ function markKill(
     paidBoundary,
     taskId: target?.taskId ?? current?.taskId ?? null,
     sessionId: target?.sessionId ?? current?.sessionId ?? null,
+    lateStopWarning: "",
   };
 }
 
@@ -513,6 +663,14 @@ function noteKillRequested(
     return;
   }
   if (stopKey === false) {
+    if (next.killNotice?.phase === "stopped") {
+      const honest = "Не остановлено: стоп-ключ не установлен, платный шаг может продолжаться";
+      next.killNotice = {
+        ...next.killNotice,
+        lateStopWarning: detail ? `${honest} ${detail}` : honest,
+      };
+      return;
+    }
     markKill(next, "error", detail || "Стоп-ключ не установлен", false, target);
     return;
   }
@@ -533,353 +691,180 @@ function noteTaskCancelled(next: OrchScreenState, event: OrchEvent): void {
     paidBoundary: false,
     taskId: notice.taskId,
     sessionId: notice.sessionId,
+    lateStopWarning: "",
   };
 }
 
-function absorbLlmSignal(state: OrchScreenState, taskId: string | null, payload: Record<string, unknown>, seq: number): void {
-  const status = asTaskStatus(str(payload.task_status));
-  if (taskId && status) {
-    ensureTask(state.tasks, taskId).status = status;
-  }
+function absorbLlmSignal(
+  state: OrchScreenState,
+  taskId: string | null,
+  payload: Record<string, unknown>,
+  seq: number,
+  sessionId: string | null,
+): void {
+  const reported = asTaskStatus(str(payload.task_status));
   const approval = payload.approval;
-  if (!approval || typeof approval !== "object") return;
-  const body = approval as Record<string, unknown>;
-  const reason = str(body.reason);
-  if (!reason) return;
+  const body = approval && typeof approval === "object" ? (approval as Record<string, unknown>) : null;
+  const reason = body ? str(body.reason) : "";
+  let nextStatus = reported;
+  if (reason && isTerminalBlock(reason)) {
+    nextStatus = blockOutcome(reason) ?? "failed";
+  } else if (
+    reason &&
+    (reported === "waiting_approval" || blockOutcome(reason) === "waiting_approval" || reason === "budget_exhausted")
+  ) {
+    nextStatus = "waiting_approval";
+  }
+  if (taskId && nextStatus) {
+    const task = applyTaskStatus(state, taskId, nextStatus, sessionId);
+    if (task && reason && isTerminalBlock(reason)) task.error = reason;
+  }
+  if (!reason || !body) return;
   const fromServer = approvalServerKey(body);
   const id = fromServer ?? `local-llm-${seq}`;
   if (!state.approvals.some((item) => item.id === id)) {
     state.approvals.push({
       id,
       serverId: fromServer != null,
+      changeId: approvalWireChangeId(body),
+      sessionId,
       taskId: taskKey(body.task_id) || taskId,
       title: str(body.title, "Нужно подтверждение"),
       reason,
       risk: str(body.risk),
       action: str(body.action),
       costEstimate: typeof body.cost_estimate === "number" ? body.cost_estimate : null,
-      ...readApprovalExtras(body),
+      retryArmed: typeof body.retry_armed === "boolean" ? body.retry_armed : null,
+      plan: readApprovalPlan(body.plan),
+      ...approvalWire(body),
       resolved: null,
     });
   }
-  if (taskId && isTerminalBlock(reason)) {
-    const task = ensureTask(state.tasks, taskId);
-    task.status = blockOutcome(reason) ?? "failed";
-    task.error = reason;
-  } else if (taskId && (status === "waiting_approval" || blockOutcome(reason) === "waiting_approval" || reason === "budget_exhausted")) {
-    ensureTask(state.tasks, taskId).status = "waiting_approval";
-  }
 }
 
-function ensureTask(tasks: TaskView[], id: string, title?: string, seq?: number): TaskView {
+function ensureTask(tasks: TaskView[], id: string, title?: string): TaskView {
   let task = tasks.find((item) => item.id === id);
   if (!task) {
     task = {
       id,
       title: title || "Задача",
       status: "queued",
+      sessionId: null,
       steps: [],
       checkpoints: [],
       validators: [],
       summary: "",
       error: "",
-      reason: "",
       plan: [],
-      lastSeq: 0,
-      stepSeq: 0,
-      waitSeq: 0,
-      decidedSeq: 0,
+      resumeAllowed: null,
     };
     tasks.push(task);
   } else if (title && task.title === "Задача") {
     task.title = title;
   }
-  if (seq != null && seq > task.lastSeq) task.lastSeq = seq;
   return task;
 }
 
-export { ackAnswered, currentTask } from "./orchestratorBadge";
-
-const PENDING_ORDER = Number.MAX_SAFE_INTEGER;
-
-function messageOrder(message: ChatMessage): number {
-  return message.seq ?? PENDING_ORDER;
-}
-
-function sortMessages(messages: ChatMessage[]): void {
-  messages.sort((a, b) => messageOrder(a) - messageOrder(b));
-}
-
-function messageKey(value: unknown): string | null {
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  if (typeof value === "string" && value.trim()) return value.trim();
-  return null;
-}
-
-function newAssistant(
-  state: OrchScreenState,
-  seq: number,
-  taskId: string | null,
-  messageId: string | null,
-  text: string,
-  final: boolean,
-): ChatMessage {
-  const message: ChatMessage = {
-    id: messageId ? `asst-m${messageId}` : `asst-${seq}`,
+function appendToken(state: OrchScreenState, taskId: string | null, text: string): void {
+  if (!text) return;
+  const messages = state.messages;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message && message.role === "assistant" && message.taskId === taskId) {
+      message.text += text;
+      return;
+    }
+  }
+  messages.push({
+    id: `asst-${taskId ?? "none"}-${messages.length}`,
     role: "assistant",
     text,
     taskId,
-    seq,
-    messageId,
-    streaming: !final,
-    final,
-    kind: "text",
-  };
-  state.messages.push(message);
-  sortMessages(state.messages);
-  return message;
+  });
 }
 
-function assistantById(state: OrchScreenState, messageId: string): ChatMessage | undefined {
-  return state.messages.find((item) => item.role === "assistant" && item.messageId === messageId);
-}
-
-function openAssistant(state: OrchScreenState, taskId: string | null): ChatMessage | undefined {
-  for (let i = state.messages.length - 1; i >= 0; i -= 1) {
-    const message = state.messages[i];
-    if (message && message.role === "assistant" && message.kind === "text" && message.streaming && message.taskId === taskId) {
-      return message;
-    }
-  }
-  return undefined;
-}
-
-function startAssistant(state: OrchScreenState, seq: number, taskId: string | null, messageId: string | null): void {
-  if (!messageId) return;
-  const found = assistantById(state, messageId);
-  if (found) return;
-  newAssistant(state, seq, taskId, messageId, "", false);
-}
-
-function appendToken(state: OrchScreenState, seq: number, taskId: string | null, text: string, messageId: string | null): void {
-  if (!text) return;
-  const target = messageId ? assistantById(state, messageId) : openAssistant(state, taskId);
-  if (!target) {
-    newAssistant(state, seq, taskId, messageId, text, false);
-    return;
-  }
-  if (target.final) return;
-  target.text += text;
-}
-
-function endAssistant(state: OrchScreenState, messageId: string | null): void {
-  if (!messageId) return;
-  const found = assistantById(state, messageId);
-  if (found) found.streaming = false;
-}
-
-function lastAssistantBefore(state: OrchScreenState, seq: number): ChatMessage | undefined {
-  let found: ChatMessage | undefined;
-  for (const message of state.messages) {
-    if (message.seq == null || message.seq >= seq) continue;
-    if (message.role === "user") found = undefined;
-    else if (message.kind === "text") found = message;
-  }
-  return found;
-}
-
-function finishAssistant(
-  state: OrchScreenState,
-  seq: number,
-  taskId: string | null,
-  text: string,
-  messageId: string | null,
-  summary = false,
-): void {
-  const mark = (message: ChatMessage) => {
-    if (summary) message.summary = true;
-  };
-  if (messageId) {
-    const found = assistantById(state, messageId);
-    if (found) {
-      found.text = text;
-      found.final = true;
-      found.streaming = false;
-      mark(found);
-      return;
-    }
-    mark(newAssistant(state, seq, taskId, messageId, text, true));
-    return;
-  }
-  for (let i = state.messages.length - 1; i >= 0; i -= 1) {
-    const message = state.messages[i];
-    if (!message || message.seq == null || message.seq > seq) continue;
-    if (message.role === "user") break;
-    if (message.kind !== "text" || message.final || message.taskId !== taskId) continue;
-    message.text = text;
-    message.final = true;
-    message.streaming = false;
-    mark(message);
-    return;
-  }
-  const previous = lastAssistantBefore(state, seq);
-  if (previous && previous.final && previous.taskId === taskId && previous.text === text) {
-    mark(previous);
-    return;
-  }
-  mark(newAssistant(state, seq, taskId, null, text, true));
-}
-
-function placeDetail(state: OrchScreenState, seq: number, taskId: string | null, text: string): void {
-  if (state.messages.some((item) => item.id === `asst-${seq}`)) return;
-  newAssistant(state, seq, taskId, null, text, true).detail = true;
-}
-
-function placeUser(state: OrchScreenState, seq: number, taskId: string | null, text: string): void {
-  if (state.messages.some((item) => item.role === "user" && item.seq === seq)) return;
-  const pending = state.messages.find(
-    (item) => item.role === "user" && (item.seq == null || !Number.isInteger(item.seq)) && (!text || item.text === text),
-  );
-  if (pending) {
-    pending.seq = seq;
-    if (taskId && !pending.taskId) pending.taskId = taskId;
-  } else if (text) {
-    state.messages.push({
-      id: `user-s${seq}`,
-      role: "user",
-      text,
-      taskId,
-      seq,
-      messageId: null,
-      streaming: false,
-      final: true,
-      kind: "text",
-    });
-  }
-  sortMessages(state.messages);
-}
-
-function closeTaskStreams(state: OrchScreenState, taskId: string): void {
-  for (const message of state.messages) {
-    if (message.taskId === taskId && message.streaming) message.streaming = false;
-  }
-}
-
-function placeOutcome(state: OrchScreenState, seq: number, taskId: string, kind: "done" | "failed"): void {
-  closeTaskStreams(state, taskId);
-  const id = `outcome-${taskId}`;
-  const found = state.messages.find((item) => item.id === id);
-  if (found) {
-    found.kind = kind;
-    found.seq = seq;
-  } else {
-    state.messages.push({
-      id,
-      role: "assistant",
-      text: "",
-      taskId,
-      seq,
-      messageId: null,
-      streaming: false,
-      final: true,
-      kind,
-    });
-  }
-  sortMessages(state.messages);
-}
-
-export function outcomeCovered(messages: ChatMessage[], task: TaskView): boolean {
-  let afterUser = false;
-  for (const item of messages) {
-    if (item.seq == null || item.seq <= task.stepSeq) continue;
-    if (item.role === "user") {
-      afterUser = true;
-      continue;
-    }
-    if (afterUser) return false;
-    if (item.kind === "text" && item.taskId === task.id && item.text.trim() !== "") return true;
-  }
-  return false;
-}
-
-export function taskDetails(messages: ChatMessage[], taskId: string | null): string[] {
-  if (!taskId) return [];
-  return messages
-    .filter((item) => item.role === "assistant" && item.detail === true && item.taskId === taskId && item.text.trim() !== "")
-    .map((item) => item.text);
-}
-
-export function hasTaskSummary(messages: ChatMessage[], taskId: string | null): boolean {
-  if (!taskId) return false;
-  return messages.some(
-    (item) =>
-      item.role === "assistant" && item.kind === "text" && item.summary === true && item.taskId === taskId && item.text.trim() !== "",
-  );
-}
-
-export function openApprovals(approvals: ApprovalView[]): ApprovalView[] {
-  return approvals.filter((item) => item.resolved == null);
-}
-
-export function approvalLost(task: TaskView | null, approvals: ApprovalView[]): boolean {
-  if (!task || task.status !== "waiting_approval") return false;
-  if (approvals.some((item) => item.resolved == null && (item.taskId === task.id || item.taskId == null))) return false;
-  return (task.waitSeq ?? 0) > (task.decidedSeq ?? 0);
-}
-
-function noteWaiting(task: TaskView, seq: number): void {
-  task.status = "waiting_approval";
-  if (seq > (task.waitSeq ?? 0)) task.waitSeq = seq;
-}
-
-function noteDecided(task: TaskView, seq: number): void {
-  if (seq > (task.decidedSeq ?? 0)) task.decidedSeq = seq;
-}
-
-function stepKey(payload: Record<string, unknown>, seq: number): string {
-  const explicit = str(payload.step_id);
-  if (explicit) return explicit;
-  const position = optNum(payload.position);
-  if (position != null) return `pos-${position}-${str(payload.action)}`;
-  return `step-${seq}`;
-}
-
-function stepResult(payload: Record<string, unknown>): string {
-  for (const key of ["summary", "result_summary", "result_text", "result"]) {
-    const value = payload[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return "";
+function rememberActionResult(state: OrchScreenState, payload: Record<string, unknown>, seq: number): void {
+  const view = readActionEnvelope(payload, seq);
+  if (!view) return;
+  if (state.actionResults.some((item) => item.id === view.id)) return;
+  state.actionResults.push(view);
 }
 
 export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenAction): OrchScreenState {
-  if (action.type === "reset") return initialOrchScreen();
+  if (action.type === "reset") return initialOrchScreen(state.ownSession);
+  if (action.type === "task-status") {
+    const status = asTaskStatus(action.status);
+    if (!status) return state;
+    const tasks = state.tasks.map((task) => ({
+      ...task,
+      steps: task.steps.map((step) => ({ ...step, node: step.node ? { ...step.node } : null })),
+      checkpoints: task.checkpoints.map((checkpoint) => ({ ...checkpoint })),
+      validators: [...task.validators],
+      plan: task.plan.map((step) => ({ ...step })),
+    }));
+    const task = tasks.find((item) => item.id === action.taskId) ?? ensureTask(tasks, action.taskId);
+    task.status = status;
+    if (typeof action.resumeAllowed === "boolean") task.resumeAllowed = action.resumeAllowed;
+    return { ...state, tasks };
+  }
+  if (action.type === "session-snapshot") {
+    const tasks = state.tasks.map((task) => ({
+      ...task,
+      steps: task.steps.map((step) => ({ ...step, node: step.node ? { ...step.node } : null })),
+      checkpoints: task.checkpoints.map((checkpoint) => ({ ...checkpoint })),
+      validators: [...task.validators],
+      plan: task.plan.map((step) => ({ ...step })),
+    }));
+    const existing = tasks.find((item) => item.id === action.taskId);
+    const task = existing ?? ensureTask(tasks, action.taskId);
+    if (!existing) task.status = action.status;
+    if (task.resumeAllowed == null) task.resumeAllowed = action.resumeAllowed;
+    return { ...state, tasks };
+  }
+  if (action.type === "whitelist-denied") {
+    const tasks = state.tasks.map((task) => ({
+      ...task,
+      steps: task.steps.map((step) => ({ ...step, node: step.node ? { ...step.node } : null })),
+      checkpoints: task.checkpoints.map((checkpoint) => ({ ...checkpoint })),
+      validators: [...task.validators],
+      plan: task.plan.map((step) => ({ ...step })),
+    }));
+    if (action.taskId) {
+      const task = tasks.find((item) => item.id === action.taskId) ?? ensureTask(tasks, action.taskId);
+      task.status = "failed";
+      task.resumeAllowed = false;
+    }
+    const approvals = state.approvals.map((item) =>
+      item.id === action.approvalId ? { ...item, resolved: "closed" as const } : { ...item },
+    );
+    if (!approvals.some((item) => item.reason === NOT_IN_WHITELIST && item.resolved == null)) {
+      approvals.push({
+        id: `block-whitelist-${action.approvalId}`,
+        serverId: false,
+        changeId: null,
+        sessionId: null,
+        taskId: action.taskId,
+        title: "",
+        reason: NOT_IN_WHITELIST,
+        risk: "",
+        action: "",
+        costEstimate: null,
+        retryArmed: null,
+        actions: null,
+        stepChangeId: null,
+        plan: [],
+        resolved: null,
+      });
+    }
+    return { ...state, tasks, approvals };
+  }
   if (action.type === "user-message") {
     return {
       ...state,
       messages: [
         ...state.messages,
-        {
-          id: action.id,
-          role: "user",
-          text: action.text,
-          taskId: action.taskId,
-          seq: null,
-          messageId: null,
-          streaming: false,
-          final: true,
-          kind: "text",
-        },
+        { id: action.id, role: "user", text: action.text, taskId: action.taskId },
       ],
-    };
-  }
-  if (action.type === "user-message-unsent") {
-    const known = state.messages.reduce((max, item) => (item.seq != null && item.seq > max ? item.seq : max), 0);
-    return {
-      ...state,
-      messages: state.messages.map((item) =>
-        item.id === action.id && item.seq == null ? { ...item, seq: known + 0.5 } : item,
-      ),
     };
   }
   if (action.type === "kill-notice") {
@@ -893,30 +878,32 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
         phase: action.phase,
         taskId: action.taskId ?? state.killNotice?.taskId ?? null,
         sessionId: action.sessionId ?? state.killNotice?.sessionId ?? null,
+        lateStopWarning: action.phase === "stopped" ? state.killNotice?.lateStopWarning ?? "" : "",
       },
     };
   }
+  if (action.type === "snapshot") {
+    const status = asTaskStatus(action.status);
+    if (!status) return state;
+    const wanted = action.taskId;
+    const known = wanted != null && state.tasks.some((task) => task.id === wanted);
+    const target = known ? wanted : state.tasks.at(-1)?.id;
+    if (!target) return state;
+    return {
+      ...state,
+      tasks: state.tasks.map((task) => (task.id === target ? { ...task, status } : task)),
+    };
+  }
+
   if (action.type === "approval-resolved") {
-    const target = state.approvals.find((item) => item.id === action.id);
-    const applies = target != null && (action.decision === "closed" || target.serverId);
-    const approvals = state.approvals.map((item) =>
-      item.id === action.id && applies ? { ...item, resolved: action.decision } : item,
-    );
-    const known = state.tasks.reduce((max, item) => Math.max(max, item.lastSeq, item.waitSeq ?? 0), 0);
-    const tasks =
-      applies && target?.taskId
-        ? state.tasks.map((item): TaskView => {
-            if (item.id !== target.taskId) return item;
-            const still = approvals.some((entry) => entry.resolved == null && entry.taskId === item.id);
-            const resume = action.decision === "approved" && !still && item.status === "waiting_approval";
-            return {
-              ...item,
-              decidedSeq: Math.max(item.decidedSeq ?? 0, known),
-              status: resume ? "executing" : item.status,
-            };
-          })
-        : state.tasks;
-    return { ...state, approvals, tasks };
+    return {
+      ...state,
+      approvals: state.approvals.map((item) => {
+        if (item.id !== action.id) return item;
+        if (action.decision !== "closed" && !item.serverId) return item;
+        return { ...item, resolved: action.decision };
+      }),
+    };
   }
 
   const event = action.event;
@@ -935,13 +922,29 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
       plan: task.plan.map((step) => ({ ...step })),
     })),
     approvals: state.approvals.map((item) => ({ ...item })),
+    actionResults: state.actionResults.map((item) => ({ ...item })),
   };
   const payload = asRecord(event.payload);
   const taskId = taskKey(event.task_id);
   if (event.type !== "approval_required") {
     const decided = approvalDecision(payload.decision ?? payload.approval_decision);
-    const decidedId = serverApprovalId(payload.approval_id);
-    if (decided && decidedId) closeServerApproval(next, decidedId, decided);
+    const key = approvalDecisionKey(payload);
+    if (decided && key) closeServerApproval(next, key, decided);
+  }
+
+  if (event.type === "approval_decided") {
+    const decided = approvalDecision(payload.decision);
+    const id = serverApprovalId(payload.change_id) ?? serverApprovalId(payload.approval_id);
+    if (decided && id) closeServerApproval(next, id, decided);
+    if (decided === "rejected") {
+      const idTask = taskId ?? taskKey(payload.task_id);
+      if (idTask) {
+        const task = ensureTask(next.tasks, idTask);
+        task.status = "failed";
+        task.resumeAllowed = false;
+      }
+    }
+    return next;
   }
 
   if (event.type === "ack") {
@@ -952,7 +955,6 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
       text: accepted || !str(payload.text) ? "принял, разбираю" : str(payload.text),
       seq: event.seq,
     };
-    if (accepted || echoed) placeUser(next, event.seq, taskId, echoed);
     return next;
   }
 
@@ -971,38 +973,36 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
         noteKillRequested(next, payload, { taskId, sessionId: event.session_id || null });
       }
     }
-    absorbLlmSignal(next, taskId, payload, event.seq);
+    absorbLlmSignal(next, taskId, payload, event.seq, event.session_id || null);
     return next;
   }
 
   if (event.type === "message") {
     const text = str(payload.text);
-    if (text && str(payload.role) === "user") placeUser(next, event.seq, taskId, text);
-    else if (text && str(payload.kind) === "action_result" && taskId) placeDetail(next, event.seq, taskId, text);
-    else if (text) {
-      finishAssistant(next, event.seq, taskId, text, messageKey(payload.message_id), str(payload.kind) === "task_summary");
-    }
-    absorbLlmSignal(next, taskId, payload, event.seq);
-    return next;
-  }
-
-  if (event.type === "message_start") {
-    if (str(payload.role, "assistant") !== "user") startAssistant(next, event.seq, taskId, messageKey(payload.message_id));
-    return next;
-  }
-
-  if (event.type === "message_end") {
-    endAssistant(next, messageKey(payload.message_id));
+    if (text && str(payload.role) !== "user") appendToken(next, taskId, text);
+    absorbLlmSignal(next, taskId, payload, event.seq, event.session_id || null);
+    rememberActionResult(next, payload, event.seq);
     return next;
   }
 
   if (event.type === "token") {
-    appendToken(next, event.seq, taskId, str(payload.text), messageKey(payload.message_id));
+    appendToken(next, taskId, str(payload.text));
     return next;
   }
 
   if (event.type === "kill_switch") {
     noteKillRequested(next, payload, { taskId, sessionId: event.session_id || null });
+    return next;
+  }
+
+  if (event.type === "partial_write") {
+    const position = payload.position;
+    next.partialWrite = {
+      seq: event.seq,
+      taskId: taskId ?? taskKey(payload.task_id),
+      level: str(payload.level) || "WARN",
+      position: typeof position === "number" && Number.isFinite(position) ? position : null,
+    };
     return next;
   }
 
@@ -1013,78 +1013,64 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
       found.status = str(payload.status, found.status);
       found.detail = str(payload.detail);
     }
-    const taskStatusRaw = str(payload.task_status);
+    // Мок пишет task_status. Супервизор WS3 шлёт только {status, agent:"supervisor"}.
+    const taskStatusRaw =
+      str(payload.task_status) || (agent === "supervisor" ? str(payload.status) : "");
     if (isTerminalKillStatus(taskStatusRaw)) noteTaskCancelled(next, event);
     if (!taskId) return next;
-    const task = ensureTask(next.tasks, taskId, str(payload.title) || undefined, event.seq);
+    const sessionId = event.session_id || null;
     const taskStatus = asTaskStatus(taskStatusRaw);
-    if (taskStatus) {
-      task.status = taskStatus;
-      if (taskStatus === "waiting_approval") noteWaiting(task, event.seq);
-    } else if (agent === "supervisor" && !taskStatusRaw) {
-      const own = asTaskStatus(str(payload.status));
-      if (own && !(TERMINAL_TASK.has(task.status) && !TERMINAL_TASK.has(own))) {
-        task.status = own;
-        if (own === "waiting_approval") noteWaiting(task, event.seq);
-        // Итог задачи: «empty_plan» (не понял) и «rejected» (отклонено) — серые, не ошибка.
-        if (TERMINAL_TASK.has(own) && str(payload.reason)) task.reason = str(payload.reason);
-      }
+    const title = str(payload.title) || undefined;
+    const task = taskStatus
+      ? applyTaskStatus(next, taskId, taskStatus, sessionId, title)
+      : acceptsTaskSession(next, sessionId)
+        ? ensureTask(next.tasks, taskId, title)
+        : null;
+    if (task && (!task.sessionId || task.sessionId === sessionId) && typeof payload.resume_allowed === "boolean") {
+      task.resumeAllowed = payload.resume_allowed;
+    }
+    if (task && taskStatus === "executing" && next.killNotice?.phase === "stopped") {
+      const noticeSession = next.killNotice.sessionId;
+      if (!noticeSession || !sessionId || noticeSession === sessionId) next.killNotice = null;
     }
     return next;
   }
 
-  if (
-    (event.type === "step_started" ||
-      event.type === "step_finished" ||
-      event.type === "step_progress" ||
-      event.type === "step_failed" ||
-      event.type === "step_skipped") &&
-    taskId
-  ) {
-    const task = ensureTask(next.tasks, taskId, undefined, event.seq);
-    task.stepSeq = Math.max(task.stepSeq, event.seq);
-    if (event.type === "step_started" && task.status === "queued") task.status = "executing";
-    const stepId = stepKey(payload, event.seq);
+  if ((event.type === "step_started" || event.type === "step_finished") && taskId) {
+    const task = ensureTask(next.tasks, taskId);
+    if (event.type === "step_started" && task.status === "queued") {
+      applyTaskStatus(next, taskId, "executing", event.session_id || null);
+    }
+    const stepId = str(payload.step_id, `step-${event.seq}`);
     let step = task.steps.find((item) => item.id === stepId);
     if (!step) {
       step = {
         id: stepId,
-        title: str(payload.title, str(payload.action, stepId)),
+        title: str(payload.title, stepId),
         action: str(payload.action),
         paid: payload.paid === true,
         status: "running",
         note: "",
         node: null,
-        progress: null,
-        result: "",
       };
       task.steps.push(step);
     }
     step.title = str(payload.title, step.title);
     step.action = str(payload.action, step.action);
     if (payload.paid === true) step.paid = true;
-    step.note = str(payload.note, step.note) || textList(payload.warnings).join("; ");
-    step.result = stepResult(payload) || step.result;
+    step.note = str(payload.note, step.note);
     const node = readNodeDef(payload.node);
     if (node) step.node = node;
-    const progress = readProgress(payload.progress ?? payload.percent);
-    if (progress != null) step.progress = progress;
     if (event.type === "step_finished") {
       const body = payload as StepPayload & Record<string, unknown>;
       step.status = body.ok === false ? "failed" : "done";
-      if (step.status === "done") step.progress = null;
-    } else if (event.type === "step_failed") {
-      step.status = "failed";
-      step.note = str(payload.error, step.note);
-    } else if (event.type === "step_skipped") {
-      step.status = "skipped";
-      step.note = str(payload.reason, step.note);
+      rememberActionResult(next, payload, event.seq);
     }
     return next;
   }
 
   if (event.type === "checkpoint" && taskId) {
-    const task = ensureTask(next.tasks, taskId, undefined, event.seq);
+    const task = ensureTask(next.tasks, taskId);
     const id = str(payload.checkpoint_id, `cp-${event.seq}`);
     const plan = readPlanSteps(payload.plan);
     if (plan.length) task.plan = plan;
@@ -1095,13 +1081,14 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
         stepId: str(body.step_id),
         summary: str(body.summary, plan.length ? "план" : "чекпоинт"),
         spend: typeof body.spend === "number" ? body.spend : null,
+        changeIds: readChangeIds(body.change_ids),
       });
     }
     return next;
   }
 
   if (event.type === "validator_result" && taskId) {
-    const task = ensureTask(next.tasks, taskId, undefined, event.seq);
+    const task = ensureTask(next.tasks, taskId);
     const body = payload as ValidatorResultPayload & Record<string, unknown>;
     task.validators.push({
       name: str(body.name, "validator"),
@@ -1114,110 +1101,71 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
 
   if (event.type === "approval_required") {
     const body = payload as ApprovalPayload & Record<string, unknown>;
+    const reason = str(body.reason);
+    const sessionId = event.session_id || null;
+    if (taskId) {
+      if (isTerminalBlock(reason)) {
+        const task = applyTaskStatus(next, taskId, blockOutcome(reason) ?? "failed", sessionId);
+        if (task) task.error = reason;
+      } else {
+        applyTaskStatus(next, taskId, "waiting_approval", sessionId);
+      }
+    }
     const fromServer = approvalServerKey(body);
     const id = fromServer ?? `local-${event.seq}`;
     if (!next.approvals.some((item) => item.id === id)) {
       next.approvals.push({
         id,
         serverId: fromServer != null,
+        changeId: approvalWireChangeId(body),
+        sessionId,
         taskId,
         title: str(body.title, "Нужно подтверждение"),
-        reason: str(body.reason),
+        reason,
         risk: str(body.risk, "medium"),
         action: str(body.action),
         costEstimate: typeof body.cost_estimate === "number" ? body.cost_estimate : null,
-        ...readApprovalExtras(body),
+        retryArmed: typeof body.retry_armed === "boolean" ? body.retry_armed : null,
+        plan: readApprovalPlan(body.plan),
+        ...approvalWire(body),
         resolved: null,
-        seq: event.seq,
       });
-    }
-    if (taskId) {
-      const task = ensureTask(next.tasks, taskId, undefined, event.seq);
-      const reason = str(body.reason);
-      if (isTerminalBlock(reason)) {
-        task.status = blockOutcome(reason) ?? "failed";
-        task.error = reason;
-      } else {
-        noteWaiting(task, event.seq);
-      }
     }
     return next;
   }
 
   if (event.type === "task_done" && taskId) {
-    const task = ensureTask(next.tasks, taskId, undefined, event.seq);
-    task.status = "done";
-    // Задача завершена — её подтверждения уже не ждут решения.
-    for (const item of next.approvals) {
-      if (item.taskId === taskId && item.serverId && item.resolved == null) item.resolved = "closed";
-    }
+    const task = applyTaskStatus(next, taskId, "done", event.session_id || null);
+    if (!task) return next;
     task.summary = str(payload.summary);
-    placeOutcome(next, event.seq, taskId, "done");
+    task.resumeAllowed = false;
     return next;
   }
 
   if (event.type === "task_failed" && taskId) {
-    const task = ensureTask(next.tasks, taskId, undefined, event.seq);
-    task.status = "failed";
+    const task = applyTaskStatus(next, taskId, "failed", event.session_id || null);
+    if (!task) return next;
+    task.resumeAllowed = false;
     const error = str(payload.error, str(payload.summary, "задача упала"));
     task.error = error;
-    task.reason = str(payload.reason);
-    if (!isTerminalBlock(error) && task.reason !== "rejected") placeOutcome(next, event.seq, taskId, "failed");
-    else closeTaskStreams(next, taskId);
     if (isTerminalBlock(error) && !next.approvals.some((item) => item.id === `block-${event.seq}`)) {
       next.approvals.push({
         id: `block-${event.seq}`,
         serverId: false,
+        changeId: null,
+        sessionId: event.session_id || null,
         taskId,
         title: "",
         reason: error,
         risk: "",
         action: "",
         costEstimate: null,
-        costCredits: null,
-        warnings: [],
-        effects: [],
-        steps: [],
-        costText: "",
+        retryArmed: null,
+        actions: null,
+        stepChangeId: null,
+        plan: [],
         resolved: null,
       });
-    }
-    return next;
-  }
-
-  if (event.type === "approval_decided") {
-    const id = approvalServerKey(payload);
-    // decision: null — сервер закрыл подтверждение без решения (заменено, задача снята):
-    // без этого после перезапуска старая карточка вставала из истории с живыми кнопками.
-    const decided =
-      approvalDecision(payload.decision) ??
-      (payload.decision === "deny" ? "rejected" : payload.decision == null ? "closed" : null);
-    if (id && decided) closeServerApproval(next, id, decided);
-    if (taskId) {
-      const task = ensureTask(next.tasks, taskId, undefined, event.seq);
-      noteDecided(task, event.seq);
-      const still = next.approvals.some((item) => item.resolved == null && item.taskId === taskId);
-      if (decided === "approved" && !still && task.status === "waiting_approval") task.status = "executing";
-    }
-    return next;
-  }
-
-  if (event.type === "paid_retry_blocked") {
-    if (!next.messages.some((item) => item.id === `notice-${event.seq}`)) {
-      next.messages.push({
-        id: `notice-${event.seq}`,
-        role: "assistant",
-        text:
-          "Повтор платного шага не запущен: неизвестно, прошла ли прошлая оплата. " +
-          "Проверьте результат в кабинете провайдера и решите вручную.",
-        taskId,
-        seq: event.seq,
-        messageId: null,
-        streaming: false,
-        final: true,
-        kind: "text",
-      });
-      sortMessages(next.messages);
     }
     return next;
   }

@@ -213,3 +213,41 @@ async def test_disabling_the_tier_makes_everything_paid(db, monkeypatch) -> None
     async with db() as s:
         assert not (await free_tier_state(s, tenant)).active
         assert not await check_step_allowed(s, tenant, step_code="plan", project_id=1, cost_usd=0.01)
+
+
+async def test_tenant_with_positive_balance_transitions_to_paid_when_limit_hit(db) -> None:
+    """Клиент с балансом не блокируется ошибкой FreeTierExhausted, а платит обычным порядком."""
+    from app.services import credit_ledger as cl
+
+    tenant = str(uuid.uuid4())
+    async with db() as s:
+        # Лимит 1 проект: проект 7 уже получил промо
+        await record_promo(s, tenant, project_id=7, step_code="plan", cost_usd=0.01)
+        # У клиента есть платный баланс
+        await cl.topup(s, tenant, 10_000_000)
+        await s.commit()
+
+    async with db() as s:
+        # Проект 8 сверх лимита бесплатных проектов возвращает False (платить), а не падает
+        allowed_free = await check_step_allowed(s, tenant, step_code="plan", project_id=8, cost_usd=0.01)
+        assert allowed_free is False
+
+
+async def test_idle_or_finished_promo_project_does_not_block_new_project(db) -> None:
+    """Завершённый промо-проект (раскадровка готова) не блокирует новый проект."""
+    tenant = str(uuid.uuid4())
+    async with db() as s:
+        p1 = Project(id=101, slug="p1-finished", topic="гараж", status=ProjectStatus.animation_prompts_ready)
+        p2 = Project(id=102, slug="p2-new", topic="микродом", status=ProjectStatus.new)
+        s.add_all([p1, p2])
+        await s.flush()
+        await record_promo(s, tenant, project_id=101, step_code="plan", cost_usd=0.50)
+        await s.commit()
+
+    async with db() as s:
+        state = await free_tier_state(s, tenant)
+        # Проект 101 не числится в активных проектах подарка
+        assert 101 not in state.projects
+        assert state.project_count == 0
+        # Проект 102 успешно запускается бесплатно
+        assert await check_step_allowed(s, tenant, step_code="plan", project_id=102, cost_usd=0.10)

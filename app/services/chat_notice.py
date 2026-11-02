@@ -185,7 +185,7 @@ def clean_actions(actions: Any) -> list[dict]:
         problems = registry.validate_params(action_id, params)
         if problems:
             _bump("dropped_actions")
-            logger.warning("chat_notice: bad params for {} dropped: {}", action_id, problems[:3])
+            logger.warning("chat_notice: bad params for {} dropped: {}", action_id, list(problems)[:3])
             continue
         label = _clip(item.get("label") or spec.title_ru, LABEL_LIMIT)
         out.append(
@@ -320,7 +320,7 @@ def _remember(dedup_key: str) -> None:
     with _LOCK:
         _recent[(_scope(), dedup_key)] = time.monotonic()
         if len(_recent) > 5000:
-            for k in sorted(_recent, key=_recent.get)[:1000]:
+            for k in sorted(_recent, key=lambda key: _recent[key])[:1000]:
                 _recent.pop(k, None)
 
 
@@ -616,7 +616,8 @@ _ABANDON_REASON_RU = {
 
 async def step_failure(project: Any, action: str, error: BaseException | None = None) -> dict | None:
     meta = project.meta if isinstance(getattr(project, "meta", None), dict) else {}
-    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+    raw_fs = meta.get("step_failure")
+    fs: dict[str, Any] = raw_fs if isinstance(raw_fs, dict) else {}
     running = fs.get("last_running")
     step = _step_of(running)
     name = step.title if step else "шаг"

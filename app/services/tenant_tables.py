@@ -43,6 +43,42 @@ BASE_TENANT_TABLES: tuple[str, ...] = (
     # в режиме владельца, клиентские — только своему арендатору. Разрешение
     # «системный → арендатор» держит `prompt_store`, изоляцию — политика.
     "prompt_library",
+    # Слой действий и контроль изменений движка (#98). Таблицы создаёт
+    # create_all в lifespan, не alembic — RLS навешивает rls_apply / 0019.
+    "action_layer_plans",
+    "action_layer_steps",
+    "action_layer_approvals",
+    "action_layer_spend",
+    "action_layer_history",
+    "action_layer_plan_context",
+    "action_layer_macros",
+    "action_layer_calls",
+    "action_layer_snapshots",
+    "action_layer_attachments",
+    "change_proposals",
+    "config_versions",
+    "config_pointers",
+    # Слой оркестратора v1, решения, диагностика, запуски и медиа
+    "action_execution_controls",
+    "action_node_recoveries",
+    "action_v1_records",
+    "decision_execution_controls",
+    "decision_records",
+    "decision_runtime_bindings",
+    "decision_turns",
+    "managed_launches",
+    "managed_run_allowances",
+    "node_profile_overlays",
+    "observation_commit_uncertainty",
+    "observation_degradations",
+    "observation_diagnosis",
+    "observation_events",
+    "observation_executions",
+    "observation_incidents",
+    "observation_outbox",
+    "orchestrator_media_jobs",
+    "orchestrator_media_requests",
+    "outsee_idempotency",
 )
 
 #: Таблицы движка оркестратора (перенесён из video-pipeline int/chat-v1),
@@ -56,7 +92,7 @@ BASE_TENANT_TABLES: tuple[str, ...] = (
 #: читают их только в контексте этого проекта.
 #:
 #: Колонку на свежей базе создаёт baseline (модели уже несут `tenant_id`),
-#: политику — 0006 (идёт по `all_isolated()` в момент прогона). Ревизия 0020
+#: политику — 0006 (идёт по `all_isolated()` в момент прогона). Ревизия 0023
 #: догоняет базы, где таблицы были созданы раньше.
 ENGINE_TENANT_TABLES: tuple[str, ...] = (
     "action_layer_approvals",
@@ -95,14 +131,14 @@ ENGINE_TENANT_TABLES: tuple[str, ...] = (
 )
 
 #: Таблицы движка без моделей в `Base.metadata`: их пишет сырой SQL через
-#: `app/orchestrator/db` (ревизия 0018). Это история чата целиком — задачи и
+#: `app/orchestrator/db` (ревизия 0021). Это история чата целиком — задачи и
 #: их шаги, чекпоинты, события шины с нумерацией, очередь сообщений, вызовы
 #: LLM, отчёты, уведомления в чат. `check_coverage` их не видит (моделей
 #: нет), поэтому живая база сверяется отдельно: `check_database_coverage`.
 #:
 #: Сырые вставки не перечисляют `tenant_id`: на Postgres колонка получает
 #: его значением по умолчанию из `app.tenant_id` транзакции — той же
-#: настройки, которую читает политика (ревизия 0020). Забыть проставить
+#: настройки, которую читает политика (ревизия 0023). Забыть проставить
 #: нельзя, чужого арендатора вставка не получит: `WITH CHECK` сверяет то же.
 ORCH_RAW_TENANT_TABLES: tuple[str, ...] = (
     "orch_tasks",
@@ -144,6 +180,12 @@ INFRA_TABLES: frozenset[str] = frozenset(
         "email_verifications",
         "coupons",
         "coupon_redemptions",
+        # Глобальный рубильник супервизора: без tenant_id, общий на узел.
+        "supervisor_kill_switch",
+        "supervisor_kill_switch_history",
+        # Учёт расходов и задач провайдеров на уровне узла (без tenant_id)
+        "spend_ledger",
+        "provider_task_ledger",
     }
 )
 
@@ -179,7 +221,7 @@ ORCH_RAW_SHARED_TABLES: frozenset[str] = frozenset(
     {"node_defs", "node_prompt_versions", "orch_schema_migrations"}
 )
 
-#: Журнал публикаций (ревизия 0019): относить ли его к данным арендатора,
+#: Журнал публикаций (ревизия 0022): относить ли его к данным арендатора,
 #: решает заказчик. До решения таблицы общие, и ни одной ручки участнику к
 #: ним не открыто. Список нужен `check_database_coverage`, чтобы новая
 #: неклассифицированная таблица не пряталась среди этих.

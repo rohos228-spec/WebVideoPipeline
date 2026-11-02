@@ -2,17 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Loader2, Plus, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, Loader2, Plus, Sparkles, TextSelect, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   api,
-  type MontagePendingOp,
   type SceneAnchorRow,
   type SceneVariant,
   type SceneVariantKind,
 } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
-import type { MontageAnchorRow, MontageBoardFrame, MontageTemplateChoice } from "@/lib/types";
+import type {
+  MontageAnchorRow,
+  MontageBoardFrame,
+  MontageImproveReport,
+  MontageSceneChainRow,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Строки сцены живут прямо в клетках доски — никаких всплывающих окон. */
@@ -395,7 +399,7 @@ export function RoleCell({
         {kind === "child" ? (
           <button
             type="button"
-            title="Удалить дочерний кадр"
+            title="Скрыть дочерний кадр"
             disabled={disabled}
             onClick={onDeleteChild}
             className="rounded-md p-1 text-white/30 transition hover:bg-rose-500/15 hover:text-rose-200 disabled:opacity-40"
@@ -659,6 +663,242 @@ export function mergeAnchorRows(
 }
 
 /** Якоря VO-ячейки: где сцена режется на кадры. */
+export type MontageVoSpan = {
+  start: number;
+  end: number;
+  text: string;
+  full?: string;
+};
+
+export function VoUnusedWarn({
+  before,
+  after,
+  between,
+}: {
+  before?: string;
+  after?: string;
+  between?: string[];
+}) {
+  const beforeText = (before || "").trim();
+  const afterText = (after || "").trim();
+  const skipped = (between || []).map((t) => t.trim()).filter(Boolean);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const overChip = useRef(false);
+  const overPanel = useRef(false);
+  const [open, setOpen] = useState(false);
+  const [box, setBox] = useState<{ top: number; left: number } | null>(null);
+  const pieces: { label: string; text: string }[] = [];
+  if (beforeText) pieces.push({ label: "до", text: beforeText });
+  for (const text of skipped) pieces.push({ label: "между кадрами", text });
+  if (afterText) pieces.push({ label: "после", text: afterText });
+
+  const place = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const width = Math.min(352, window.innerWidth - 16);
+    const left = Math.min(Math.max(8, r.right - width), window.innerWidth - width - 8);
+    const top = r.bottom + 6;
+    setBox({ top, left });
+  }, []);
+
+  const cancelHide = () => {
+    if (hideTimer.current != null) {
+      window.clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
+  };
+  const show = () => {
+    cancelHide();
+    place();
+    setOpen(true);
+  };
+  const hide = () => {
+    cancelHide();
+    hideTimer.current = setTimeout(() => {
+      hideTimer.current = null;
+      if (!overChip.current && !overPanel.current) setOpen(false);
+    }, 220);
+  };
+
+  useEffect(() => () => cancelHide(), []);
+
+  if (!pieces.length) return null;
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={btnRef}
+        type="button"
+        className="inline-flex items-center gap-1 rounded-md border border-amber-400/80 bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-100 shadow-lg"
+        aria-label="Пропущенный закадровый текст"
+        onMouseEnter={() => {
+          overChip.current = true;
+          show();
+        }}
+        onFocus={show}
+        onMouseLeave={() => {
+          overChip.current = false;
+          hide();
+        }}
+        onBlur={hide}
+      >
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        пропущен закадр
+        {pieces.length > 1 ? (
+          <span className="font-normal normal-case text-amber-100/80">· {pieces.length}</span>
+        ) : null}
+      </button>
+      {open && box && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="max-h-48 w-[min(22rem,calc(100vw-1rem))] overflow-y-auto rounded-md border border-amber-400/60 bg-amber-950/98 px-2 py-1.5 shadow-2xl"
+              style={{
+                position: "fixed",
+                top: box.top,
+                left: box.left,
+                zIndex: 10200,
+              }}
+              onMouseEnter={() => {
+                overPanel.current = true;
+                show();
+              }}
+              onMouseLeave={() => {
+                overPanel.current = false;
+                hide();
+              }}
+            >
+              {pieces.map((p, i) => (
+                <div key={`${p.label}-${i}`} className={i ? "mt-1.5" : undefined}>
+                  <div className="text-[9px] font-semibold uppercase tracking-wide text-amber-300/90">
+                    {p.label}
+                  </div>
+                  <p className="cursor-text select-text whitespace-pre-wrap break-words text-[10px] leading-snug text-amber-50">
+                    {p.text}
+                  </p>
+                </div>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
+    </div>
+  );
+}
+
+function VoSpanEditor({
+  full,
+  span,
+  disabled,
+  onSave,
+}: {
+  full: string;
+  span: MontageVoSpan | null;
+  disabled?: boolean;
+  onSave: (next: MontageVoSpan | null) => void;
+}) {
+  const areaRef = useRef<HTMLTextAreaElement>(null);
+  const [text, setText] = useState(full);
+  const [draft, setDraft] = useState<MontageVoSpan | null>(span);
+
+  useEffect(() => {
+    setText(full);
+  }, [full]);
+
+  useEffect(() => {
+    setDraft(span);
+  }, [span?.start, span?.end, span?.text]);
+
+  const capture = () => {
+    const el = areaRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    if (end <= start) return;
+    const piece = text.slice(start, end);
+    if (!piece.trim()) return;
+    setDraft({ start, end, text: piece, full: text });
+  };
+
+  const commit = () => {
+    const el = areaRef.current;
+    const start = el?.selectionStart ?? 0;
+    const end = el?.selectionEnd ?? 0;
+    const hasSel = end > start && text.slice(start, end).trim();
+    const piece = hasSel ? text.slice(start, end) : text;
+    const from = hasSel ? start : 0;
+    const to = hasSel ? end : text.length;
+    if (!piece.trim()) return;
+    onSave({ start: from, end: to, text: piece, full: text });
+  };
+
+  const selected = (draft?.text || "").trim();
+  const saved = (span?.text || "").trim();
+  const dirty = text !== full;
+
+  return (
+    <div className="relative mb-2 rounded-md border border-white/15 bg-black/30 p-2">
+      <span className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+        <TextSelect className="h-3 w-3" />
+        закадр этой сцены
+      </span>
+      <p className={cn(HINT, "mb-1")}>
+        правьте текст здесь. можно выделить кусок мышкой — сохранится он.
+        без выделения сохранится весь текст окна.
+      </p>
+      <textarea
+        ref={areaRef}
+        className={cn(FIELD, "min-h-[7rem] resize-y")}
+        value={text}
+        disabled={disabled}
+        onChange={(e) => setText(e.target.value)}
+        onMouseUp={capture}
+        onKeyUp={capture}
+      />
+      {selected ? (
+        <p className={cn(HINT, "mt-1")} style={{ color: ACCENT }}>
+          выделено {selected.length} зн.: «{selected.slice(0, 120)}
+          {selected.length > 120 ? "…" : ""}»
+        </p>
+      ) : saved ? (
+        <p className={cn(HINT, "mt-1")} style={{ color: ACCENT }}>
+          сцена владеет: «{saved.slice(0, 120)}
+          {saved.length > 120 ? "…" : ""}»
+        </p>
+      ) : dirty ? (
+        <p className={cn(HINT, "mt-1")}>текст изменён — нажмите сохранить</p>
+      ) : (
+        <p className={cn(HINT, "mt-1")}>сцена владеет всем текстом окна</p>
+      )}
+      <div className="mt-1.5 flex items-center justify-end gap-1.5">
+        {saved || selected || dirty ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              setDraft(null);
+              setText(full);
+              onSave(null);
+            }}
+            className="rounded-md px-1.5 py-0.5 text-[10px] text-white/45 hover:text-white"
+          >
+            снять
+          </button>
+        ) : null}
+        <button
+          type="button"
+          disabled={disabled || !text.trim()}
+          onClick={commit}
+          className="rounded-md px-2 py-1 text-[11px] font-semibold text-black disabled:opacity-40"
+          style={{ backgroundColor: ACCENT }}
+        >
+          сохранить как закадр сцены
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function AnchorCell({
   projectId,
   frameId,
@@ -671,7 +911,9 @@ export function AnchorCell({
   pending,
   disabled,
   heading,
+  voSpan,
   onCommit,
+  onSaveVoSpan,
 }: {
   projectId: number | null;
   frameId: number;
@@ -684,7 +926,9 @@ export function AnchorCell({
   pending?: boolean;
   disabled?: boolean;
   heading?: string;
+  voSpan?: MontageVoSpan | null;
   onCommit: (anchors: SceneAnchorRow[]) => void;
+  onSaveVoSpan?: (next: MontageVoSpan | null) => void;
 }) {
   const [draft, setDraft] = useState<MontageAnchorRow[]>(rows);
   const { ask, busy, clear, kind, variants } = useSceneVariants(projectId, frameId);
@@ -707,7 +951,6 @@ export function AnchorCell({
     const key = JSON.stringify(next);
     if (key === savedRef.current) return;
     const ops = mergeAnchorRows(next, cellRows, canAdd, frameNumber);
-    if (!ops.length) return;
     savedRef.current = key;
     onCommit(ops);
   };
@@ -722,6 +965,14 @@ export function AnchorCell({
 
   return (
     <div className={cn("relative rounded-md p-0.5", pending && "bg-amber-500/10")}>
+      {onSaveVoSpan ? (
+        <VoSpanEditor
+          full={cellText || frameText || ""}
+          span={voSpan ?? null}
+          disabled={disabled}
+          onSave={onSaveVoSpan}
+        />
+      ) : null}
       {heading ? (
         <span className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/55">
           {heading}
@@ -766,14 +1017,6 @@ export function AnchorCell({
                   }
                   placeholder="дословный кусок закадра кадра"
                   onChange={(e) => patch(i, "якорь", e.target.value)}
-                  onBlur={() => commit(draft)}
-                />
-                <input
-                  className={cn(FIELD, "mt-1 text-[10px]")}
-                  value={row["изменение"] || ""}
-                  disabled={disabled}
-                  placeholder="было → стало"
-                  onChange={(e) => patch(i, "изменение", e.target.value)}
                   onBlur={() => commit(draft)}
                 />
               </div>
@@ -857,349 +1100,304 @@ export function AnchorCell({
 }
 
 /**
- * Формат сцены (шаблон T0…T10 / X1 / X2). В строке сцены больше не
- * показывается — каталог не используется. Компонент оставлен, пока жив
- * `coverage_template` в API.
+ * Промт оператора + генерация сцен ячейки / пересборка кусков ``N.``.
+ * GPT берёт промт action группы, не гоняет всю ноду fw_action.
  */
-export function TemplateCell({
+export function SceneGenerateBlock({
   projectId,
   frameId,
-  value,
-  auto,
-  choices,
-  frameNumbers,
-  pending,
+  chain,
   disabled,
-  onPick,
+  onDone,
+  onImprove,
+  onGenerateImages,
 }: {
-  projectId: number | null;
+  projectId: number;
   frameId: number;
-  value: string;
-  auto: string;
-  choices: MontageTemplateChoice[] | undefined;
-  frameNumbers: number[];
-  pending?: boolean;
+  chain: MontageSceneChainRow[];
   disabled?: boolean;
-  onPick: (template: string) => void;
+  onDone?: (result?: {
+    frame_numbers?: number[];
+    inserted_frames?: number;
+    shots?: number;
+    skipped_shots?: number;
+  }) => void;
+  onImprove?: (prompt: string) => Promise<MontageImproveReport | undefined | void> | void;
+  onGenerateImages?: () => Promise<void> | void;
 }) {
-  const [detailsOpen, setDetailsOpen] = useState(true);
-  const { ask, busy, clear, kind, variants } = useSceneVariants(projectId, frameId);
-  const items = choices || [];
-  const current = items.find((c) => c.id === value);
-  const groupLen = frameNumbers.length;
+  const [prompt, setPrompt] = useState("");
+  const [selected, setSelected] = useState<number[]>([]);
+  const [busy, setBusy] = useState<"all" | "pieces" | "improve" | "images" | null>(null);
+  const [report, setReport] = useState<MontageImproveReport | null>(null);
+
+  useEffect(() => {
+    const allowed = new Set(chain.map((row) => row.n));
+    setSelected((prev) => prev.filter((n) => allowed.has(n)));
+  }, [chain]);
+
+  const toggle = (n: number) => {
+    setSelected((prev) => (prev.includes(n) ? prev.filter((x) => x !== n) : [...prev, n].sort((a, b) => a - b)));
+  };
+
+  const run = async (replaceNs: number[]) => {
+    if (busy) return;
+    setBusy(replaceNs.length ? "pieces" : "all");
+    try {
+      const result = await api.generateSceneAction(projectId, frameId, {
+        prompt: prompt.trim(),
+        replace_ns: replaceNs,
+      });
+      const inserted = Number(result.inserted_frames || 0);
+      const shots = Number(result.shots || 0);
+      toast.success(
+        replaceNs.length
+          ? `Куски ${replaceNs.join(", ")} пересобраны`
+          : inserted
+            ? `Сцены записаны · ${inserted} заготовок кадров`
+            : `Сцены ячейки записаны${shots ? ` · ${shots} кадров` : ""}`,
+      );
+      onDone?.(result);
+    } catch (err) {
+      toast.error(errorMessageFromUnknown(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const improve = async () => {
+    if (busy || !onImprove) return;
+    setBusy("improve");
+    try {
+      const next = await onImprove(prompt.trim());
+      if (next) setReport(next);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const generateImages = async () => {
+    if (busy || !onGenerateImages) return;
+    setBusy("images");
+    try {
+      await onGenerateImages();
+    } catch (err) {
+      toast.error(errorMessageFromUnknown(err));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
-    <div className={cn("relative rounded-md p-0.5", pending && "bg-amber-500/10")}>
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="mr-0.5 text-[9px] uppercase tracking-wide text-white/35">
-          формат сцены
-        </span>
-        {items.map((c) => (
-          <Chip
-            key={c.id}
-            active={value === c.id}
-            disabled={disabled}
-            title={`${c.name} — ${c.when}`}
-            onClick={() => onPick(c.id)}
-          >
-            {c.id}
-          </Chip>
-        ))}
-        <AskButton
-          busy={busy === "template"}
-          disabled={disabled}
-          onClick={() => void ask("template", "")}
-        />
-        {auto && auto !== value ? (
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => onPick(auto)}
-            className="text-[10px] text-white/45 underline decoration-dotted transition hover:text-white disabled:opacity-40"
-          >
-            дерево «Выбор» предлагает {auto}
-          </button>
-        ) : null}
-      </div>
-      {current ? (
-        <div className="mt-1 rounded-lg border border-white/10 bg-black/30 p-1.5">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[11px] font-semibold" style={{ color: ACCENT }}>
-              {current.id} · {current.name}
-            </span>
-            <span className={HINT}>
-              {current.shots ? `${current.shots} шота в шаблоне · ` : ""}
-              кадров в ячейке {groupLen}
-            </span>
-            <button
-              type="button"
-              onClick={() => setDetailsOpen((v) => !v)}
-              className="ml-auto text-[10px] uppercase tracking-wide text-white/35 transition hover:text-white/70"
+    <div className="rounded-lg border border-white/12 bg-black/25 p-2">
+      <span className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+        <Sparkles className="h-3 w-3" />
+        сцены по промту
+      </span>
+      <textarea
+        className={cn(FIELD, "min-h-[3.5rem] resize-y")}
+        value={prompt}
+        disabled={disabled || Boolean(busy)}
+        placeholder="что сделать со сценами этой ячейки закадра"
+        onChange={(e) => setPrompt(e.target.value)}
+      />
+      {chain.length ? (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <span className="text-[9px] uppercase tracking-wide text-white/35">куски</span>
+          {chain.map((row) => (
+            <Chip
+              key={row.n}
+              active={selected.includes(row.n)}
+              disabled={disabled || Boolean(busy)}
+              title={[row.place, row.action].filter(Boolean).join(" — ")}
+              onClick={() => toggle(row.n)}
             >
-              {detailsOpen ? "скрыть" : "что это даёт"}
-            </button>
-          </div>
-          {detailsOpen ? (
-            <>
-              {current.when ? (
-                <p className="mt-1 text-[10px] leading-relaxed text-white/55">
-                  <span className="text-white/35">для чего: </span>
-                  {current.when}
-                </p>
-              ) : null}
-              <p className="mt-1.5 text-[9px] uppercase tracking-wide text-white/35">
-                последовательность кадров
-              </p>
-              <ol className="mt-0.5 space-y-0.5">
-                {current.plans.map((plan, i) => {
-                  const frameNo = frameNumbers[i];
-                  return (
-                    <li
-                      key={i}
-                      className={cn(
-                        "flex items-baseline gap-1.5 text-[10px]",
-                        frameNo ? "text-white/70" : "text-amber-200/70",
-                      )}
-                    >
-                      <span className="w-6 shrink-0 text-white/30">K{i + 1}</span>
-                      <span className="shrink-0 font-medium">{plan}</span>
-                      <span className="min-w-0 truncate text-white/35">
-                        {current.roles[i] || ""}
-                      </span>
-                      <span className="ml-auto shrink-0">
-                        {frameNo ? `кадр #${frameNo}` : "нет кадра — дописать якорь"}
-                      </span>
-                    </li>
-                  );
-                })}
-                {/* Кадров в сцене может быть больше, чем шотов у шаблона —
-                    такие показываем отдельно, а не прячем. */}
-                {frameNumbers.slice(current.plans.length).map((n) => (
-                  <li
-                    key={`extra-${n}`}
-                    className="flex items-baseline gap-1.5 text-[10px] text-white/45"
-                  >
-                    <span className="w-6 shrink-0 text-white/25">+</span>
-                    <span className="shrink-0 font-medium">{`кадр #${n}`}</span>
-                    <span className="ml-auto shrink-0">сверх шаблона</span>
-                  </li>
-                ))}
-              </ol>
-              {current.example ? (
-                <p className="mt-1 text-[10px] leading-relaxed text-white/35">
-                  <span className="text-white/25">пример: </span>
-                  {current.example}
-                </p>
-              ) : null}
-            </>
-          ) : null}
+              {row.n}.
+            </Chip>
+          ))}
         </div>
       ) : (
-        <p className={cn(HINT, "mt-1")}>
-          формат не выбран — нажми T-вариант, чтобы увидеть, для чего он и какие
-          кадры даёт
-        </p>
+        <p className={cn(HINT, "mt-1.5")}>кусков пока нет — сначала сгенерируйте сцены</p>
       )}
-      {kind === "template" ? (
-        <VariantBox
-          items={variants}
-          render={(v) => `${v["шаблон"]} · ${v["лестница"] || ""}`}
-          onClose={clear}
-          onTake={(v) => {
-            const tid = (v["шаблон"] || "").trim();
-            if (tid) onPick(tid);
-          }}
-        />
-      ) : null}
-      <PendingMark show={Boolean(pending)} />
-    </div>
-  );
-}
-
-export type SceneDataField =
-  | "sense"
-  | "visual_type"
-  | "place"
-  | "characters"
-  | "props"
-  | "bg"
-  | "accent"
-  | "feature"
-  | "set";
-
-export type SceneDataValues = Record<SceneDataField, string>;
-
-const SCENE_DATA_FIELDS: {
-  key: SceneDataField;
-  label: string;
-  placeholder: string;
-  multiline?: boolean;
-}[] = [
-  { key: "sense", label: "смысл", placeholder: "что происходит в ячейке", multiline: true },
-  { key: "visual_type", label: "тип", placeholder: "стиль картинки" },
-  { key: "place", label: "место", placeholder: "где стоит камера" },
-  { key: "set", label: "набор", placeholder: "декорация / обстановка" },
-  { key: "characters", label: "персонажи", placeholder: "c01, c02" },
-  { key: "props", label: "предметы", placeholder: "что видно в кадре" },
-  { key: "bg", label: "фон", placeholder: "задний план" },
-  { key: "accent", label: "акцент", placeholder: "на чём глаз" },
-  { key: "feature", label: "особенность", placeholder: "чем сцена отличается" },
-];
-
-function SceneDataFieldInput({
-  field,
-  value,
-  pending,
-  disabled,
-  visualTypeChoices,
-  onCommit,
-}: {
-  field: (typeof SCENE_DATA_FIELDS)[number];
-  value: string;
-  pending?: boolean;
-  disabled?: boolean;
-  visualTypeChoices?: string[];
-  onCommit: (key: SceneDataField, next: string) => void;
-}) {
-  const [text, setText] = useState(value);
-  useEffect(() => {
-    setText(value);
-  }, [value]);
-
-  const commit = () => {
-    const next = text.trim();
-    if (!next || next === value.trim()) return;
-    onCommit(field.key, next);
-  };
-
-  if (field.key === "visual_type") {
-    return (
-      <ChipsCell
-        value={value}
-        choices={visualTypeChoices}
-        pending={pending}
-        disabled={disabled}
-        onPick={(id) => {
-          if (id === value.trim()) return;
-          onCommit("visual_type", id);
-        }}
-      />
-    );
-  }
-
-  const shared = {
-    className: cn(FIELD, field.multiline && "min-h-[3.25rem] resize-y"),
-    value: text,
-    disabled,
-    placeholder: field.placeholder,
-    onChange: (e: { target: { value: string } }) => setText(e.target.value),
-    onBlur: commit,
-    onKeyDown: (e: { key: string; metaKey: boolean; ctrlKey: boolean; preventDefault: () => void }) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey || !field.multiline)) {
-        e.preventDefault();
-        commit();
-      }
-      if (e.key === "Escape") setText(value);
-    },
-  };
-
-  return field.multiline ? <textarea {...shared} /> : <input {...shared} />;
-}
-
-/**
- * Кнопка в блоке сцены: по клику в клетке появляются поля ячейки.
- * Правка кладётся в очередь; «Применить правки» пишет те же attrs, что читает доска.
- */
-export function SceneDataCell({
-  values,
-  pending,
-  visualTypeChoices,
-  disabled,
-  onCommit,
-}: {
-  values: SceneDataValues;
-  pending: Partial<Record<SceneDataField, boolean>>;
-  visualTypeChoices?: string[];
-  disabled?: boolean;
-  onCommit: (field: SceneDataField, value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const anyPending = SCENE_DATA_FIELDS.some((f) => pending[f.key]);
-  const summary = [
-    values.sense,
-    values.place,
-    values.characters,
-    values.props,
-  ].filter((x) => x.trim());
-
-  return (
-    <div className={cn("relative mt-2 rounded-md", anyPending && "bg-amber-500/10")}>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
-        title="Нажми — в сцене появятся смысл, место, персонажи и остальные поля ячейки"
-        className={cn(
-          "group flex w-full items-center gap-1.5 rounded-md border px-1.5 py-1 text-left transition disabled:opacity-40",
-          open
-            ? "border-white/30 bg-white/[0.08]"
-            : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.07]",
-        )}
-      >
-        <span className="text-[9px] uppercase tracking-wide text-white/35">данные сцены</span>
-        <ChevronDown
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          disabled={disabled || Boolean(busy)}
+          onClick={() => void run([])}
           className={cn(
-            "h-2.5 w-2.5 text-white/35 transition",
-            open && "rotate-180",
-          )}
-        />
-        {anyPending ? (
-          <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="есть правка в очереди" />
-        ) : null}
-        <span
-          className={cn(
-            "ml-auto text-[10px] normal-case tracking-normal transition-colors",
-            open ? "text-white/45" : "text-transparent group-hover:text-white/40",
+            "flex h-10 items-center justify-center gap-1.5 rounded-md text-[11px] font-semibold transition disabled:opacity-40",
+            "bg-[rgba(209,254,23,0.95)] text-black hover:bg-[rgba(209,254,23,1)]",
           )}
         >
-          {open ? "свернуть" : "изменить"}
-        </span>
-      </button>
-      {!open ? (
-        <p className={cn(HINT, "mt-1 truncate")}>
-          {summary.length ? summary.join(" · ") : "смысл, место, персонажи — нажми, чтобы править"}
+          {busy === "all" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Сгенерировать сцены
+        </button>
+        <button
+          type="button"
+          disabled={disabled || Boolean(busy) || selected.length === 0}
+          onClick={() => void run(selected)}
+          className={cn(
+            "flex h-10 items-center justify-center gap-1.5 rounded-md border border-white/15 text-[11px] font-semibold text-white/80 transition disabled:opacity-40 hover:border-white/30",
+          )}
+        >
+          {busy === "pieces" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Пересобрать куски
+        </button>
+      </div>
+      {onImprove ? (
+        <button
+          type="button"
+          title="Ячейка через 3 ноды: действие → кадры → QC. Промт + рефы → still сцены, затем кадры (старт и конец). Закадр и якоря не входят в сюжет."
+          disabled={disabled || Boolean(busy)}
+          onClick={() => void improve()}
+          className={cn(
+            "mt-1.5 flex h-10 w-full items-center justify-center gap-1.5 rounded-md border text-[11px] font-semibold transition disabled:opacity-40",
+            "border-[rgba(209,254,23,0.45)] bg-black/35 text-[rgba(209,254,23,0.95)] hover:bg-[rgba(209,254,23,0.12)]",
+          )}
+        >
+          {busy === "improve" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          Улучшить сцену
+        </button>
+      ) : null}
+      {onGenerateImages ? (
+        <button
+          type="button"
+          title="Промты кадров через агент картинок, затем PNG: сначала родитель, потом дети"
+          disabled={disabled || Boolean(busy)}
+          onClick={() => void generateImages()}
+          className={cn(
+            "mt-1.5 flex h-10 w-full items-center justify-center gap-1.5 rounded-md border text-[11px] font-semibold transition disabled:opacity-40",
+            "border-white/20 bg-white/[0.06] text-white/90 hover:border-white/35 hover:bg-white/[0.1]",
+          )}
+        >
+          {busy === "images" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Сгенерировать изображения
+        </button>
+      ) : null}
+      {busy ? (
+        <p className="mt-1.5 text-[11px] font-medium text-[rgba(209,254,23,0.95)]">
+          {busy === "improve"
+            ? "3 ноды: действие → кадры → QC…"
+            : busy === "images"
+              ? "промты кадров, затем картинки: родитель → дети…"
+              : "GPT пишет сцены этой ячейки…"}
         </p>
       ) : (
-        <div className="mt-1.5 space-y-1.5 rounded-lg border border-white/10 bg-black/30 p-1.5">
-          {SCENE_DATA_FIELDS.map((field) => (
-            <label key={field.key} className="block">
-              <span className="mb-0.5 flex items-center gap-1 text-[9px] uppercase tracking-wide text-white/35">
-                {field.label}
-                {pending[field.key] ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" />
-                ) : null}
-              </span>
-              <SceneDataFieldInput
-                field={field}
-                value={values[field.key]}
-                pending={pending[field.key]}
-                disabled={disabled}
-                visualTypeChoices={visualTypeChoices}
-                onCommit={onCommit}
-              />
-            </label>
-          ))}
-          <p className={HINT}>в очередь сразу, в БД — кнопкой «Применить правки»</p>
-        </div>
+        <p className={cn(HINT, "mt-1.5")}>
+          промт — заказ сцены: GPT ставит кадры по нему, не копирует текст
+          в действие. закадр и якоря не задают сюжет. «Улучшить сцену» пишет
+          сцену, затем картинки: сцена → кадры (промт + рефы).
+        </p>
       )}
-      <PendingMark show={anyPending && !open} />
+      {report ? <ImproveReportView report={report} onClose={() => setReport(null)} /> : null}
     </div>
   );
+}
+
+const IMPROVE_STATUS_TONE: Record<string, string> = {
+  ok: "text-[rgba(209,254,23,0.9)]",
+  reused: "text-white/60",
+  fixed: "text-sky-300",
+  fallback: "text-amber-300",
+  warn: "text-amber-300",
+};
+
+function ImproveReportView({
+  report,
+  onClose,
+}: {
+  report: MontageImproveReport;
+  onClose: () => void;
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-white/10 bg-black/30 p-2 text-[10px] leading-snug text-white/75">
+      <div className="mb-1 flex items-center justify-between">
+        <span className="font-semibold uppercase tracking-wide text-white/60">отчёт улучшения</span>
+        <button type="button" className="text-white/40 hover:text-white/80" onClick={onClose}>
+          скрыть
+        </button>
+      </div>
+      <ol className="space-y-0.5">
+        {report.nodes.map((n) => (
+          <li key={n.node} className="flex gap-1.5">
+            <span className={cn("shrink-0 font-semibold", IMPROVE_STATUS_TONE[n.status] ?? "text-white/60")}>
+              {n.label}
+            </span>
+            <span className="text-white/55">{n.note}</span>
+          </li>
+        ))}
+      </ol>
+      {report.shots.length ? (
+        <ol className="mt-1.5 space-y-0.5 border-t border-white/10 pt-1.5">
+          {report.shots.map((s, i) => (
+            <li key={`${s["порядок"] ?? i}`}>
+              <span className="text-white/45">{s["порядок"] ?? i + 1}.</span>{" "}
+              {(report.anchors?.length ?? 0) > 1 && s["якорь_n"] ? (
+                <span className="text-sky-300/80">якорь {s["якорь_n"]} </span>
+              ) : null}
+              <span className="text-white/50">
+                [{[s["роль"], s["план"], s["ракурс"], s["движение"], s["стык"]].filter(Boolean).join(" · ")}]
+              </span>{" "}
+              {s["действие"]}
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      {report.warnings?.length ? (
+        <ul className="mt-1.5 space-y-0.5 text-amber-300/80">
+          {report.warnings.map((w) => (
+            <li key={w}>· {w}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+/** Цепь «A → B» или нумерованные строки → шаги для картинок кадров. */
+export function splitSceneActionBeats(text: string): string[] {
+  const raw = (text || "").trim();
+  if (!raw) return [];
+  const arrows = raw
+    .split(/\s*→\s*/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (arrows.length >= 2) return arrows;
+  const numbered: string[] = [];
+  const re = /^\s*\d+[.)]\s+(.+)$/gm;
+  let m: RegExpExecArray | null = re.exec(raw);
+  while (m) {
+    const line = m[1].replace(/\s+/g, " ").trim();
+    if (line) numbered.push(line);
+    m = re.exec(raw);
+  }
+  if (numbered.length >= 2) return numbered;
+  return [raw];
+}
+
+export function sceneImageInstruction(opts: {
+  beat?: string;
+  place?: string;
+  set?: string;
+  light?: string;
+  characters?: string;
+  sense?: string;
+  bg?: string;
+}): string {
+  const parts: string[] = [];
+  const place = (opts.place || opts.set || "").trim();
+  if (place) parts.push(`Место только: ${place}. Не выдумывай другое место.`);
+  if (opts.light?.trim()) parts.push(`Свет: ${opts.light.trim()}.`);
+  if (opts.characters?.trim()) parts.push(`Персонажи: ${opts.characters.trim()}.`);
+  if (opts.bg?.trim()) parts.push(`Фон: ${opts.bg.trim()}.`);
+  if (opts.sense?.trim()) parts.push(`Смысл: ${opts.sense.trim()}.`);
+  if (opts.beat?.trim()) parts.push(`Действие этого кадра: ${opts.beat.trim()}.`);
+  parts.push("Один кадр, не коллаж.");
+  return parts.join(" ");
 }
 
 /**
  * Последовательность кадров сцены. Большая кнопка кладёт разбор
- * в очередь и сразу запускает «Применить правки».
+ * в очередь и сразу запускает «Применить правки». Без картинок.
  */
 export function SceneActionBlock({
   value,
@@ -1276,8 +1474,7 @@ export function SceneActionBlock({
         Разобрать на кадры
       </button>
       <p className={cn(HINT, "mt-1.5")}>
-        каждое звено — кадр сцены. Кнопка ставит правку в очередь и сразу
-        жмёт «Применить правки».
+        разобрать — только действия кадров. картинки отсюда не запускаются.
       </p>
     </div>
   );
@@ -1285,23 +1482,29 @@ export function SceneActionBlock({
 
 /**
  * Сцена = одна ячейка закадра. В полосе «Сцены» — последовательность кадров,
- * якоря ячейки и данные ячейки. Каталог T0–X2 в строке больше не показывается.
+ * якоря ячейки и данные ячейки.
  */
 export function SceneCell({
   action,
   anchors,
   data,
+  generate,
+  still,
 }: {
   action?: React.ReactNode;
   anchors?: React.ReactNode;
   data?: React.ReactNode;
+  generate?: React.ReactNode;
+  still?: React.ReactNode;
 }) {
-  if (!action && !anchors && !data) return null;
+  if (!action && !anchors && !data && !generate && !still) return null;
   return (
     <div className="min-w-0 space-y-2">
+      {still}
+      {generate}
       {action}
-      {anchors}
       {data}
+      {anchors}
     </div>
   );
 }

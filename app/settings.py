@@ -122,13 +122,13 @@ class Settings(BaseSettings):
     # outsee | minimax — кто генерит video в Create / (опц.) пайплайн
     video_provider: str = Field("outsee", alias="VIDEO_PROVIDER")
 
-    # Текстовый LLM: GPT (kie) по умолчанию. vibecode — доп. провайдер.
+    # Текстовый LLM: pay52 (GPT 6.1 Sol) по умолчанию. vibecode / kie — доп.
     # Переключение: Studio UI / data/text_llm_choice.json / TEXT_LLM_PROVIDER.
-    # TEXT_LLM_PROVIDER=kie|vibecode — default kie.
+    # TEXT_LLM_PROVIDER=pay52|vibecode|kie — default pay52.
     # vibecode: Claude Opus 5 / Sonnet 5 (через /v1/messages,
-    # app/services/anthropic_messages.py) и GPT 5.5 / 5.6 Sol — каталог
+    # app/services/anthropic_messages.py) и GPT — каталог
     # app/services/text_llm_catalog.py.
-    text_llm_provider: str = Field("kie", alias="TEXT_LLM_PROVIDER")
+    text_llm_provider: str = Field("pay52", alias="TEXT_LLM_PROVIDER")
 
     # vibecode.moe — chat/completions для GPT, /v1/messages для Claude.
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")
@@ -153,7 +153,7 @@ class Settings(BaseSettings):
     # GPT / kie.ai — основной текстовый стек
     gpt_api_key: str = Field("", alias="GPT_API_KEY")
     gpt_base_url: str = Field("", alias="GPT_BASE_URL")
-    gpt_model: str = Field("gpt-5-6-sol", alias="GPT_MODEL")
+    gpt_model: str = Field("gpt-6-1-sol", alias="GPT_MODEL")
     # Kie Market (Kling 2.6 video fallback). Пусто → GPT_API_KEY + api.kie.ai.
     kie_api_key: str = Field("", alias="KIE_API_KEY")
     kie_api_base_url: str = Field("https://api.kie.ai", alias="KIE_API_BASE_URL")
@@ -327,7 +327,7 @@ class Settings(BaseSettings):
             )
 
             return catalog_api_model(resolve_active_model_id(self))
-        return (self.gpt_model or "gpt-5-6-sol").strip()
+        return (self.gpt_model or "gpt-6-1-sol").strip()
 
     @property
     def gpt_chat_path_effective(self) -> str:
@@ -681,13 +681,51 @@ class Settings(BaseSettings):
         return not self.accounts_enabled
 
     @property
+    def s3_effective_endpoint(self) -> str:
+        explicit = (self.s3_endpoint or "").strip()
+        if explicit:
+            return explicit
+        return (self.yandex_storage_endpoint or "https://storage.yandexcloud.net").strip().rstrip("/")
+
+    @property
+    def s3_effective_region(self) -> str:
+        explicit = (self.s3_region or "").strip()
+        if explicit and explicit != "auto":
+            return explicit
+        y_reg = (self.yandex_storage_region or "").strip()
+        if y_reg:
+            return y_reg
+        return explicit or "ru-central1"
+
+    @property
+    def s3_effective_access_key(self) -> str:
+        return (self.s3_access_key or self.yandex_storage_access_key or "").strip()
+
+    @property
+    def s3_effective_secret_key(self) -> str:
+        return self.s3_secret_key or self.yandex_storage_secret_key or ""
+
+    @property
+    def s3_effective_bucket(self) -> str:
+        return (self.s3_bucket or self.yandex_storage_bucket or "").strip()
+
+    @property
+    def s3_effective_force_path_style(self) -> bool:
+        if self.s3_force_path_style:
+            return True
+        endpoint = self.s3_effective_endpoint.lower()
+        if "yandexcloud.net" in endpoint or bool(self.yandex_storage_bucket and not self.s3_bucket):
+            return True
+        return False
+
+    @property
     def s3_configured(self) -> bool:
         """Есть ли всё, чтобы говорить с объектным хранилищем."""
         return bool(
-            self.s3_endpoint.strip()
-            and self.s3_access_key.strip()
-            and self.s3_secret_key
-            and self.s3_bucket.strip()
+            self.s3_effective_endpoint
+            and self.s3_effective_access_key
+            and self.s3_effective_secret_key
+            and self.s3_effective_bucket
         )
 
     @property

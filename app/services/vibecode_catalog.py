@@ -19,7 +19,7 @@ _SNAPSHOT_PATH = Path(__file__).resolve().parent / "vibecode_models_snapshot.jso
 
 IMAGE_NODE_TYPES = frozenset({"images", "hero", "items", "hitl_images"})
 VIDEO_NODE_TYPES = frozenset({"videos", "hitl_videos"})
-DEFAULT_TEXT_MODEL_ID = "gpt-5.6-sol"
+DEFAULT_TEXT_MODEL_ID = "gpt-6.1-sol"
 DEFAULT_IMAGE_MODEL_ID = "nano-banana-2"
 DEFAULT_VIDEO_MODEL_ID = "veo-3-1-lite"
 HIDDEN_IMAGE_IDS = frozenset({"nano-banana", "nano-banana-pro"})
@@ -428,6 +428,17 @@ def read_node_model_fields(node: dict[str, Any] | None) -> tuple[str | None, str
     from app.services.node_config import model_id_of
 
     return model_id_of(node), "stable"
+
+
+def read_node_reasoning_effort(node: dict[str, Any] | None) -> str | None:
+    """Уровень рассуждений ноды: config.reasoningEffort или data.reasoningEffort."""
+    if not isinstance(node, dict):
+        return None
+    if not isinstance(node.get("data"), dict):
+        node = {"data": node}
+    from app.services.node_config import reasoning_effort_of
+
+    return reasoning_effort_of(node)
 
 
 def _node_data_dict(node: dict[str, Any] | None) -> dict[str, Any]:

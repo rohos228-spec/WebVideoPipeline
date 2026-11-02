@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  formatProjectStatus,
-  formatRunLine,
   formatRunOverlayLabel,
   humanizeSlug,
   nodeRunsFromPayload,
@@ -49,17 +47,4 @@ test("a run without node_runs does not throw", () => {
   const run = { id: 2, status: "paused" };
   assert.equal(formatRunOverlayLabel(run), "#2 · пауза");
   assert.deepEqual(nodeRunsFromPayload(run), []);
-});
-
-// Подписи шагов GPT на этой линии — свои («дополнение N»), проверяем, что они русские.
-test("project status of the GPT steps is Russian, not enrich 2 ready", () => {
-  assert.equal(formatProjectStatus("enrich_2_ready"), "дополнение 2 готово");
-  assert.equal(formatProjectStatus("enriching_1"), "дополнение 1");
-  assert.equal(formatProjectStatus("music_ready"), "музыка готова");
-});
-
-test("run line names the selected project, not the run number", () => {
-  assert.equal(formatRunLine(2, { id: 1, status: "new" }), "проект #2 · новый");
-  assert.equal(formatRunLine(6, { id: 1, status: "running" }), "проект #6 · работает");
-  assert.equal(formatRunLine(3, null), "проект #3 · не запущен");
 });

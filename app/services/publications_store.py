@@ -7,7 +7,7 @@
 
 Перенесено из движка (int/chat-v1). Там таблицы создавались сырым DDL SQLite;
 здесь одна база через `app.db`, которая бывает и SQLite, и Postgres, поэтому
-таблицы описаны через SQLAlchemy Core, создаются ревизией alembic 0018, а
+таблицы описаны через SQLAlchemy Core, создаются ревизией alembic 0022, а
 `ensure_schema` — страховка для баз, где ревизия ещё не прогнана (тесты,
 голый `create_all`). Вставка «если нет» идёт через `ON CONFLICT DO NOTHING`
 диалекта, а не `INSERT OR IGNORE`, которого нет в Postgres.

@@ -150,7 +150,7 @@ def generation_text_override(
     if not choice_raw:
         choice_raw = {
             "id": DEFAULT_TEXT_MODEL_ID,
-            "label": "GPT 5.6 Sol",
+            "label": "GPT 6.1 Sol",
             "channel": "stable",
         }
     return NodeLlmOverride(

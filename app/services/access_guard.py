@@ -166,7 +166,13 @@ def allowed_origins() -> list[str]:
             continue
         out.append(norm)
     seen: set[str] = set()
-    return [o for o in out if not (o in seen or seen.add(o))]
+    uniq: list[str] = []
+    for o in out:
+        if o in seen:
+            continue
+        seen.add(o)
+        uniq.append(o)
+    return uniq
 
 
 def allowed_hostnames() -> set[str]:

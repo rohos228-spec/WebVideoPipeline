@@ -1025,7 +1025,10 @@ class LlmCall(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(default=None)
     completion_tokens: Mapped[int | None] = mapped_column(default=None)
     total_tokens: Mapped[int | None] = mapped_column(default=None)
-    cost_usd: Mapped[float] = mapped_column(default=0.0)
+    # NULL — цены модели нет в llm_prices.json: это «неизвестно», а не
+    # «бесплатно». Ноль остаётся реально нулевым вызовам (кэш, отказ),
+    # поэтому default здесь None, а не 0.0.
+    cost_usd: Mapped[float | None] = mapped_column(default=None)
     result: Mapped[str] = mapped_column(String(10), default="ok")  # ok|error
     error_kind: Mapped[str] = mapped_column(String(60), default="")
     # usage не вернулся вовсе (обрыв без тела) — токены неизвестны.

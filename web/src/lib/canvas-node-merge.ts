@@ -17,10 +17,12 @@ export type CanvasRuntimeData = {
   inputSource?: unknown;
   uploadedFileName?: unknown;
   modelId?: unknown;
+  modelPinned?: unknown;
   modelChannel?: unknown;
   imageResolution?: unknown;
   imageQuality?: unknown;
   aspectRatio?: unknown;
+  reasoningEffort?: unknown;
 };
 
 export type MergeableCanvasNode<T extends CanvasRuntimeData = CanvasRuntimeData> = {
@@ -35,7 +37,8 @@ export function mergeGraphNodesWithRuntime<T extends CanvasRuntimeData>(
   prevNodes: MergeableCanvasNode<T>[],
 ): MergeableCanvasNode<T>[] {
   const prevById = new Map(prevNodes.map((n) => [n.id, n]));
-  return sourceNodes.map((n) => {
+  const sourceIds = new Set(sourceNodes.map((n) => n.id));
+  const merged = sourceNodes.map((n) => {
     const old = prevById.get(n.id);
     if (!old) return n;
     return {
@@ -57,11 +60,21 @@ export function mergeGraphNodesWithRuntime<T extends CanvasRuntimeData>(
         inputSource: n.data.inputSource ?? old.data.inputSource,
         uploadedFileName: n.data.uploadedFileName ?? old.data.uploadedFileName,
         modelId: n.data.modelId ?? old.data.modelId,
+        modelPinned: n.data.modelPinned ?? old.data.modelPinned,
         modelChannel: n.data.modelChannel ?? old.data.modelChannel,
         imageResolution: n.data.imageResolution ?? old.data.imageResolution,
         imageQuality: n.data.imageQuality ?? old.data.imageQuality,
         aspectRatio: n.data.aspectRatio ?? old.data.aspectRatio,
+        reasoningEffort: n.data.reasoningEffort ?? old.data.reasoningEffort,
+        customBg: (n.data as { customBg?: string }).customBg ?? (old.data as { customBg?: string }).customBg,
       },
     };
   });
+  // Сохраняем добавленные локально ноды, пока они не пришли из снапшота сервера
+  for (const prev of prevNodes) {
+    if (!sourceIds.has(prev.id)) {
+      merged.push(prev);
+    }
+  }
+  return merged;
 }

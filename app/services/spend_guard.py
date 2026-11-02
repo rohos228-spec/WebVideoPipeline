@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import DateTime, Float, Integer, String, select, text
@@ -159,7 +160,8 @@ async def ensure_schema(session) -> None:
     key = str(getattr(bind, "url", id(bind)))
     if key in _ensured:
         return
-    await session.run_sync(lambda s: SpendLedger.__table__.create(s.connection(), checkfirst=True))
+    table: Any = SpendLedger.__table__
+    await session.run_sync(lambda s: table.create(s.connection(), checkfirst=True))
     await session.run_sync(
         lambda s: add_missing_columns(
             s.connection(), "spend_ledger", SPEND_ADDED_COLUMNS, SPEND_ADDED_INDEXES
@@ -493,7 +495,8 @@ async def ensure_task_schema(session) -> None:
     key = str(getattr(bind, "url", id(bind)))
     if key in _task_ensured:
         return
-    await session.run_sync(lambda s: ProviderTaskLedger.__table__.create(s.connection(), checkfirst=True))
+    table: Any = ProviderTaskLedger.__table__
+    await session.run_sync(lambda s: table.create(s.connection(), checkfirst=True))
     await session.run_sync(
         lambda s: add_missing_columns(
             s.connection(), "provider_task_ledger", TASK_ADDED_COLUMNS, TASK_ADDED_INDEXES
@@ -689,7 +692,7 @@ def schedule_actual(
         _note_write_failure("schedule_actual")
 
 
-_write_failures = {"count": 0, "last": ""}
+_write_failures: dict[str, Any] = {"count": 0, "last": ""}
 
 
 def write_failure_count() -> int:
@@ -760,7 +763,7 @@ async def engage_on_credit_error(exc: BaseException, *, master=None, provider: s
             return False
         from app.services.error_catalog import describe_error
 
-        if describe_error(exc)[0] not in _CREDIT_CODES:
+        if describe_error(exc if isinstance(exc, Exception) else Exception(str(exc)))[0] not in _CREDIT_CODES:
             return False
         from app.services import kill_switch
 
@@ -902,8 +905,11 @@ def chain_budget(meta) -> tuple[str, float] | None:
     if not isinstance(raw, dict):
         return None
     run_id = str(raw.get("run_id") or "")[:80]
+    cap_raw = raw.get("cap_usd")
+    if cap_raw is None:
+        return None
     try:
-        cap = float(raw.get("cap_usd"))
+        cap = float(cap_raw)
     except (TypeError, ValueError):
         return None
     if not run_id.startswith(CHAIN_RUN_PREFIX) or not math.isfinite(cap) or cap <= 0:
@@ -1053,7 +1059,9 @@ def _resolve_project(project_id: int | None) -> int | None:
 
 def _disk_verdict(provider: str, what: str) -> None:
     try:
-        from app.services import disk_guard
+        import importlib
+
+        disk_guard = importlib.import_module("app.services.disk_guard")
     except ImportError:
         return
     fn = getattr(disk_guard, "check", None)
@@ -1157,7 +1165,7 @@ async def paid_gate(
     except asyncio.CancelledError:
         raise
     except Exception as exc:
-        blocked = PaidCallBlocked(
+        failure = PaidCallBlocked(
             BLOCK_CHECK_FAILED,
             f"Платный вызов {provider} не отправлен: не удалось проверить рубильник и потолок трат "
             f"({type(exc).__name__}). Запрос не отправлялся.",
@@ -1165,8 +1173,8 @@ async def paid_gate(
             what=what,
         )
         logger.exception("paid gate check failed {} {}", provider, what)
-        await _record_block(blocked.code, provider, what, pid)
-        raise blocked from exc
+        await _record_block(failure.code, provider, what, pid)
+        raise failure from exc
 
 
 async def _paid_gate(provider, what, estimate_usd, pid, run_id, register, control=False) -> PaidTicket:

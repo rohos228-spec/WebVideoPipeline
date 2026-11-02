@@ -98,7 +98,10 @@ async def publish_project_artifacts(session: Any, project_id: int) -> int:
     rows = (
         (
             await session.execute(
-                select(Artifact).where(Artifact.project_id == project_id, Artifact.storage_key == "")
+                select(Artifact).where(
+                    Artifact.project_id == project_id,
+                    (Artifact.storage_key == "") | Artifact.storage_key.is_(None),
+                )
             )
         )
         .scalars()

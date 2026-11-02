@@ -293,3 +293,23 @@ async def sync_run_snapshot_from_canvas_graph(
         len(edges),
     )
     return True
+
+
+GRAPH_SOURCE_PROJECT = "project"
+
+
+def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | None) -> dict[str, Any]:
+    res = dict(meta or {})
+    if graph:
+        res["canvas_graph"] = graph
+    return res
+
+
+async def effective_project_meta(session: AsyncSession, project: Project) -> tuple[dict[str, Any], str]:
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    return meta, GRAPH_SOURCE_PROJECT
+
+
+async def materialize_project_graph(session: AsyncSession, project: Project) -> bool:
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    return bool(canvas_graph_from_meta(meta))

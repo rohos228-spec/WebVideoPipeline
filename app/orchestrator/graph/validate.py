@@ -198,7 +198,11 @@ def validate_workflow_graph(
     if not work_nodes:
         warnings.append("нет рабочих нод (plan, script, …)")
     else:
-        entry = [nid for nid in work_nodes if not rev.get(nid)]
+        entry = [
+            nid
+            for nid in work_nodes
+            if not any(is_work_node_type(_node_type(by_id.get(p))) for p in rev.get(nid, []))
+        ]
         if not entry:
             warnings.append("нет входной рабочей ноды — все имеют предшественников")
 

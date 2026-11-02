@@ -311,7 +311,7 @@ def normalize_queue_ops(raw_ops: Any) -> list[dict[str, Any]]:
         parent_raw = raw.get("parent_number")
         if parent_raw not in (None, ""):
             try:
-                item["parent_number"] = int(parent_raw)
+                item["parent_number"] = int(parent_raw)  # type: ignore[arg-type]
             except (TypeError, ValueError):
                 pass
         cleaned.append(item)

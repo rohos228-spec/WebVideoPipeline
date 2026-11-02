@@ -51,7 +51,7 @@ export const INPUT_SOURCE_OPTIONS: {
   title: string;
   group: "data" | "media";
 }[] = [
-  { value: "project_xlsx", title: "project.xlsx", group: "data" },
+  { value: "project_xlsx", title: "Кадры проекта", group: "data" },
   { value: "upload", title: "Свой файл", group: "data" },
   { value: "voiceover", title: "voiceover.txt", group: "data" },
   { value: "image", title: "Изображение", group: "media" },
@@ -61,6 +61,11 @@ export const INPUT_SOURCE_OPTIONS: {
 
 export function isExcelGptNode(nodeType: string): boolean {
   return nodeType === EXCEL_GPT_NODE_TYPE || nodeType.startsWith("enrich_");
+}
+
+/** Нода «Отчёт: кадры + промты» — HTML, не Excel. */
+export function isShotsReportNode(nodeKey?: string | null): boolean {
+  return Boolean(nodeKey?.endsWith("_fw_report"));
 }
 
 export function isImageUploadName(fileName?: string | null): boolean {
@@ -74,7 +79,7 @@ export function attachmentLabel(source: ExcelGptInputSource, fileName?: string):
   if (source === "scene_images") return "scenes/*";
   if (source === "image") return fileName?.trim() || "image.png";
   if (source === "upload") return fileName?.trim() || "upload.xlsx";
-  return "project.xlsx";
+  return "Кадры проекта";
 }
 
 /** Номер слота 1..5 из node_key (n_excel_gpt_2) или meta/canvas. */

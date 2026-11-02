@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.services.storage import get_storage
 from app.settings import settings
 
 _SAFE = re.compile(r"[^a-zA-Z0-9._-]+")
@@ -167,6 +168,7 @@ def write_sidecar(
     started_at: str | None = None,
     finished_at: str | None = None,
     elapsed_sec: int | None = None,
+    storage_key: str | None = None,
 ) -> Path:
     """JSON рядом с файлом — чтобы на диске был полный контекст генерации.
 
@@ -197,11 +199,20 @@ def write_sidecar(
         "elapsed_sec": sec,
         "elapsed_label": format_elapsed_min_sec(sec) if sec is not None else None,
     }
+    side = media_path.with_suffix(".json")
+    if storage_key is not None:
+        meta["storage_key"] = storage_key
+    elif side.is_file():
+        try:
+            existing = json.loads(side.read_text(encoding="utf-8"))
+            if existing.get("storage_key"):
+                meta["storage_key"] = existing["storage_key"]
+        except Exception:  # noqa: BLE001
+            pass
     if require_file and not media_path.is_file() and status == "done":
         # всё равно пишем sidecar — статус покажет проблему
         meta["status"] = "failed"
         meta["error"] = meta.get("error") or "media file missing"
-    side = media_path.with_suffix(".json")
     side.parent.mkdir(parents=True, exist_ok=True)
     side.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     invalidate_generation_list_cache()
@@ -231,6 +242,103 @@ def update_sidecar(media_path: Path, **updates: Any) -> Path | None:
     side.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     invalidate_generation_list_cache()
     return side
+
+
+async def publish_generation_file(
+    media_path: Path,
+    *,
+    media: str = "image",
+    model: str = "model",
+    tenant_id: str | None = None,
+) -> str:
+    """Выгрузить результат генерации Create в S3-совместимое хранилище (Яндекс.Облако).
+
+    Идемпотентна: если в sidecar уже есть storage_key, возвращает его без повторной заливки.
+    """
+    if not settings.s3_configured:
+        return ""
+    if not media_path.is_file() or media_path.stat().st_size < 32:
+        return ""
+
+    side = media_path.with_suffix(".json")
+    if side.is_file():
+        try:
+            meta = json.loads(side.read_text(encoding="utf-8"))
+            if meta.get("storage_key"):
+                return str(meta["storage_key"])
+        except Exception:  # noqa: BLE001
+            pass
+
+    if tenant_id is None:
+        try:
+            from app.services.tenant import current_tenant
+
+            tenant_id = current_tenant()
+        except Exception:  # noqa: BLE001
+            tenant_id = None
+
+    import mimetypes
+
+    from loguru import logger
+
+    from app.services.storage import StorageError, tenant_key
+
+    safe_m = _safe_segment(media, "image")
+    safe_mod = _safe_segment(model, "model")
+    key = tenant_key(tenant_id, f"generations/{safe_m}/{safe_mod}/{media_path.name}")
+    content_type = mimetypes.guess_type(media_path.name)[0] or "application/octet-stream"
+
+    try:
+        storage = get_storage()
+        await storage.put_file(key, media_path, content_type=content_type)
+        update_sidecar(media_path, storage_key=key)
+        if side.is_file():
+            try:
+                await storage.put_file(f"{key}.json", side, content_type="application/json")
+            except Exception:  # noqa: BLE001
+                pass
+        logger.info("генерация {} → S3: {}", media_path.name, key)
+        return key
+    except StorageError:
+        logger.warning("хранилище: ошибка загрузки генерации {} в S3", media_path.name, exc_info=True)
+        return ""
+    except Exception:  # noqa: BLE001
+        logger.warning("хранилище: сбой загрузки генерации {} в S3", media_path.name, exc_info=True)
+        return ""
+
+
+async def sync_pending_generations_to_s3(limit: int = 100) -> int:
+    """Выгрузить в S3 готовые локальные генерации, ещё не имеющие storage_key."""
+    if not settings.s3_configured:
+        return 0
+    root = generations_root()
+    if not root.exists():
+        return 0
+
+    count = 0
+    for side in root.rglob("*.json"):
+        if count >= limit:
+            break
+        try:
+            meta = json.loads(side.read_text(encoding="utf-8"))
+            if meta.get("status") != "done" or meta.get("storage_key"):
+                continue
+            media_file = Path(str(meta.get("path") or ""))
+            if not media_file.is_file():
+                for cand in side.parent.glob(f"{side.stem}.*"):
+                    if cand.suffix != ".json" and cand.is_file():
+                        media_file = cand
+                        break
+            if not media_file.is_file() or media_file.stat().st_size < 32:
+                continue
+            media = str(meta.get("media") or "image")
+            model = str(meta.get("model") or "model")
+            key = await publish_generation_file(media_file, media=media, model=model)
+            if key:
+                count += 1
+        except Exception:  # noqa: BLE001
+            continue
+    return count
 
 
 def import_legacy_create_media() -> int:
@@ -404,7 +512,11 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
         status = str(meta.get("status") or ("done" if fp.is_file() else "queued"))
         # Не статим файл на каждый poll, если sidecar уже знает bytes.
         meta_bytes = int(meta.get("bytes") or 0)
-        has_file = True if status == "done" and meta_bytes > 32 else fp.is_file() and fp.stat().st_size > 32
+        has_file = (
+            True
+            if (status == "done" and (meta_bytes > 32 or meta.get("storage_key")))
+            else (fp.is_file() and fp.stat().st_size > 32)
+        )
         if status == "done" and not has_file:
             status = "failed"
         if status in {"queued", "processing"} and not has_file:
@@ -482,6 +594,7 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
                 "kind": media,
                 "artifact_kind": "generation",
                 "preview_url": (f"/api/files?path={resolved}" if has_file else None),
+                "storage_key": meta.get("storage_key"),
                 "path": resolved if fp else None,
                 "label": _status_label(status, meta.get("model")),
                 "project_id": None,
@@ -592,12 +705,12 @@ def _scan_generation_files(*, kind: str, limit: int) -> list[dict[str, Any]]:
     return items[:limit]
 
 
-def delete_generation_item(
+async def delete_generation_item(
     *,
     path: str | Path | None = None,
     item_id: str | None = None,
 ) -> bool:
-    """Удалить файл генерации и его JSON-паспорт с диска (включая ошибочные задачи)."""
+    """Удалить файл генерации и его JSON-паспорт с диска и из S3 (включая ошибочные задачи)."""
     root = generations_root()
     found_files: list[Path] = []
 
@@ -636,6 +749,33 @@ def delete_generation_item(
 
     if not found_files:
         return False
+
+    # Сбор ключей S3 для удаления
+    storage_keys: set[str] = set()
+    for f in found_files:
+        side = f if f.suffix == ".json" else f.with_suffix(".json")
+        if side.is_file():
+            try:
+                m = json.loads(side.read_text(encoding="utf-8"))
+                sk = m.get("storage_key")
+                if sk:
+                    storage_keys.add(str(sk))
+            except Exception:  # noqa: BLE001
+                pass
+
+    if settings.s3_configured and storage_keys:
+        try:
+            from app.services.storage import get_storage
+
+            st = get_storage()
+            for sk in storage_keys:
+                try:
+                    await st.delete(sk)
+                    await st.delete(f"{sk}.json")
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
 
     try:
         for f in set(found_files):

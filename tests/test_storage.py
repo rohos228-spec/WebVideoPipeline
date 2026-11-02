@@ -216,3 +216,74 @@ async def test_artifact_without_a_file_is_not_an_error(client, monkeypatch) -> N
         art = await s.get(Artifact, 1)
         art.path = str(Path(str(art.path)).parent / "нет-такого.mp4")
         assert await publish_artifact(s, art) == ""
+
+
+def test_yandex_storage_effective_settings(monkeypatch) -> None:
+    """Убеждаемся, что переменные YANDEX_STORAGE_* автоматически питают S3-клиент."""
+    monkeypatch.setattr(settings, "s3_endpoint", "")
+    monkeypatch.setattr(settings, "s3_access_key", "")
+    monkeypatch.setattr(settings, "s3_secret_key", "")
+    monkeypatch.setattr(settings, "s3_bucket", "")
+    monkeypatch.setattr(settings, "s3_region", "")
+    monkeypatch.setattr(settings, "s3_force_path_style", False)
+
+    monkeypatch.setattr(settings, "yandex_storage_endpoint", "https://storage.yandexcloud.net")
+    monkeypatch.setattr(settings, "yandex_storage_access_key", "yc-key")
+    monkeypatch.setattr(settings, "yandex_storage_secret_key", "yc-secret")
+    monkeypatch.setattr(settings, "yandex_storage_bucket", "my-bucket")
+    monkeypatch.setattr(settings, "yandex_storage_region", "ru-central1")
+
+    assert settings.s3_configured is True
+    assert settings.s3_effective_endpoint == "https://storage.yandexcloud.net"
+    assert settings.s3_effective_access_key == "yc-key"
+    assert settings.s3_effective_secret_key == "yc-secret"
+    assert settings.s3_effective_bucket == "my-bucket"
+    assert settings.s3_effective_region == "ru-central1"
+    assert settings.s3_effective_force_path_style is True
+
+    # Явные настройки s3_* имеют приоритет
+    monkeypatch.setattr(settings, "s3_bucket", "override-bucket")
+    assert settings.s3_effective_bucket == "override-bucket"
+
+
+async def test_publish_project_artifacts_sync(client, monkeypatch) -> None:
+    """Проверяем массовую синхронизацию артефактов проекта publish_project_artifacts."""
+    from app.services.artifact_storage import publish_project_artifacts
+
+    class _MockStorage:
+        enabled = True
+
+        def __init__(self) -> None:
+            self.uploaded: list[tuple[str, Path]] = []
+
+        async def put_file(self, key: str, source: Path, *, content_type: str = "") -> str:
+            self.uploaded.append((key, source))
+            return key
+
+    mock_storage = _MockStorage()
+    monkeypatch.setattr("app.services.artifact_storage.get_storage", lambda: mock_storage)
+
+    # Без настроенного S3 ничего не выгружается
+    monkeypatch.setattr(settings, "s3_endpoint", "")
+    monkeypatch.setattr(settings, "s3_access_key", "")
+    monkeypatch.setattr(settings, "s3_secret_key", "")
+    monkeypatch.setattr(settings, "s3_bucket", "")
+    monkeypatch.setattr(settings, "yandex_storage_bucket", "")
+    async with client.factory() as s:
+        assert await publish_project_artifacts(s, 1) == 0
+
+    # С настроенным Yandex Storage выгрузка активируется
+    monkeypatch.setattr(settings, "yandex_storage_endpoint", "https://storage.yandexcloud.net")
+    monkeypatch.setattr(settings, "yandex_storage_access_key", "yc-key")
+    monkeypatch.setattr(settings, "yandex_storage_secret_key", "yc-secret")
+    monkeypatch.setattr(settings, "yandex_storage_bucket", "my-bucket")
+
+    async with client.factory() as s:
+        count = await publish_project_artifacts(s, 1)
+        assert count == 1
+        art = await s.get(Artifact, 1)
+        assert art.storage_key.startswith("studio/owner/projects/st/art-1")
+
+        # Повторная попытка уже не загружает дубликаты
+        count2 = await publish_project_artifacts(s, 1)
+        assert count2 == 0

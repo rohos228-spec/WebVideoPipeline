@@ -102,7 +102,7 @@ export function BugReportButton({
         variant="outline"
         size="sm"
         onClick={() => setOpen(true)}
-        className="gap-2 border-rose-400/35 text-xs text-rose-100 hover:border-rose-400/55 hover:bg-rose-500/10"
+        className="h-7 px-2 gap-1.5 border border-red-500/80 bg-red-500/10 text-xs text-red-200 hover:border-red-400 hover:bg-red-500/20 shadow-[0_0_8px_rgba(239,68,68,0.35)] ring-1 ring-red-500/40 select-none transition-all"
         title="Багрепорт: описание + логи → папка баги/ + скачать .md"
       >
         <Bug className="h-3.5 w-3.5" />

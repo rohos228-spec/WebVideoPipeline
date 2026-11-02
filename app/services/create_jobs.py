@@ -51,6 +51,7 @@ class CreateJob:
     # позиция в очереди ожидания (1-based), None если уже processing/done
     queue_position: int | None = None
     tenant_id: str | None = None
+    storage_key: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         from app.services.generation_storage import elapsed_from_iso, format_elapsed_min_sec
@@ -81,6 +82,7 @@ class CreateJob:
             "elapsed_label": label,
             "queue_position": self.queue_position,
             "prompt_preview": (self.prompt or "")[:120],
+            "storage_key": self.storage_key,
         }
 
 
@@ -465,6 +467,21 @@ async def _run_job(
             )
             if not job.path.is_file() or job.path.stat().st_size < 32:
                 raise RuntimeError("Create job: sidecar ok, но media-файл пропал")
+
+            try:
+                from app.services.generation_storage import publish_generation_file
+
+                key = await publish_generation_file(
+                    job.path,
+                    media=job.media,
+                    model=job.model,
+                    tenant_id=job.tenant_id,
+                )
+                if key:
+                    job.storage_key = key
+            except Exception:  # noqa: BLE001
+                logger.warning("create_job: облачная выгрузка {} в S3 не удалась", job.path, exc_info=True)
+
             from app.services.generation_storage import format_elapsed_min_sec
 
             logger.info(

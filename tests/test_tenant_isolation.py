@@ -28,7 +28,27 @@ def test_every_model_table_is_classified() -> None:
 
     Таблица без арендатора не падает — она просто видна всем сразу. Отказ
     бесшумный, значит замечать его должен тест, а не клиент.
+
+    Модели движка живут вне `app.models` и регистрируются только при
+    импорте роутеров/store — без явного импорта coverage был бы ложно
+    зелёным (как и вышло перед выкладкой #103).
     """
+    import app.services.action_layer.attachments  # noqa: F401
+    import app.services.action_layer.store  # noqa: F401
+    import app.services.actions_recovery  # noqa: F401
+    import app.services.actions_v1  # noqa: F401
+    import app.services.change_control.store  # noqa: F401
+    import app.services.decision_config  # noqa: F401
+    import app.services.decision_state  # noqa: F401
+    import app.services.diagnosis  # noqa: F401
+    import app.services.kill_switch  # noqa: F401
+    import app.services.managed_launch  # noqa: F401
+    import app.services.media_jobs  # noqa: F401
+    import app.services.observation  # noqa: F401
+    import app.services.outsee_idempotency  # noqa: F401
+    import app.services.profiles_state  # noqa: F401
+    import app.services.spend_guard  # noqa: F401
+
     assert check_coverage() == []
 
 
@@ -39,6 +59,8 @@ def test_infra_tables_are_deliberately_excluded() -> None:
     """
     assert "work_leases" in INFRA_TABLES
     assert "fleet_nodes" in INFRA_TABLES
+    assert "spend_ledger" in INFRA_TABLES
+    assert "provider_task_ledger" in INFRA_TABLES
     assert not set(TENANT_TABLES) & INFRA_TABLES
 
 

@@ -1,5 +1,6 @@
-# ruff: noqa: F401, F811  (фикстура env импортируется из tests.action_layer_support, как в старой линии)
 from __future__ import annotations
+
+pytest_plugins = ['tests.action_layer_support']
 
 import re
 
@@ -11,7 +12,7 @@ from app.services.action_layer import approval, executor, service
 from app.services.action_layer import builtin_launch as bl
 from app.services.action_layer.context import ActionContext
 from app.services.action_layer.spec import JobState, ensure_builtin_actions, registry
-from tests.action_layer_support import env, fresh_registry, make_spec
+from tests.action_layer_support import fresh_registry, make_spec
 
 BASE = "/api/action-layer"
 

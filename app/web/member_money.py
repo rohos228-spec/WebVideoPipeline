@@ -169,9 +169,11 @@ class MemberMoneyMiddleware:
                     ).encode("utf-8")
                 except ValueError:
                     pass
-                headers = [(k, v) for k, v in start.get("headers") or [] if k.lower() != b"content-length"]
-                headers.append((b"content-length", str(len(body)).encode("latin-1")))
-                await send({**start, "headers": headers})
+                out_headers: list[tuple[Any, Any]] = [
+                    (k, v) for k, v in start.get("headers") or [] if k.lower() != b"content-length"
+                ]
+                out_headers.append((b"content-length", str(len(body)).encode("latin-1")))
+                await send({**start, "headers": out_headers})
                 await send({"type": "http.response.body", "body": body, "more_body": False})
                 return
             await send(message)

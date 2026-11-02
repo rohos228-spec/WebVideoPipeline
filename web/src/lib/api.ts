@@ -4,7 +4,8 @@
  * сам отдаёт фронт + API из одного origin.
  */
 
-import { authHeaders } from "./identity-api";
+import type { Nii67Card } from "./nii67";
+import type { Nii67Frame } from "@/components/canvas/nii67-frame-menu";
 import type {
   ArtifactDTO,
   ExcelHeroCharacter,
@@ -13,6 +14,7 @@ import type {
   MontageBoardFrame,
   MontageBoardMeta,
   MontageBoardParentRef,
+  MontageImproveReport,
   MontageRefAsset,
   GenerationConfigPreset,
   GenerationConfigPresetSettings,
@@ -32,7 +34,7 @@ import type {
 } from "./types";
 import type { BlockSelection } from "./prompt-styles";
 import type { ShotMenuDTO } from "./shot-menu";
-import type { GraphApplyResult, GraphDiffResponse, GraphProposal } from "./stage-types";
+import { readOrchToken } from "./orchestratorApi";
 
 export interface StepTemplateBlock {
   number: number;
@@ -139,6 +141,210 @@ export interface BlockActivityEntry {
   created_at: string;
 }
 
+// ── Style agent DTO ─────────────────────────────────────────────────
+export interface StyleAgentSettings {
+  max_llm_calls: number;
+  min_support: number;
+  iqr_threshold: number;
+  max_sheets_per_video: number;
+  hook_seconds?: number;
+  language: string;
+  style_id: string;
+  label: string;
+  skip_llm: boolean;
+  skip_asr: boolean;
+  skip_ocr: boolean;
+  frames_per_min: number;
+  agents: string[];
+}
+
+export interface StyleAgentJob {
+  status: "idle" | "running" | "done" | "failed" | "stopped";
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  stage?: string;
+  progress?: Record<string, unknown>;
+  error?: string | null;
+  llm?: { used: number; limit: number; remaining?: number };
+  videos?: string[];
+}
+
+export interface StyleAgentVideo {
+  name: string;
+  size: number;
+  uploaded: boolean;
+  analyzed: boolean;
+  sheets: string[];
+}
+
+export interface StyleAgentSnapshot {
+  settings: StyleAgentSettings;
+  job: StyleAgentJob;
+  videos: StyleAgentVideo[];
+  passport: {
+    hasDraft: boolean;
+    hasApproved: boolean;
+    draftAt?: string | null;
+    approvedAt?: string | null;
+    style_id: string;
+    label: string;
+    problems: string[];
+  };
+  report: string;
+  apply: Record<string, unknown>;
+}
+
+export interface StyleAgentEstimate {
+  settings: StyleAgentSettings;
+  videos: string[];
+  plan: {
+    n_videos: number;
+    sheets_per_video: number;
+    sheets_by_agent?: Record<string, number>;
+    images_per_call?: number;
+    frames?: { video: string; duration_s: number; frames: number; motion_frames: number; grid: string; sheets_overview: number; sheets_motion: number }[];
+    max_calls: number;
+    agents: string[];
+    global_agents?: string[];
+    with_synth: boolean;
+    with_blueprint?: boolean;
+    per_video: Record<string, number>;
+    videos_covered: number;
+    minimal_total: number;
+    ideal_total: number;
+    planned_total: number;
+    fits: boolean;
+    hint: string;
+    skip_plan: string[];
+  };
+  cost: {
+    model_id: string;
+    usd_per_m_in: number;
+    usd_per_m_out: number;
+    tokens_in: number;
+    tokens_out: number;
+    usd: number;
+    usd_hi: number;
+    calls: number;
+  };
+  model: { id?: string | null; label?: string | null };
+}
+
+export interface StylePassportField {
+  value: unknown;
+  confidence: "high" | "medium" | "low";
+  support: string;
+  note?: string;
+  p10?: number;
+  p90?: number;
+}
+
+export interface StylePassportShot {
+  i: number;
+  start: number;
+  end: number;
+  len: number;
+  transition_in?: string;
+  uncertain?: boolean;
+  what?: string | null;
+  framing?: string | null;
+  camera?: string | null;
+  subject_anim?: string | null;
+  start_state?: string | null;
+  change?: string | null;
+  end_state?: string | null;
+  transition_out?: string | null;
+  transition_note?: string | null;
+  illustrates?: string | null;
+  vfx?: string | null;
+  vo_text?: string;
+}
+
+export interface StylePassportVideo {
+  video: string;
+  duration_s?: number | null;
+  transcript_source?: string | null;
+  shots: StylePassportShot[];
+  subtitles?: { start: number; end: number; text: string }[];
+  sentences?: { i: number; start: number; end: number; text: string; words: number }[];
+  linkage?: Record<string, unknown>;
+  script?: Record<string, unknown>;
+  problems?: Record<string, unknown>;
+}
+
+export interface StylePassportPattern {
+  name: string;
+  kind?: string;
+  description?: string;
+  how_to_reproduce?: string;
+  signature?: boolean;
+  support?: string;
+  confidence?: string;
+  frequency?: Record<string, string>;
+  examples?: { video: string; tc: string }[];
+}
+
+export interface StyleBlueprintNode {
+  node_type: string;
+  label?: string;
+  new?: boolean;
+  inputs?: string[];
+  outputs?: string[];
+  params?: Record<string, unknown>;
+  prompt_template?: string;
+  prompt_hint?: string;
+  fallback_existing?: string;
+}
+
+export interface StyleBlueprint {
+  chain: StyleBlueprintNode[];
+  prompt_templates: Record<string, string>;
+  new_nodes_needed: string[];
+  notes: string[];
+  source?: string;
+}
+
+export interface StylePassport {
+  $schema: string;
+  style_id: string;
+  label: string;
+  created_at?: string;
+  approved_at?: string;
+  sources?: { count: number; videos: string[] };
+  format?: Record<string, StylePassportField>;
+  visual?: Record<string, StylePassportField>;
+  voice?: Record<string, StylePassportField>;
+  music?: Record<string, StylePassportField>;
+  sfx?: Record<string, StylePassportField>;
+  motion?: Record<string, StylePassportField>;
+  narrative?: Record<string, StylePassportField>;
+  linkage?: Record<string, StylePassportField>;
+  script?: Record<string, StylePassportField>;
+  mapping?: Record<string, unknown>;
+  videos?: StylePassportVideo[];
+  patterns?: StylePassportPattern[];
+  peculiarities?: string[];
+  blueprint?: StyleBlueprint;
+  variance_notes?: string[];
+  llm?: { calls_used: number; calls_limit: number; model: string };
+  errors?: Record<string, unknown>;
+}
+
+export interface StyleApplyReport {
+  style_id: string;
+  materialized?: boolean;
+  blocks?: string[];
+  preset?: string;
+  frame_style?: string;
+  written?: string[];
+  backed_up?: string[];
+  skipped?: string[];
+  prompt_overrides_patch?: Record<string, unknown>;
+  node_step_params_patch?: Record<string, unknown>;
+  next_steps?: string[];
+  at?: string;
+}
+
 export interface LibraryConfigDTO {
   id: number;
   name: string;
@@ -149,8 +355,23 @@ export interface LibraryConfigDTO {
   created_at: string;
 }
 
-// Экспорт для модулей чата оркестратора (action-layer, change-control, журнал): тот же
-// http с токеном студии, что у всего api.
+/**
+ * Bearer для легаси-ручек оркестратора (`/api/db/projects/{id}/orchestrator/**`).
+ *
+ * A2 включает `orchestrator_chat_auth_required` (С3) на легаси-ручках: chat,
+ * feedback, confirm-remove, confirm-delete-projects, apply-ops, confirm-plan
+ * (`9771e75d5` + ручка плана). Токен тот же, что у нового чата — `ORCH_API_TOKEN`
+ * бэкенда, хранится в localStorage под ключом `vp-orch-api-token` (`readOrchToken`).
+ * Токена нет → заголовок не отправляем, бэкенд с выключенным флагом не против.
+ */
+export function orchAuthHeaders(): Record<string, string> {
+  const token = readOrchToken();
+  if (!token || !/^[\x20-\x7E]+$/.test(token)) {
+    return {};
+  }
+  return { Authorization: `Bearer ${token}` };
+}
+
 export async function http<T>(
   path: string,
   options: RequestInit = {},
@@ -175,11 +396,6 @@ export async function http<T>(
       signal: controller.signal,
       headers: {
         ...(isFormData ? {} : { "Content-Type": "application/json" }),
-        // Токен биллинга — на КАЖДОМ запросе, а не только там, где вспомнили.
-        // В режиме SaaS без него не отвечает ни одна ручка `/api/*`, и
-        // добавлять заголовок по месту значит забыть его в одном вызове из
-        // сотни и получить одинокий 401 без объяснения.
-        ...authHeaders(),
         ...(options.headers || {}),
       },
     });
@@ -235,6 +451,7 @@ export interface MontagePendingOp {
     | "coverage_delete"
     | "coverage_template"
     | "coverage_anchors"
+    | "coverage_vo_span"
     | "coverage_angle"
     | "coverage_move"
     | "coverage_stitch"
@@ -251,6 +468,8 @@ export interface MontagePendingOp {
     | "coverage_scene_action";
   frame_number: number;
   shot: 1 | 2;
+  /** Общий план: отдельный still, не shot1. */
+  slot?: "parent";
   prompt?: string;
   correction?: string;
   /** Заметка оператора для ИИзменения — агент img_pr пишет по ней новый промт. */
@@ -274,7 +493,16 @@ export interface MontagePendingOp {
   parent_number?: number;
   /** Формат сцены: шаблон T0…T10 / X1 / X2 из каталога. */
   template?: string;
+  /** Якоря закадра ячейки — точки нарезки VO по кадрам. */
   anchors?: SceneAnchorRow[];
+  /** Выделение закадра: start/end в полном тексте ячейки. */
+  start?: number;
+  end?: number;
+  text?: string;
+  full?: string;
+  vo_cell_full?: string;
+  vo_span?: { start: number; end: number; text: string } | null;
+  clear?: boolean;
 }
 
 export interface SceneAnchorRow {
@@ -613,89 +841,60 @@ export interface DbGraph {
   harness?: DbHarnessSummary;
 }
 
-export interface UsageHistoryModelItem {
-  model: string;
-  display_name: string;
-  kind: "image" | "video" | "audio" | "llm" | string;
-  provider: string;
-  calls: number;
-  success_calls: number;
-  error_calls: number;
-  units: number;
-  unit_label: string;
-  credits_spent: string;
-  credits_spent_micro: number;
-  cost_usd: number | null;
-}
-
-export interface UsageHistoryKindSummary {
-  kind: string;
-  calls: number;
-  credits: string;
-  credits_micro: number;
-  cost_usd: number | null;
-}
-
-export interface UsageHistoryRecentItem {
-  id: string;
-  created_at: string;
-  kind: "image" | "video" | "audio" | "llm" | "topup" | "settle" | "promo" | string;
-  model: string;
-  provider: string;
-  description: string;
-  units_label: string;
-  credits_delta: string;
-  credits_delta_micro: number;
-  cost_usd: number | null;
-  status: "ok" | "error" | string;
-  duration_sec: number | null;
-  preview_url: string | null;
-}
-
-export interface UsageHistoryResponse {
-  summary: {
-    total_spent_credits: string;
-    total_spent_micro: number;
-    total_cost_usd: number | null;
-    by_kind: Record<string, UsageHistoryKindSummary>;
-  };
-  models: UsageHistoryModelItem[];
-  recent: UsageHistoryRecentItem[];
-  is_admin: boolean;
+export interface DbOrchestratorChatResult {
+  reply: string;
+  applied: { updated: number; exported: { frames: number; cells: number } | null } | null;
+  actions_run: {
+    project_id?: number;
+    inspect_project?: unknown;
+    project_graph?: unknown;
+    error?: string;
+    run_step?: string;
+    status?: string;
+    stop_step?: boolean;
+    set_option?: string;
+    set_prompt?: string;
+    set_text_llm?: string;
+    run_harness?: string;
+    read_file?: string;
+    edit_files?: string;
+    run_tests?: string;
+    git_commit_push?: string;
+    delete_projects?: string;
+    create_project?: string;
+    create_child?: string;
+    add_node?: string;
+    connect_edges?: string;
+    rename_node?: string;
+    repair_graph?: string;
+    hitl_decision?: string;
+    set_topic?: string;
+    create_group?: string;
+  }[];
+  ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number; group_id?: string; node_keys?: string[]; title?: string }[];
+  pending_confirm: {
+    kind: string;
+    project_id?: number;
+    node_key?: string | null;
+    node_type?: string | null;
+    only?: string | null;
+    count: number;
+    nodes: string[];
+    message?: string;
+    files?: string[];
+    plan_id?: string | number | null;
+    needs_approval?: boolean;
+    cost_low?: number | null;
+    cost_high?: number | null;
+    cost_unknown_steps?: number;
+    risk?: string | null;
+    steps?: { action_id: string }[];
+    step_titles?: string[];
+  }[];
+  error: string | null;
 }
 
 export const api = {
-  // ── Купоны и биллинг ──────────────────────────────────────────────
-  redeemCoupon: (code: string) =>
-    http<{
-      ok: boolean;
-      code: string;
-      credits_added: number;
-      balance_micro: number;
-      balance_credits: string;
-      message: string;
-    }>(`/api/billing/coupons/redeem`, {
-      method: "POST",
-      body: JSON.stringify({ code }),
-    }),
-
-  getUsageHistory: (params?: {
-    project_id?: number | null;
-    kind?: string;
-    all_tenants?: boolean;
-    limit?: number;
-    offset?: number;
-  }) => {
-    const q = new URLSearchParams();
-    if (params?.project_id != null) q.set("project_id", String(params.project_id));
-    if (params?.kind && params.kind !== "all") q.set("kind", params.kind);
-    if (params?.all_tenants) q.set("all_tenants", "true");
-    if (params?.limit != null) q.set("limit", String(params.limit));
-    if (params?.offset != null) q.set("offset", String(params.offset));
-    const qs = q.toString();
-    return http<UsageHistoryResponse>(`/api/billing/usage-history${qs ? `?${qs}` : ""}`);
-  },
-
   // ── База (DB v2 browser) ─────────────────────────────────────────
   dbOverview: () => http<DbOverview>(`/api/db/overview`),
   dbGraph: (projectId: number) => http<DbGraph>(`/api/db/projects/${projectId}/graph`),
@@ -734,7 +933,9 @@ export const api = {
   dbAddText: (frameId: number, kind: string, text: string) =>
     http<{ id: number }>(`/api/db/frames/${frameId}/texts`, { method: "POST", body: JSON.stringify({ kind, text }) }),
   dbDeleteText: (textId: number) =>
-    http<{ ok: boolean }>(`/api/db/texts/${textId}`, { method: "DELETE" }),
+    http<{ ok: boolean }>(`/api/db/texts/${textId}?confirm=true`, { method: "DELETE" }),
+  dbRestoreText: (textId: number) =>
+    http<{ ok: boolean }>(`/api/db/texts/${textId}/restore`, { method: "POST" }),
   dbAddPrompt: (frameId: number, kind: string, text: string, setActive = true) =>
     http<{ id: number; version: number }>(`/api/db/frames/${frameId}/prompts`, {
       method: "POST",
@@ -747,11 +948,15 @@ export const api = {
   dbPatchEntity: (entityId: number, body: { type: string; code?: string | null; name?: string | null; attrs?: Record<string, unknown> }) =>
     http<{ ok: boolean }>(`/api/db/entities/${entityId}`, { method: "PATCH", body: JSON.stringify(body) }),
   dbDeleteEntity: (entityId: number) =>
-    http<{ ok: boolean }>(`/api/db/entities/${entityId}`, { method: "DELETE" }),
+    http<{ ok: boolean }>(`/api/db/entities/${entityId}?confirm=true`, { method: "DELETE" }),
+  dbRestoreEntity: (entityId: number) =>
+    http<{ ok: boolean }>(`/api/db/entities/${entityId}/restore`, { method: "POST" }),
   dbAddEdge: (frameId: number, toFrameId: number, type = "next") =>
     http<{ id: number }>(`/api/db/frames/${frameId}/edges`, { method: "POST", body: JSON.stringify({ to_frame_id: toFrameId, type }) }),
   dbDeleteEdge: (edgeId: number) =>
-    http<{ ok: boolean }>(`/api/db/edges/${edgeId}`, { method: "DELETE" }),
+    http<{ ok: boolean }>(`/api/db/edges/${edgeId}?confirm=true`, { method: "DELETE" }),
+  dbRestoreEdge: (edgeId: number) =>
+    http<{ ok: boolean }>(`/api/db/edges/${edgeId}/restore`, { method: "POST" }),
   dbAddScene: (projectId: number, body: { title?: string; after_scene_id?: number | null }) =>
     http<{ id: number; sort_key: number }>(`/api/db/projects/${projectId}/scenes`, { method: "POST", body: JSON.stringify(body) }),
   dbExportXlsx: (projectId: number) =>
@@ -782,74 +987,112 @@ export const api = {
   ) =>
     http<{ ok: boolean; updated: number; exported: { frames: number; cells: number } | null }>(
       `/api/db/projects/${projectId}/apply-ops`,
-      { method: "POST", body: JSON.stringify({ ops, export_xlsx: exportXlsx }) },
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify({ ops, export_xlsx: exportXlsx }) },
     ),
   dbOrchestratorChat: (
     projectId: number,
     message: string,
     history: { role: string; content: string }[],
-    opts?: { signal?: AbortSignal; fixBugs?: boolean },
+    opts?: { signal?: AbortSignal },
   ) =>
-    http<{
-      reply: string;
-      applied: { updated: number; exported: { frames: number; cells: number } | null } | null;
-      actions_run: {
-        run_step?: string;
-        status?: string;
-        stop_step?: boolean;
-        set_option?: string;
-        set_prompt?: string;
-        set_text_llm?: string;
-        run_harness?: string;
-        read_file?: string;
-        edit_files?: string;
-        run_tests?: string;
-        git_commit_push?: string;
-        delete_projects?: string;
-        create_project?: string;
-        create_child?: string;
-        add_node?: string;
-        connect_edges?: string;
-        rename_node?: string;
-        repair_graph?: string;
-        hitl_decision?: string;
-        set_topic?: string;
-      }[];
-      ui_actions: { kind: string; step?: string; node_type?: string; node_key?: string; hitl_id?: number; project_id?: number }[];
-      pending_confirm: {
-        kind: string;
-        node_key?: string | null;
-        node_type?: string | null;
-        only?: string | null;
-        count: number;
-        nodes: string[];
-        message?: string;
-        files?: string[];
-      }[];
-      error: string | null;
-    }>(
+    http<DbOrchestratorChatResult>(
       `/api/db/projects/${projectId}/orchestrator/chat`,
       {
         method: "POST",
+        headers: orchAuthHeaders(),
         body: JSON.stringify({
           message,
           history,
-          fix_bugs: Boolean(opts?.fixBugs),
         }),
         signal: opts?.signal,
       },
       // GPT-вызов длинный (контекст графа + ответ): 10 минут, как ask_fresh.
       600_000,
     ),
+  dbOrchestratorChatStream: async (
+    projectId: number,
+    message: string,
+    history: { role: string; content: string }[],
+    callbacks?: {
+      onDelta?: (delta: string) => void;
+      onPhase?: (phase: string, phaseDetail?: string) => void;
+      onDone?: (result: DbOrchestratorChatResult) => void;
+      onError?: (error: string) => void;
+    },
+    signal?: AbortSignal,
+  ): Promise<DbOrchestratorChatResult | null> => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/db/projects/${projectId}/orchestrator/chat-stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...orchAuthHeaders(),
+        },
+        body: JSON.stringify({ message, history }),
+        signal,
+      });
+    } catch (e: any) {
+      if (e?.name === "AbortError" || signal?.aborted) return null;
+      throw e;
+    }
+
+    if (!res.ok) {
+      const errTxt = await res.text();
+      throw new ApiError(res.status, errTxt);
+    }
+    if (!res.body) return null;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finalResult: DbOrchestratorChatResult | null = null;
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith("data:")) {
+            try {
+              const data = JSON.parse(trimmed.slice(5).trim());
+              if (data.type === "delta" && data.delta) {
+                callbacks?.onDelta?.(data.delta);
+              } else if (data.type === "phase") {
+                callbacks?.onPhase?.(data.phase, data.detail);
+              } else if (data.type === "done") {
+                finalResult = data as DbOrchestratorChatResult;
+                callbacks?.onDone?.(finalResult);
+              } else if (data.type === "error") {
+                callbacks?.onError?.(data.error || "Ошибка генерации");
+              }
+            } catch {
+              // ignore json parse error on incomplete chunks
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    return finalResult;
+  },
   dbOrchestratorConfirmRemove: (projectId: number, body: { node_key?: string | null; node_type?: string | null; only?: string | null }) =>
     http<{ remove_node: string }>(`/api/db/projects/${projectId}/orchestrator/confirm-remove`, {
       method: "POST",
+      headers: orchAuthHeaders(),
       body: JSON.stringify(body),
     }),
   dbOrchestratorConfirmDeleteProjects: (projectId: number, body: { ids: number[] }) =>
     http<{ delete_projects: string; ids: number[] }>(
       `/api/db/projects/${projectId}/orchestrator/confirm-delete-projects`,
-      { method: "POST", body: JSON.stringify(body) },
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
       120_000,
     ),
   dbOrchestratorConfirmGitPush: (
@@ -858,7 +1101,21 @@ export const api = {
   ) =>
     http<{ git_commit_push: string; sha: string; branch?: string; files: string[] }>(
       `/api/db/projects/${projectId}/orchestrator/confirm-git-push`,
-      { method: "POST", body: JSON.stringify(body) },
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
+      180_000,
+    ),
+  /**
+   * Поток (b) A2: подтверждение плана слоя действий.
+   * 409 — план уже подтверждён (идемпотентность), 404 — неизвестный plan_id.
+   */
+  /** A2: plan_id плана слоя приходит строкой; approve=false — план не подтверждён. */
+  dbOrchestratorConfirmPlan: (
+    projectId: number,
+    body: { plan_id: string; approve?: boolean },
+  ) =>
+    http<{ ok: boolean; plan_id: string; status?: string; detail?: string }>(
+      `/api/db/projects/${projectId}/orchestrator/confirm-plan`,
+      { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
       180_000,
     ),
   runHarnessVerify: (projectId: number) =>
@@ -893,40 +1150,6 @@ export const api = {
     http<void>(`/api/workflows/${id}`, { method: "DELETE" }),
   resetDefaultWorkflow: () =>
     http<WorkflowDetail>(`/api/workflows/default/reset`, { method: "POST" }),
-
-  // ── Слой project_graph (появился после пивота) ────────────────────
-  //
-  // Канвас теперь сохраняет схему ролика НЕ прямой записью meta.canvas_graph,
-  // а через PUT /graph: сервер сам считает разницу, знает, какие сделанные
-  // шаги устаревают от правки (reset-план), и синхронизирует run. Дифф без
-  // применения — чтобы спросить человека, прежде чем жечь результаты.
-  getProjectGraph: (id: number) =>
-    http<{ proposal: GraphProposal | null; source: string; workflow_id: number | null }>(
-      `/api/projects/${id}/graph`,
-    ),
-  elevenLabsVoicesStatus: () =>
-    http<{ checked: boolean; live: string[]; dead: string[] }>(
-      `/api/projects/elevenlabs/voices-status`,
-    ),
-  projectGraphDiff: (id: number, nodes: WorkflowNode[], edges: WorkflowEdge[]) =>
-    http<GraphDiffResponse>(`/api/projects/${id}/graph/diff`, {
-      method: "POST",
-      body: JSON.stringify({ nodes, edges }),
-    }),
-  saveProjectGraph: (id: number, nodes: WorkflowNode[], edges: WorkflowEdge[], reset: boolean) =>
-    http<GraphApplyResult>(`/api/projects/${id}/graph`, {
-      method: "PUT",
-      body: JSON.stringify({ nodes, edges, reset }),
-    }),
-  resetProjectGraph: (id: number) =>
-    http<GraphApplyResult>(`/api/projects/${id}/graph/reset`, { method: "POST" }),
-  applyGraphProposal: (id: number, proposalId: string, reset = true) =>
-    http<GraphApplyResult>(`/api/projects/${id}/graph/proposal/apply`, {
-      method: "POST",
-      body: JSON.stringify({ proposal_id: proposalId, reset }),
-    }),
-  discardGraphProposal: (id: number) =>
-    http<void>(`/api/projects/${id}/graph/proposal`, { method: "DELETE" }),
 
   // ── Группы нод (пресеты канваса) ──────────────────────────────────
   listNodeGroups: () => http<NodeGroupSummary[]>(`/api/node-groups`),
@@ -971,10 +1194,11 @@ export const api = {
     }),
 
   // ── Projects ─────────────────────────────────────────────────────
-  listProjects: (pipelineMode?: PipelineMode) =>
-    http<ProjectSummary[]>(
-      pipelineMode ? `/api/projects?pipeline_mode=${encodeURIComponent(pipelineMode)}` : `/api/projects`,
-    ),
+  listProjects: (opts?: { mineOnly?: boolean }) => {
+    const isMine = typeof opts === "object" && opts !== null && "mineOnly" in opts ? Boolean(opts.mineOnly) : false;
+    const q = isMine ? "?mine_only=true" : "";
+    return http<ProjectSummary[]>(`/api/projects${q}`);
+  },
   getProject: (id: number) => http<ProjectDetail>(`/api/projects/${id}`),
   getProjectRun: (projectId: number) =>
     http<WorkflowRunDetail>(`/api/projects/${projectId}/run`),
@@ -983,7 +1207,7 @@ export const api = {
     topic?: string;
     hero_mode?: string;
     auto_mode?: boolean;
-    pipeline_mode?: PipelineMode;
+    pipeline_mode?: PipelineMode | string;
     sidebar_folder_id?: string | null;
   }) =>
     http<ProjectDetail>(`/api/projects`, { method: "POST", body: JSON.stringify(body) }),
@@ -993,6 +1217,57 @@ export const api = {
       { method: "PATCH", body: JSON.stringify(body) },
       90_000,
     ),
+  getNii67: (id: number) => http<{ card: Nii67Card; frames?: Nii67Frame[] }>(`/api/projects/${id}/nii67`),
+  putNii67: (id: number, card: Nii67Card, mode: "draft" | "save") =>
+    http<{ card: Nii67Card }>(`/api/projects/${id}/nii67?mode=${mode}`, {
+      method: "PUT",
+      body: JSON.stringify({ card }),
+    }),
+  previewNii67: (id: number, card: Nii67Card) =>
+    http<{ text: string }>(`/api/projects/${id}/nii67/preview`, {
+      method: "POST",
+      body: JSON.stringify({ card }),
+    }),
+  planNii67: (id: number, card: Nii67Card) =>
+    http<{ card: Nii67Card }>(
+      `/api/projects/${id}/nii67/plan`,
+      { method: "POST", body: JSON.stringify({ card }) },
+      300_000,
+    ),
+  storyboardNii67: (id: number, card: Nii67Card) =>
+    http<{ card: Nii67Card; general_plan: string; frames?: Nii67Frame[] }>(
+      `/api/projects/${id}/nii67/storyboard`,
+      {
+        method: "POST",
+        body: JSON.stringify({ card }),
+      },
+      420_000,
+    ),
+  matrixPlanNii67: (id: number, card: Nii67Card) =>
+    http<{ card: Nii67Card; frames: Nii67Frame[]; preview?: boolean; issues?: string[] }>(
+      `/api/projects/${id}/nii67/matrix-plan`,
+      {
+        method: "POST",
+        body: JSON.stringify({ card }),
+      },
+    ),
+  putNii67Frames: (id: number, frames: Nii67Frame[]) =>
+    http<{ frames: Nii67Frame[] }>(`/api/projects/${id}/nii67/frames`, {
+      method: "PUT",
+      body: JSON.stringify({ frames }),
+    }),
+  uploadNii67: (id: number, slot: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return http<{ slot: string; name: string; path: string; size: number }>(
+      `/api/projects/${id}/nii67/upload?slot=${slot}`,
+      { method: "POST", body: form },
+    );
+  },
+  nii67AssetUrl: (id: number, name: string) =>
+    `/api/projects/${id}/nii67/asset/${encodeURIComponent(name)}`,
+  resetNii67: (id: number) =>
+    http<{ card: Nii67Card }>(`/api/projects/${id}/nii67/reset`, { method: "POST" }),
   deleteProject: (id: number) =>
     http<void>(`/api/projects/${id}`, { method: "DELETE" }),
   createChildProject: (parentId: number) =>
@@ -1078,6 +1353,7 @@ export const api = {
     const params = new URLSearchParams();
     if (opts?.dryRun) params.set("dry_run", "true");
     if (opts?.nodeKey) params.set("node_key", opts.nodeKey);
+    // Явный resume: повтор шага не делает wipe. Серверный дефолт сюда не подставляется.
     params.set("mode", opts?.mode ?? "resume");
     if (opts?.forceWipe != null) params.set("force_wipe", String(opts.forceWipe));
     const q = params.toString() ? `?${params.toString()}` : "";
@@ -1123,7 +1399,7 @@ export const api = {
       resolve?: import("@/lib/gpt-operator").OperatorResolve;
     }>(
       `/api/projects/${projectId}/excel-gpt/${encodeURIComponent(nodeKey)}/upload`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
   },
   remapExcelGptNodes: (projectId: number, mapping: Record<string, string>) =>
@@ -1158,7 +1434,7 @@ export const api = {
       resolve: import("@/lib/gpt-operator").OperatorResolve;
     }>(
       `/api/projects/${projectId}/gpt-operator/${encodeURIComponent(nodeKey)}/check-agent`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
   },
   clearCheckAgentFile: (projectId: number, nodeKey: string) =>
@@ -1300,7 +1576,7 @@ export const api = {
     fd.append("file", file);
     return http<{ ok: boolean; fileName: string; path: string }>(
       `/api/projects/${projectId}/storage/${encodeURIComponent(nodeKey)}/upload`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
   },
   clearStorageFiles: (projectId: number, nodeKey: string) =>
@@ -1308,6 +1584,65 @@ export const api = {
       `/api/projects/${projectId}/storage/${encodeURIComponent(nodeKey)}/files`,
       { method: "DELETE" },
     ),
+
+  // ── Style agent (ноды «Разбор стиля» / «Проверка стиля») ─────────
+  getStyleAgent: (projectId: number, nodeKey?: string | null) =>
+    http<StyleAgentSnapshot>(
+      `/api/projects/${projectId}/style-agent${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+    ),
+  patchStyleAgentSettings: (projectId: number, patch: Partial<StyleAgentSettings>) =>
+    http<{ settings: StyleAgentSettings }>(`/api/projects/${projectId}/style-agent`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  estimateStyleAgent: (projectId: number, nodeKey: string | null, patch?: Partial<StyleAgentSettings>) =>
+    http<StyleAgentEstimate>(
+      `/api/projects/${projectId}/style-agent/estimate${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+      { method: "POST", body: JSON.stringify(patch ?? {}) },
+    ),
+  runStyleAgent: (projectId: number, nodeKey: string | null, patch?: Partial<StyleAgentSettings>) =>
+    http<{ started: boolean; estimate: StyleAgentEstimate }>(
+      `/api/projects/${projectId}/style-agent/run${nodeKey ? `?node_key=${encodeURIComponent(nodeKey)}` : ""}`,
+      { method: "POST", body: JSON.stringify(patch ?? {}) },
+    ),
+  stopStyleAgent: (projectId: number) =>
+    http<{ stopped: boolean }>(`/api/projects/${projectId}/style-agent/stop`, { method: "POST" }),
+  uploadStyleRef: (projectId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    return http<{ name: string; size: number; videos: string[] }>(
+      `/api/projects/${projectId}/style-agent/upload`,
+      { method: "POST", body: fd },
+      600_000,
+    );
+  },
+  deleteStyleRef: (projectId: number, name: string) =>
+    http<{ videos: string[] }>(
+      `/api/projects/${projectId}/style-agent/refs/${encodeURIComponent(name)}`,
+      { method: "DELETE" },
+    ),
+  getStylePassport: (projectId: number, approved = false) =>
+    http<{ passport: StylePassport; problems: string[] }>(
+      `/api/projects/${projectId}/style-agent/passport${approved ? "?approved=true" : ""}`,
+    ),
+  putStylePassport: (projectId: number, passport: StylePassport) =>
+    http<{ ok: boolean; problems: string[] }>(`/api/projects/${projectId}/style-agent/passport`, {
+      method: "PUT",
+      body: JSON.stringify({ passport }),
+    }),
+  approveStylePassport: (projectId: number, passport?: StylePassport | null, materialize = true) =>
+    http<{ report: StyleApplyReport; snapshot: StyleAgentSnapshot }>(
+      `/api/projects/${projectId}/style-agent/approve`,
+      { method: "POST", body: JSON.stringify({ passport: passport ?? undefined, materialize }) },
+      120_000,
+    ),
+  getStyleAgentReport: (projectId: number) =>
+    http<{ report: string; variance_report: string; apply_report: StyleApplyReport | null }>(
+      `/api/projects/${projectId}/style-agent/report`,
+    ),
+  styleReportMdUrl: (projectId: number) => `/api/projects/${projectId}/style-agent/report?fmt=md`,
+  styleSheetUrl: (projectId: number, video: string, name: string) =>
+    `/api/projects/${projectId}/style-agent/sheet?video=${encodeURIComponent(video)}&name=${encodeURIComponent(name)}`,
 
   // ── Frames ───────────────────────────────────────────────────────
   listFrames: (projectId: number) =>
@@ -1346,6 +1681,29 @@ export const api = {
       body: JSON.stringify({
         left_frame_id: leftFrameId,
         right_frame_id: rightFrameId,
+      }),
+    }),
+
+  splitMontageScene: (
+    projectId: number,
+    frameId: number,
+    explode = false,
+    frameIds?: number[],
+  ) =>
+    http<{
+      ok: boolean;
+      scenes?: number;
+      parent_number?: number;
+      left_number?: number;
+      right_number?: number;
+      left_size?: number;
+      right_size?: number;
+    }>(`/api/projects/${projectId}/montage-board/scenes/split`, {
+      method: "POST",
+      body: JSON.stringify({
+        frame_id: frameId,
+        all: explode,
+        ...(frameIds?.length ? { frame_ids: frameIds } : {}),
       }),
     }),
 
@@ -1391,19 +1749,112 @@ export const api = {
       240_000,
     ),
 
+  generateSceneAction: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      replace_ns?: number[];
+      passport?: Record<string, string>;
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      frame_id: number;
+      frame_number: number;
+      replace_ns: number[];
+      chain: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      frame_numbers?: number[];
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-action-generate`,
+      { method: "POST", body: JSON.stringify(body) },
+      240_000,
+    ),
+
+  generateSceneWithImages: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      passport?: Record<string, string>;
+      frame_ids?: number[];
+      mode?: string;
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      started?: boolean;
+      already_running?: boolean;
+      frame_id?: number;
+      frame_number?: number;
+      chain?: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      images?: number;
+      fallback?: boolean;
+      generate_error?: string;
+      message?: string;
+      mode?: string;
+      job?: { status?: string; total_ops?: number };
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-generate-with-images`,
+      { method: "POST", body: JSON.stringify(body) },
+      300_000,
+    ),
+
+  improveScene: (
+    projectId: number,
+    frameId: number,
+    body: {
+      prompt?: string;
+      passport?: Record<string, string>;
+      frame_ids?: number[];
+      /** Якоря с доски. В 3-нодный прогон не входят. */
+      anchors?: { "якорь": string; "изменение"?: string; "главный"?: boolean }[];
+    },
+  ) =>
+    http<{
+      ok: boolean;
+      started?: boolean;
+      already_running?: boolean;
+      frame_id?: number;
+      frame_number?: number;
+      chain?: string;
+      shots?: number;
+      skipped_shots?: number;
+      inserted_frames?: number;
+      images?: number;
+      fallback?: boolean;
+      generate_error?: string;
+      message?: string;
+      mode?: string;
+      job?: { status?: string; total_ops?: number };
+      improve_report?: MontageImproveReport;
+      image_ops?: MontagePendingOp[];
+    }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/scene-improve`,
+      { method: "POST", body: JSON.stringify(body) },
+      900_000,
+    ),
+
+  /** Только ручное удаление после confirm. Автоматика этот метод не вызывает. */
   deleteMontageFrame: (projectId: number, frameId: number) =>
-    http<{ ok: boolean; frame_id: number; number: number; deleted: number }>(
+    http<{ ok: boolean; frame_id: number; number: number; deleted: number; marked?: number }>(
       `/api/projects/${projectId}/montage-board/frames/${frameId}`,
       { method: "DELETE" },
     ),
 
-  applyMontageCoverage: (
-    projectId: number,
-    body: Pick<
-      MontagePendingOp,
-      "type" | "frame_number" | "shot" | "kind" | "parent_number"
-    >,
-  ) =>
+  restoreMontageFrame: (projectId: number, frameId: number) =>
+    http<{ ok: boolean; frame_id: number; number: number; restored: number }>(
+      `/api/projects/${projectId}/montage-board/frames/${frameId}/restore`,
+      { method: "POST" },
+    ),
+
+  applyMontageCoverage: (projectId: number, body: MontagePendingOp) =>
     http<{
       ok: boolean;
       highlight?: string | null;
@@ -1439,6 +1890,8 @@ export const api = {
     body: {
       video_trims: Record<string, { start: number; end: number }>;
       pending_ops: MontagePendingOp[];
+      /** Только эти кадры; остальные правки остаются в очереди. */
+      frame_numbers?: number[];
     },
   ) =>
     http<{
@@ -1474,6 +1927,13 @@ export const api = {
             frame_number?: number;
             shot?: number;
           };
+        }>;
+        pending_ops?: Array<{
+          type: string;
+          frame_number: number;
+          shot?: number | string;
+          slot?: string;
+          instruction?: string;
         }>;
       };
     }>(`/api/projects/${projectId}/montage-board/apply-status`),
@@ -1606,6 +2066,8 @@ export const api = {
     fromShot: 1 | 2,
     toFrame: number,
     toShot: 1 | 2,
+    fromSlot?: "parent" | "",
+    toSlot?: "parent" | "",
   ) =>
     http<{
       ok: boolean;
@@ -1617,13 +2079,21 @@ export const api = {
     }>(
       `/api/projects/${projectId}/montage-board/move-image` +
         `?from_frame=${fromFrame}&from_shot=${fromShot}` +
-        `&to_frame=${toFrame}&to_shot=${toShot}`,
+        `&to_frame=${toFrame}&to_shot=${toShot}` +
+        `${fromSlot ? `&from_slot=${fromSlot}` : ""}` +
+        `${toSlot ? `&to_slot=${toSlot}` : ""}`,
       { method: "POST" },
     ),
 
-  deleteMontageImage: (projectId: number, frameNumber: number, shot: 1 | 2) =>
+  deleteMontageImage: (
+    projectId: number,
+    frameNumber: number,
+    shot: 1 | 2,
+    slot?: "parent" | "",
+  ) =>
     http<{ ok: boolean }>(
-      `/api/projects/${projectId}/montage-board/delete-image?frame_number=${frameNumber}&shot=${shot}`,
+      `/api/projects/${projectId}/montage-board/delete-image?frame_number=${frameNumber}&shot=${shot}` +
+        `${slot ? `&slot=${slot}` : ""}`,
       { method: "POST" },
     ),
 
@@ -1633,50 +2103,22 @@ export const api = {
       { method: "POST" },
     ),
 
-  uploadMontageImage: async (projectId: number, frameNumber: number, shot: 1 | 2, file: File) => {
+  uploadMontageImage: async (
+    projectId: number,
+    frameNumber: number,
+    shot: 1 | 2,
+    file: File,
+    slot?: "parent" | "",
+  ) => {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(
-      `/api/projects/${projectId}/montage-board/upload-image?frame_number=${frameNumber}&shot=${shot}`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      `/api/projects/${projectId}/montage-board/upload-image?frame_number=${frameNumber}&shot=${shot}` +
+        `${slot ? `&slot=${slot}` : ""}`,
+      { method: "POST", body: fd },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean; preview_url: string }>;
-  },
-
-  uploadMontageVideo: async (projectId: number, frameNumber: number, shot: 1 | 2, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(
-      `/api/projects/${projectId}/montage-board/upload-video?frame_number=${frameNumber}&shot=${shot}`,
-      { method: "POST", body: fd, headers: authHeaders() },
-    );
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.json() as Promise<{ ok: boolean; preview_url: string }>;
-  },
-
-  uploadMontageVoice: async (projectId: number, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-voice`, {
-      method: "POST",
-      body: fd,
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.json() as Promise<{ ok: boolean; path: string }>;
-  },
-
-  uploadMontageMusic: async (projectId: number, file: File) => {
-    const fd = new FormData();
-    fd.append("file", file);
-    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-music`, {
-      method: "POST",
-      body: fd,
-      headers: authHeaders(),
-    });
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.json() as Promise<{ ok: boolean; path: string }>;
   },
 
   montageRefAssets: (projectId: number) =>
@@ -1716,7 +2158,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/montage-board/refs?${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ ok: boolean }>;
@@ -1734,6 +2175,39 @@ export const api = {
         `&kind=${encodeURIComponent(kind)}`,
       { method: "POST" },
     ),
+
+  uploadMontageVideo: async (projectId: number, frameNumber: number, shot: 1 | 2, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(
+      `/api/projects/${projectId}/montage-board/upload-video?frame_number=${frameNumber}&shot=${shot}`,
+      { method: "POST", body: fd },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; preview_url: string }>;
+  },
+
+  uploadMontageVoice: async (projectId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-voice`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; path: string }>;
+  },
+
+  uploadMontageMusic: async (projectId: number, file: File) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`/api/projects/${projectId}/montage-board/upload-music`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.json() as Promise<{ ok: boolean; path: string }>;
+  },
 
   // ── Runs ─────────────────────────────────────────────────────────
   listRuns: () => http<WorkflowRunDetail[]>(`/api/runs`),
@@ -1757,11 +2231,6 @@ export const api = {
     http<HITLDTO>(`/api/hitl/${hitlId}/decision`, {
       method: "POST",
       body: JSON.stringify(body),
-    }),
-  visionDecision: (projectId: number, action: "more_rounds" | "accept_pending") =>
-    http<ProjectDetail>(`/api/projects/${projectId}/vision-decision`, {
-      method: "POST",
-      body: JSON.stringify({ action }),
     }),
 
   // ── Prompts ──────────────────────────────────────────────────────
@@ -2101,7 +2570,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/mass-lanes/parse-topics`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{
@@ -2140,10 +2608,6 @@ export const api = {
         model?: string | null;
         elapsed_sec?: number | null;
         elapsed_label?: string | null;
-        provider?: "outsee" | "kie" | string | null;
-        params?: Record<string, unknown> | null;
-        reference_images?: string[] | null;
-        first_frame_url?: string | null;
       }[]
     >(
       `/api/outsee-create/history?kind=${kind}&scope=${opts?.scope ?? "create"}&limit=${opts?.limit ?? 60}`,
@@ -2158,14 +2622,10 @@ export const api = {
     );
   },
   enhanceOutseeCreatePrompt: (data: { prompt: string; style?: string }) =>
-    http<{ ok: boolean; enhanced_prompt: string }>(
-      `/api/outsee-create/enhance-prompt`,
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-      },
-      45_000,
-    ),
+    http<{ ok: boolean; enhanced_prompt: string }>(`/api/outsee-create/enhance-prompt`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 
   outseeStatus: () =>
     http<{
@@ -2221,7 +2681,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       },
-      180_000,
+      60_000,
     ),
 
   outseeJob: (jobId: string) =>
@@ -2316,14 +2776,10 @@ export const api = {
         queue_position?: number | null;
       };
       estimate: { credits: number; usd: number; note?: string };
-    }>(
-      `/api/kie-create/generate`,
-      {
-        method: "POST",
-        body: JSON.stringify(body),
-      },
-      180_000,
-    ),
+    }>(`/api/kie-create/generate`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   kieUpload: async (file: File) => {
     const fd = new FormData();
     fd.append("file", file);
@@ -2386,6 +2842,8 @@ export const api = {
       : "";
     return `/api/projects/${projectId}/xlsx${q}`;
   },
+  projectShotsReportUrl: (projectId: number) =>
+    `/api/projects/${projectId}/shots-report`,
   reloadProjectXlsx: (projectId: number) =>
     http<ProjectDetail>(`/api/projects/${projectId}/xlsx/reload`, { method: "POST" }),
   uploadProjectXlsx: async (
@@ -2401,7 +2859,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/xlsx/upload${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<ProjectDetail>;
@@ -2442,7 +2899,6 @@ export const api = {
     const res = await fetch(`/api/projects/${projectId}/assets/hero/replace${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<{ path: string; preview_url: string; id: string }>;
@@ -2466,19 +2922,49 @@ export const api = {
   // ── Prompt files (prompts/<step>/*.md на диске) ────────────────────
   getGlobalActivePrompts: () =>
     http<Record<string, string>>("/api/prompt-files/global-active"),
-  listPromptFiles: (stepCode: string) =>
-    http<PromptFileInfo[]>(`/api/prompt-files/${stepCode}`),
-  getPromptFile: (stepCode: string, name: string) =>
-    http<PromptFileContent>(
-      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}/content`,
-    ),
+  listPromptFiles: (
+    stepCode: string,
+    opts?: { groupId?: string; nodeKey?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.groupId) qs.set("group_id", opts.groupId);
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    const q = qs.toString();
+    return http<PromptFileInfo[]>(
+      `/api/prompt-files/${stepCode}${q ? `?${q}` : ""}`,
+    );
+  },
+  getPromptFile: (
+    stepCode: string,
+    name: string,
+    opts?: { groupId?: string; projectId?: number; nodeKey?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.groupId) qs.set("group_id", opts.groupId);
+    if (opts?.projectId) qs.set("project_id", String(opts.projectId));
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    const q = qs.toString();
+    return http<PromptFileContent>(
+      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}/content${q ? `?${q}` : ""}`,
+    );
+  },
   downloadPromptFileUrl: (stepCode: string, name: string) =>
     `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}/download`,
-  savePromptFile: (stepCode: string, name: string, content: string) =>
-    http<PromptFileContent>(
-      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}`,
+  savePromptFile: (
+    stepCode: string,
+    name: string,
+    content: string,
+    opts?: { groupId?: string; nodeKey?: string },
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.groupId) qs.set("group_id", opts.groupId);
+    if (opts?.nodeKey) qs.set("node_key", opts.nodeKey);
+    const q = qs.toString();
+    return http<PromptFileContent>(
+      `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}${q ? `?${q}` : ""}`,
       { method: "PUT", body: JSON.stringify({ content }) },
-    ),
+    );
+  },
   deletePromptFile: (stepCode: string, name: string) =>
     http<{ removed: boolean }>(
       `/api/prompt-files/${stepCode}/${encodeURIComponent(name)}`,
@@ -2495,7 +2981,6 @@ export const api = {
     const res = await fetch(`/api/prompt-files/${stepCode}/upload${q}`, {
       method: "POST",
       body: fd,
-      headers: authHeaders(),
     });
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return res.json() as Promise<PromptFileInfo>;
@@ -2621,7 +3106,7 @@ export const api = {
     }
     const res = await fetch(
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/attachments`,
-      { method: "POST", body: fd, headers: authHeaders() },
+      { method: "POST", body: fd },
     );
     if (!res.ok) throw new ApiError(res.status, await res.text());
     const body = await res.json();
@@ -2670,10 +3155,7 @@ export const api = {
         `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/ask-stream`,
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...authHeaders(),
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message, with_attachments: withAttachments }),
           signal,
         },
@@ -2729,6 +3211,9 @@ export const api = {
       }
       throw err;
     }
+    if (!doneReceived && !signal?.aborted) {
+      callbacks?.onError?.("Стрим оборвался без ответа от модели");
+    }
   },
   gptSaveToProject: (
     sessionId: string,
@@ -2746,12 +3231,6 @@ export const api = {
       `/api/gpt-workspace/sessions/${encodeURIComponent(sessionId)}/save-voiceover`,
       { method: "POST", body: JSON.stringify(body) },
     ),
-  textLlmStatus: () => http<any>(`/api/text-llm`),
-  textLlmSelect: (body: { provider?: string; model_id?: string; reasoning_effort?: string }) =>
-    http<any>(`/api/text-llm`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
   compileMetaPrompt: (body: {
     step_code: string;
     user_intent: string;
@@ -2869,6 +3348,8 @@ export interface PromptFileInfo {
   modified: number | null;
   is_default: boolean;
   is_shared?: boolean;
+  title?: string | null;
+  description?: string | null;
 }
 
 export interface PromptFileContent {

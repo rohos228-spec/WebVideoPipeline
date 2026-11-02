@@ -27,14 +27,42 @@ _MAX_VERSIONS = 100
 
 def _history_root(step_code: str) -> Path:
     root = step_dir(step_code) / _HISTORY_DIR
-    root.mkdir(parents=True, exist_ok=True)
+    # Каталог промтов на сервере смонтирован ТОЛЬКО НА ЧТЕНИЕ (docker-compose:
+    # `./prompts:/app/prompts:ro`). Создание каталога истории падало OSError
+    # EROFS, и на этом обрывалась вся стартовая обслуживалка: не выполнялись
+    # ни импорт библиотеки, ни сверка графа. Историю в этом случае просто не
+    # ведём — читать уже существующую по-прежнему можно.
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        _warn_readonly_once(root, e)
     return root
 
 
 def _prompt_history_dir(step_code: str, name: str) -> Path:
     d = _history_root(step_code) / name
-    d.mkdir(parents=True, exist_ok=True)
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        _warn_readonly_once(d, e)
     return d
+
+
+_readonly_warned: set[str] = set()
+
+
+def _warn_readonly_once(path: Path, err: OSError) -> None:
+    """Один WARNING на путь: иначе read-only том засыпает лог на каждом промте."""
+    key = str(path)
+    if key in _readonly_warned:
+        return
+    _readonly_warned.add(key)
+    logger.warning(
+        "prompt_history: каталог {} недоступен для записи ({}). "
+        "История версий промтов не ведётся, чтение работает.",
+        key,
+        err.strerror or err,
+    )
 
 
 def _index_path(step_code: str, name: str) -> Path:
@@ -128,7 +156,13 @@ def archive_prompt_version(step_code: str, name: str, content: str) -> str | Non
     vid = _new_version_id()
     hist_dir = _prompt_history_dir(step_code, name)
     idx = _load_index(step_code, name)
-    (hist_dir / f"{vid}.md").write_text(text, encoding="utf-8")
+    try:
+        (hist_dir / f"{vid}.md").write_text(text, encoding="utf-8")
+    except OSError as e:
+        # Read-only том в контейнере: промт сохранить всё равно не выйдет,
+        # поэтому не притворяемся, что версия создана.
+        _warn_readonly_once(hist_dir, e)
+        return None
     saved_at = datetime.now(UTC).timestamp()
     versions: list[dict[str, Any]] = list(idx.get("versions") or [])
     versions.insert(

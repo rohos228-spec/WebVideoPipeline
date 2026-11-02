@@ -13,37 +13,56 @@ from typing import Any
 from loguru import logger
 
 from app.services.prompt_library import PROMPTS_ROOT, prompt_path
+from app.settings import settings
 
 _ACTIVE_FILE = "active_variants.json"
 
 
-def _active_path() -> Path:
-    path = PROMPTS_ROOT / _ACTIVE_FILE
-    PROMPTS_ROOT.mkdir(parents=True, exist_ok=True)
-    return path
+def _active_write_path() -> Path:
+    p = Path(settings.data_dir) / _ACTIVE_FILE
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _active_read_paths() -> list[Path]:
+    return [
+        Path(settings.data_dir) / _ACTIVE_FILE,
+        PROMPTS_ROOT / _ACTIVE_FILE,
+    ]
 
 
 def load_global_active() -> dict[str, str]:
-    path = _active_path()
-    if not path.is_file():
-        return {}
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning("prompt_active_global: bad {}: {}", path, e)
-        return {}
-    if not isinstance(raw, dict):
-        return {}
-    out: dict[str, str] = {}
-    for k, v in raw.items():
-        if isinstance(k, str) and isinstance(v, str) and v.strip():
-            out[k] = v.strip()
-    return out
+    for path in _active_read_paths():
+        if not path.is_file():
+            continue
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("prompt_active_global: bad {}: {}", path, e)
+            continue
+        if not isinstance(raw, dict):
+            continue
+        out: dict[str, str] = {}
+        for k, v in raw.items():
+            if isinstance(k, str) and isinstance(v, str) and v.strip():
+                out[k] = v.strip()
+        if out:
+            return out
+    return {}
 
 
 def _save_global_active(data: dict[str, str]) -> None:
-    path = _active_path()
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path = _active_write_path()
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError as e:
+        logger.warning("prompt_active_global: failed writing to {}: {}", path, e)
+        try:
+            (PROMPTS_ROOT / _ACTIVE_FILE).write_text(
+                json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+            )
+        except OSError:
+            pass
 
 
 def get_global_active(step_code: str) -> str | None:

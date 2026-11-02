@@ -9,7 +9,8 @@ let inflight: Promise<string | null> | null = null;
 function sessionAuthHeaders(): Record<string, string> {
   try {
     const t = window.localStorage.getItem("vp_fleet_token");
-    return t ? { Authorization: `Bearer ${t}` } : {};
+    if (!t || !/^[\x20-\x7E]+$/.test(t)) return {};
+    return { Authorization: `Bearer ${t}` };
   } catch {
     return {};
   }

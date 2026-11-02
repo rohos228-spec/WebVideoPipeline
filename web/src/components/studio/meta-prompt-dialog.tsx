@@ -31,16 +31,22 @@ export function MetaPromptDialog({
   stepCode,
   projectId,
   onSaved,
+  trigger,
+  initialIntent = "",
+  initialPresetName = "",
 }: {
   stepCode: string;
   projectId?: number;
   onSaved?: (fileName: string) => void;
+  trigger?: React.ReactNode;
+  initialIntent?: string;
+  initialPresetName?: string;
 }) {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
-  const [intent, setIntent] = useState("");
-  const [presetName, setPresetName] = useState("");
+  const [intent, setIntent] = useState(initialIntent);
+  const [presetName, setPresetName] = useState(initialPresetName);
   const [compiledPrompt, setCompiledPrompt] = useState<string | null>(null);
   const [stats, setStats] = useState<{
     length_chars: number;
@@ -107,14 +113,16 @@ export function MetaPromptDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="gap-1.5 border-cyan-500/40 bg-cyan-500/10 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 shadow-sm transition-all"
-        >
-          Создать с ИИ-агентом
-        </Button>
+        {trigger ?? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5 border-cyan-500/40 bg-cyan-500/10 text-xs font-semibold text-cyan-300 hover:bg-cyan-500/20 shadow-sm transition-all"
+          >
+            Создать с ИИ-агентом
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent

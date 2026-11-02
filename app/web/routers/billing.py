@@ -783,8 +783,10 @@ async def usage_history(
             m_kind = "audio"
         key = f"{m_kind}:{raw_model}"
 
-        cost_val = float(mc.cost_usd or 0.0)
-        if cost_val > 0:
+        # Себестоимость может быть неизвестна (`unpriced`): не врём нулём —
+        # admin увидит «—», а не «$0.00, значит бесплатно».
+        cost_val = None if mc.unpriced else float(mc.cost_usd or 0.0)
+        if cost_val is not None and cost_val > 0:
             micro = price_micro(cost_val)
         elif m_kind == "image":
             micro = 500_000
@@ -806,7 +808,7 @@ async def usage_history(
                 "units": 0.0,
                 "unit": mc.unit or "",
                 "credits_spent_micro": 0,
-                "cost_usd": 0.0,
+                "cost_usd": None,
             },
         )
         entry["calls"] += 1
@@ -816,7 +818,8 @@ async def usage_history(
             entry["error_calls"] += 1
         entry["units"] += float(mc.units or 0.0)
         entry["credits_spent_micro"] += micro
-        entry["cost_usd"] += cost_val
+        if cost_val is not None:
+            entry["cost_usd"] = (entry["cost_usd"] or 0.0) + cost_val
 
         dur_s = int(mc.duration_ms / 1000) if mc.duration_ms else None
         units_count = round(float(mc.units or 0.0), 1)
@@ -841,8 +844,9 @@ async def usage_history(
     for llm in llm_rows:
         raw_model, display_name = _clean_model_name(llm.served_model or llm.model or "unknown-llm")
         key = f"llm:{raw_model}"
-        cost_val = float(llm.cost_usd or 0.0)
-        micro = price_micro(cost_val) if cost_val > 0 else 0
+        # NULL = цена неизвестна (миграция 0018), ноль = реально бесплатный вызов.
+        cost_val = float(llm.cost_usd) if llm.cost_usd is not None else None
+        micro = price_micro(cost_val) if cost_val and cost_val > 0 else 0
         tokens = int(llm.total_tokens or ((llm.prompt_tokens or 0) + (llm.completion_tokens or 0)))
 
         entry = models_dict.setdefault(
@@ -858,7 +862,7 @@ async def usage_history(
                 "units": 0.0,
                 "unit": "tokens",
                 "credits_spent_micro": 0,
-                "cost_usd": 0.0,
+                "cost_usd": None,
             },
         )
         entry["calls"] += 1
@@ -868,7 +872,8 @@ async def usage_history(
             entry["error_calls"] += 1
         entry["units"] += float(tokens)
         entry["credits_spent_micro"] += micro
-        entry["cost_usd"] += cost_val
+        if cost_val is not None:
+            entry["cost_usd"] = (entry["cost_usd"] or 0.0) + cost_val
 
         dur_s = int(llm.duration_ms / 1000) if llm.duration_ms else None
         recent_entries.append(
@@ -1015,23 +1020,26 @@ async def usage_history(
 
     # Итоговые агрегаты
     by_kind_map: dict[str, KindSummaryItem] = {
-        k: KindSummaryItem(kind=k, calls=0, credits="0", credits_micro=0, cost_usd=0.0 if is_admin else None)
+        k: KindSummaryItem(kind=k, calls=0, credits="0", credits_micro=0, cost_usd=None)
         for k in ("image", "video", "audio", "llm")
     }
 
     total_spent_micro = 0
     total_cost_usd = 0.0
+    cost_known = False
 
     for m in models_dict.values():
         k = m["kind"]
         if k in by_kind_map:
             by_kind_map[k].calls += m["calls"]
             by_kind_map[k].credits_micro += m["credits_spent_micro"]
-            if is_admin:
+            if is_admin and m["cost_usd"] is not None:
                 by_kind_map[k].cost_usd = round((by_kind_map[k].cost_usd or 0.0) + m["cost_usd"], 4)
 
         total_spent_micro += m["credits_spent_micro"]
-        total_cost_usd += m["cost_usd"]
+        if m["cost_usd"] is not None:
+            total_cost_usd += m["cost_usd"]
+            cost_known = True
 
     for item in by_kind_map.values():
         item.credits = format_credits(item.credits_micro, rounding="up")
@@ -1049,7 +1057,7 @@ async def usage_history(
             unit_label=_unit_label(m["kind"], m["unit"]),
             credits_spent=format_credits(m["credits_spent_micro"], rounding="up"),
             credits_spent_micro=m["credits_spent_micro"],
-            cost_usd=round(m["cost_usd"], 4) if is_admin else None,
+            cost_usd=round(m["cost_usd"], 4) if (is_admin and m["cost_usd"] is not None) else None,
         )
         for m in models_sorted
     ]
@@ -1060,7 +1068,7 @@ async def usage_history(
         summary=UsageSummary(
             total_spent_credits=format_credits(total_spent_micro, rounding="up"),
             total_spent_micro=total_spent_micro,
-            total_cost_usd=round(total_cost_usd, 4) if is_admin else None,
+            total_cost_usd=round(total_cost_usd, 4) if (is_admin and cost_known) else None,
             by_kind=by_kind_map,
         ),
         models=models_out,

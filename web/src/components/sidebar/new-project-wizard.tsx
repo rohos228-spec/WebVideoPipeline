@@ -8,7 +8,6 @@ import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import { projectDisplayName } from "@/lib/project-display";
 import type { PipelineMode, ProjectSummary } from "@/lib/types";
-import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -27,15 +26,21 @@ export function NewProjectWizard({
   trigger,
   onCreated,
   folderId = null,
+  open: openProp,
+  onOpenChange,
 }: {
-  trigger: React.ReactNode;
+  trigger?: React.ReactNode;
   onCreated: (p: ProjectSummary) => void;
   folderId?: string | null;
+  /** Внешнее управление: нужно, когда окно открывают не кнопкой «+», а событием. */
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = openProp ?? innerOpen;
+  const setOpen = onOpenChange ?? setInnerOpen;
   const [projectTitle, setProjectTitle] = useState("");
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>("v1");
-  const [, setWorkspaceMode] = usePipelineMode();
   const qc = useQueryClient();
 
   const reset = () => {
@@ -57,9 +62,9 @@ export function NewProjectWizard({
       return p;
     },
     onSuccess: (p) => {
-      // Проект живёт в механике создания — переключаем воркспейс на неё,
-      // чтобы созданное сразу открылось в корректном режиме.
-      setWorkspaceMode(p.pipeline_mode === "v2" ? "v2" : "v1");
+      try {
+        localStorage.setItem("studio.pipeline_mode", JSON.stringify(p.pipeline_mode === "v2" ? "v2" : "v1"));
+      } catch {}
       qc.invalidateQueries({ queryKey: ["projects"] });
       onCreated(p);
       setOpen(false);
@@ -77,9 +82,9 @@ export function NewProjectWizard({
         if (!v) reset();
       }}
     >
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent
-        className="sm:max-w-[820px] max-h-[92vh] flex flex-col p-6 bg-zinc-950/95 border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.8)] backdrop-blur-2xl overflow-hidden"
+        className="sm:max-w-[820px] max-h-[92vh] flex flex-col p-6 bg-zinc-950/95 border-white/10 shadow-[0_24px_80px_rgba(0,0,0,0.8)] [contain:paint] overflow-hidden"
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
       >
@@ -127,7 +132,7 @@ export function NewProjectWizard({
                   </div>
 
                   {pipelineMode === "v1" ? (
-                    <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold">
+                    <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold uppercase tracking-wider">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       Выбрано
                     </Badge>
@@ -222,7 +227,7 @@ export function NewProjectWizard({
                   </div>
 
                   {pipelineMode === "v2" ? (
-                    <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold">
+                    <Badge className="bg-emerald-500/15 text-emerald-300 border-emerald-500/30 gap-1 text-[10px] font-semibold uppercase tracking-wider">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       Выбрано
                     </Badge>

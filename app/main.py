@@ -782,7 +782,15 @@ async def _run_worker_loop(bot) -> None:  # Bot | NoopBot
         for _tenant in serve:
             with tenant_scope(_tenant):
                 await _tick_for_current_tenant(mass_paused)
-        await asyncio.sleep(5)
+        from app.services.pipeline_worker import get_worker_wake_event
+
+        wake_event = get_worker_wake_event()
+        try:
+            await asyncio.wait_for(wake_event.wait(), timeout=5.0)
+        except TimeoutError:
+            pass
+        finally:
+            wake_event.clear()
 
 
 async def _await_background_tasks(tasks: list[asyncio.Task]) -> None:
@@ -874,7 +882,14 @@ async def _startup_maintenance() -> None:
         await sync_prompts_from_files()
         from app.services.prompt_history import bootstrap_saved_at_from_history
 
-        bootstrap_saved_at_from_history()
+        # Отдельная страховка: правка истории промтов — не повод пропустить
+        # остальную обслуживалку (импорт библиотеки, сверку графа). На сервере
+        # каталог промтов смонтирован только на чтение, и падение здесь раньше
+        # обрывало весь блок.
+        try:
+            bootstrap_saved_at_from_history()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("prompt history bootstrap skipped: {}", e)
         from app.services.default_project import ensure_default_project
 
         await ensure_default_project()

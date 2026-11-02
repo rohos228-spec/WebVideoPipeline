@@ -49,7 +49,7 @@ def light_as_coverage(plan: list[PlanStep], goal: str) -> list[PlanStep]:
         if not all(lights):
             out.append(step)
             continue
-        for op, light in zip(ops, lights):
+        for op, light in zip(ops, lights, strict=False):
             out.append(
                 PlanStep(
                     action="montage.set_coverage",

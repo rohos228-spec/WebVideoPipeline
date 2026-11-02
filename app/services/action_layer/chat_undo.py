@@ -373,7 +373,7 @@ def session_operators(session_id: str | None) -> list[str]:
     ``session_id`` — внутреннее имя сессии движка (``<сессия>.<tenant>``,
     `app/services/orch_tenancy.py`), как его пишет супервизор в orch_tasks:
     одноимённый чат другого арендатора сюда не попадёт. Соединение движка на
-    Postgres ещё и привязано к арендатору (RLS orch_tasks, ревизия 0020).
+    Postgres ещё и привязано к арендатору (RLS orch_tasks, ревизия 0023).
     """
     if not session_id:
         return []

@@ -9,10 +9,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Base, Frame, Project, ProjectStatus
-from app.services import db_v2, kill_switch
+
 # Модели вне app.models: их таблицы нужны create_all тестовой базы (журнал наблюдений,
 # касса провайдеров, managed-режим).
 from app.services import actions_v1 as _actions_v1  # noqa: F401
+from app.services import db_v2, kill_switch
 from app.services import observation as _observation  # noqa: F401
 from app.services import spend_guard as _spend_guard  # noqa: F401
 from app.services.action_layer import attachments, executor, store

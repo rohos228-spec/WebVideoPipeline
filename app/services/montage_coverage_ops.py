@@ -1140,7 +1140,7 @@ async def apply_coverage_op(
         )
     elif op_type == "coverage_kind":
         parent_raw = op.get("parent_number")
-        parent_number = int(parent_raw) if parent_raw not in (None, "") else None
+        parent_number = int(parent_raw) if parent_raw not in (None, "") else None  # type: ignore[arg-type]
         apply_coverage_kind(
             frame,
             frames,

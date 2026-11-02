@@ -1,3 +1,11 @@
+# Глобальные настройки: отключаем HTTP/3 (QUIC/UDP) для стабильной работы из РФ
+# без зависаний из-за фильтрации UDP 443 на ТСПУ. Оставляем только TCP (HTTP/1.1 и HTTP/2).
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
 # Обратный прокси с автоматическим TLS.
 #
 # Caddy сам получает и продлевает сертификат Let's Encrypt — отдельного certbot
@@ -28,6 +36,7 @@
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "same-origin"
 		-Server
+		-Alt-Svc
 	}
 
 	log {

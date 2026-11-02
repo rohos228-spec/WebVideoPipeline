@@ -76,6 +76,8 @@ async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobRes
                         await advance_project(session, project, bot)
                     new = project.status.value
                     if new != prev:
+                        _NO_CREDITS_FIRST_SEEN.pop(project_id, None)
+                        _NO_CREDITS_LOGGED.pop(project_id, None)
                         await complete_active_node_for_step(
                             session,
                             project,
@@ -89,14 +91,42 @@ async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobRes
                     return AdvanceJobResult(project_id, prev, None)
         except (InsufficientCredits, FreeTierExhausted) as exc:
             # Не ошибка шага, а отсутствие денег: проект ждёт пополнения.
-            # Исчерпанный бесплатный уровень — то же самое с точки зрения
-            # клиента: платить нечем, работа не потеряна, нужен баланс.
-            # Такт возвращается без изменения статуса — иначе счётчик неудач
-            # воркера откатил бы проект на предыдущий шаг за то, что клиент
-            # не пополнил баланс.
+            # Если пополнения нет слишком долго (>90с), проект останавливается,
+            # чтобы нода на холсте не висела в бесконечном ожидании.
+            now = time.monotonic()
+            first_seen = _NO_CREDITS_FIRST_SEEN.setdefault(project_id, now)
             await _report_no_credits(project_id, step_code or "", exc)
+
+            if now - first_seen >= NO_CREDITS_AUTO_STOP_SEC:
+                _NO_CREDITS_FIRST_SEEN.pop(project_id, None)
+                _NO_CREDITS_LOGGED.pop(project_id, None)
+                logger.warning(
+                    "касса: #{} шаг {} ждёт средств более {}с — автоостановка",
+                    project_id,
+                    step_code,
+                    int(NO_CREDITS_AUTO_STOP_SEC),
+                )
+                from app.services.project_control import is_running_status, stop_project_running
+
+                async with session_scope() as stop_session:
+                    p_stop = await stop_session.get(Project, project_id)
+                    if p_stop is not None and is_running_status(p_stop.status):
+                        meta = dict(p_stop.meta or {})
+                        meta["credits_wait_timeout"] = True
+                        meta["credits_stop_reason"] = str(exc)
+                        p_stop.meta = meta
+                        await stop_project_running(stop_session, p_stop)
+                        await stop_session.commit()
+                        logger.info(
+                            "касса: #{} автоостановлен из-за нехватки средств ({} -> {})",
+                            project_id,
+                            prev,
+                            p_stop.status.value,
+                        )
+                        return AdvanceJobResult(project_id, prev, p_stop.status.value)
             return AdvanceJobResult(project_id, prev, None)
     except asyncio.CancelledError:
+        _NO_CREDITS_FIRST_SEEN.pop(project_id, None)
         logger.info("advance_project_job: #{} hard-cancelled (⏹)", project_id)
         try:
             async with session_scope() as session:
@@ -112,6 +142,12 @@ async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobRes
         # дозаписывается здесь: деньги ушли, строка потеряться не должна.
         await _flush_ledgers()
 
+
+#: Сколько секунд ждать пополнения перед автоматической остановкой шага.
+#: Если за 90 секунд баланс не пополнен, статус running откатывается назад,
+#: чтобы нода на холсте не крутилась бесконечно.
+NO_CREDITS_AUTO_STOP_SEC = 90.0
+_NO_CREDITS_FIRST_SEEN: dict[int, float] = {}
 
 #: Когда по проекту последний раз жаловались на нехватку кредитов. Воркер
 #: тикает каждые пять секунд, и без глушилки один непополненный аккаунт даёт

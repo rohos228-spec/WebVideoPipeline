@@ -132,6 +132,7 @@ async def recover_scene_videos_from_disk(session: AsyncSession, project: Project
 
             session.add(
                 Artifact(
+                    tenant_id=project.tenant_id,
                     project_id=project.id,
                     frame_id=fr.id,
                     kind=ArtifactKind.scene_video,
@@ -228,6 +229,7 @@ async def recover_scene_images_from_disk(session: AsyncSession, project: Project
 
             session.add(
                 Artifact(
+                    tenant_id=project.tenant_id,
                     project_id=project.id,
                     frame_id=fr.id,
                     kind=ArtifactKind.scene_image,
@@ -356,6 +358,7 @@ async def recover_audio_from_disk(session: AsyncSession, project: Project) -> bo
 
     session.add(
         Artifact(
+            tenant_id=project.tenant_id,
             project_id=project.id,
             kind=ArtifactKind.audio,
             uuid=uuid.uuid4().hex,
@@ -416,6 +419,7 @@ async def recover_whisper_from_disk(session: AsyncSession, project: Project) -> 
 
     session.add(
         Artifact(
+            tenant_id=project.tenant_id,
             project_id=project.id,
             kind=ArtifactKind.whisper_words,
             uuid=uuid.uuid4().hex,
@@ -491,6 +495,7 @@ async def ensure_whisper_words(
     art_uuid = uuid.uuid4().hex
     session.add(
         Artifact(
+            tenant_id=project.tenant_id,
             project_id=project.id,
             kind=ArtifactKind.whisper_words,
             uuid=art_uuid,
@@ -547,6 +552,7 @@ async def recover_music_from_disk(session: AsyncSession, project: Project) -> bo
 
     session.add(
         Artifact(
+            tenant_id=project.tenant_id,
             project_id=project.id,
             kind=ArtifactKind.music,
             uuid=uuid.uuid4().hex,
@@ -606,6 +612,7 @@ def _restore_hero_png_from_path(
     payload = (hitl.payload or {}) if hitl else {}
     session.add(
         Artifact(
+            tenant_id=project.tenant_id,
             project_id=project.id,
             kind=ArtifactKind.hero_reference,
             uuid=uuid.uuid4().hex,
@@ -722,6 +729,7 @@ async def recover_hero_references_from_disk(session: AsyncSession, project: Proj
             continue
         session.add(
             Artifact(
+                tenant_id=project.tenant_id,
                 project_id=project.id,
                 kind=ArtifactKind.hero_reference,
                 uuid=uuid.uuid4().hex,

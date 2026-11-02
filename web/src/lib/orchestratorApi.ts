@@ -6,14 +6,14 @@
  * POST `.../message` тело `{text}`, ответ `{ok, session, ack_seq}`;
  * GET `.../stream` — SSE `event`/`id`=seq/`data`=OrchEvent JSON, Bearer, 401,
  * replay по Last-Event-ID (seq строго больше).
- * Approve/kill в том роутере нет — мок держит их до WS2.
+ * Решение: POST `.../chat/{session}/approve`, тело `{change_id, decision}`.
+ * Успех — 200 и JSON. 204 пустым телом успехом не считается.
  * Куда уходит Bearer: тот же origin, относительный `/api/...` или
  * `NEXT_PUBLIC_ORCH_API`. Адрес из `?orchApi=` не используется
  * (исключение — same-origin путь `/api/...` при `NEXT_PUBLIC_ORCH_QUERY_API`).
  */
 
 import type {
-  OrchApprovalDecision,
   OrchEvent,
   OrchKillRequest,
   OrchKillResult,
@@ -22,26 +22,17 @@ import type {
   OrchReportsRow,
   OrchReportVersionsRow,
 } from "./orchestratorTypes";
-import { humanErrorText, humanOrchError } from "./orchestratorHuman";
 
-import { ORCH_TOKEN_STORAGE_KEY } from "./orchestratorToken";
-
-export { ORCH_TOKEN_STORAGE_KEY };
+export const ORCH_TOKEN_STORAGE_KEY = "vp-orch-api-token";
 
 export class OrchApiError extends Error {
   readonly status: number;
-  readonly detail: string;
 
-  constructor(status: number, message: string, detail = "") {
+  constructor(status: number, message: string) {
     super(message);
     this.name = "OrchApiError";
     this.status = status;
-    this.detail = detail;
   }
-}
-
-function humanApiError(status: number, detail: string): OrchApiError {
-  return new OrchApiError(status, humanErrorText(humanOrchError(status, detail)), detail);
 }
 
 export interface OrchClientConfig {
@@ -49,7 +40,6 @@ export interface OrchClientConfig {
   apiBase: string;
   session: string;
   token: string;
-  operatorToken?: string;
   /**
    * Сценарий мока. В заголовок попадает только при NEXT_PUBLIC_ORCH_TEST.
    * Query и localStorage сами по себе заголовок не включают.
@@ -60,14 +50,26 @@ export interface OrchClientConfig {
 export function readOrchToken(): string {
   if (typeof window === "undefined") return "";
   try {
-    return localStorage.getItem(ORCH_TOKEN_STORAGE_KEY) ?? "";
+    const raw = localStorage.getItem(ORCH_TOKEN_STORAGE_KEY) ?? "";
+    // Заголовки HTTP допускают только ASCII/ISO-8859-1. Невалидные символы (кириллица,
+    // спецсимволы) приводят к фатальной ошибке fetch: "String contains non ISO-8859-1 code point".
+    if (raw && !/^[\x20-\x7E]+$/.test(raw)) {
+      localStorage.removeItem(ORCH_TOKEN_STORAGE_KEY);
+      return "";
+    }
+    return raw;
   } catch {
     return "";
   }
 }
 
 export function writeOrchToken(token: string): void {
-  localStorage.setItem(ORCH_TOKEN_STORAGE_KEY, token);
+  try {
+    if (token) localStorage.setItem(ORCH_TOKEN_STORAGE_KEY, token);
+    else localStorage.removeItem(ORCH_TOKEN_STORAGE_KEY);
+  } catch {
+    /* приватный режим: токен останется только в памяти экрана */
+  }
 }
 
 /** Чекбокс «Новая задача». По умолчанию выключен: NEXT_PUBLIC_ORCH_TASK_MODE не задан. */
@@ -107,9 +109,72 @@ export function readOrchProjectId(): number | null {
   }
 }
 
-/** Абсолютный хост API из сборки. Пусто — относительный `/api/...` на том же origin. */
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+/**
+ * `NEXT_PUBLIC_ORCH_API`: https на любом хосте, http только на localhost / 127.0.0.1 / [::1].
+ * Возвращает origin + pathname без query, hash и хвостового слэша.
+ * Userinfo, протокол-относительный адрес и прочие схемы — null.
+ */
+export function normalizedOrchEnvApi(value: string): string | null {
+  const raw = value.trim();
+  if (!raw || raw.startsWith("//")) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.username || url.password) return null;
+  const loopback = url.protocol === "http:" && isLoopbackHost(url.hostname);
+  if (url.protocol !== "https:" && !loopback) return null;
+  const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
+  return `${url.origin}${path}`;
+}
+
+/** В лог — только origin. Userinfo, query и неразобранная строка не печатаются. */
+function discardedOrchApiLabel(raw: string): string {
+  try {
+    const url = new URL(raw.trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "некорректный адрес";
+    if (!url.origin || url.origin === "null") return "некорректный адрес";
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    url.hash = "";
+    return url.origin;
+  } catch {
+    return "некорректный адрес";
+  }
+}
+
+const discardedOrchApiLabels = new Set<string>();
+
+/** Тесты сбрасывают дедуп, иначе второй прогон не видит то же предупреждение. */
+export function resetDiscardedOrchApiWarnings(): void {
+  discardedOrchApiLabels.clear();
+}
+
+function warnDiscardedOrchApi(raw: string): void {
+  const label = discardedOrchApiLabel(raw);
+  if (discardedOrchApiLabels.has(label)) return;
+  discardedOrchApiLabels.add(label);
+  console.warn(`NEXT_PUBLIC_ORCH_API отброшен: ${label}`);
+}
+
+/** Абсолютный хост API из сборки. Пусто или отброшенный env — относительный `/api/...` на том же origin. */
 export function envOrchApiBase(): string {
-  return (process.env.NEXT_PUBLIC_ORCH_API || "").trim().replace(/\/$/, "");
+  const raw = (process.env.NEXT_PUBLIC_ORCH_API || "").trim();
+  if (!raw) return "";
+  const normalized = normalizedOrchEnvApi(raw);
+  if (!normalized) {
+    warnDiscardedOrchApi(raw);
+    return "";
+  }
+  return normalized;
 }
 
 function queryApiOverrideEnabled(): boolean {
@@ -118,23 +183,29 @@ function queryApiOverrideEnabled(): boolean {
 }
 
 function normalizeBase(value: string): string {
-  return value.trim().replace(/\/$/, "");
+  return value.trim().replace(/\/+$/, "");
 }
 
-/** Same-origin `/api` или `/api/...`. `//host` — чужой origin, не путь. */
+/** Same-origin `/api` или `/api/...`. `//host`, userinfo и не-http(s) — чужой адрес. */
 export function isSameOriginApiBase(value: string, pageOrigin: string): boolean {
   const raw = normalizeBase(value);
   if (!raw || !pageOrigin) return false;
-  if (raw.startsWith("/") && !raw.startsWith("//")) {
+  if (raw.startsWith("//")) return false;
+  if (raw.startsWith("/")) {
     return raw === "/api" || raw.startsWith("/api/");
   }
+  let url: URL;
+  let page: URL;
   try {
-    const url = new URL(raw);
-    if (url.origin !== new URL(pageOrigin).origin) return false;
-    return url.pathname === "/api" || url.pathname.startsWith("/api/");
+    url = new URL(raw);
+    page = new URL(pageOrigin);
   } catch {
     return false;
   }
+  if (url.username || url.password) return false;
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (url.origin !== page.origin) return false;
+  return url.pathname === "/api" || url.pathname.startsWith("/api/");
 }
 
 /**
@@ -150,7 +221,7 @@ export function resolveOrchApiBase(queryApi: string | null, pageOrigin: string):
   return envOrchApiBase();
 }
 
-/** Пустая база, env-хост или same-origin `/api/...`. Чужой origin — нет. */
+/** Пустая база, разрешённый env-хост или same-origin `/api/...`. Чужой origin — нет. */
 export function bearerTargetAllowed(apiBase: string, pageOrigin = ""): boolean {
   const base = normalizeBase(apiBase);
   if (!base) return true;
@@ -162,7 +233,7 @@ export function bearerTargetAllowed(apiBase: string, pageOrigin = ""): boolean {
 function assertBearerTarget(apiBase: string): void {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   if (!bearerTargetAllowed(apiBase, origin)) {
-    throw new OrchApiError(0, "Адрес оркестратора указывает на чужой сайт, поэтому вход туда не отправлен. Откройте чат из студии без параметра orchApi.");
+    throw new OrchApiError(0, "отказ: токен не уходит на чужой origin");
   }
 }
 
@@ -185,26 +256,42 @@ function apiUrl(apiBase: string, path: string): string {
 /** Bearer всегда. X-Orch-Scenario — только в тестовой сборке, значение сценария не важно. */
 export function orchAuthHeaders(cfg: OrchClientConfig, extra?: Record<string, string>): Headers {
   const headers = new Headers(extra);
-  if (cfg.token) headers.set("Authorization", `Bearer ${cfg.token}`);
-  if (cfg.operatorToken) headers.set("X-VP-Operator", cfg.operatorToken);
-  if (orchTestModeEnabled()) headers.set("X-Orch-Scenario", cfg.scenario);
+  if (cfg.token && /^[\x20-\x7E]+$/.test(cfg.token)) {
+    headers.set("Authorization", `Bearer ${cfg.token}`);
+  }
+  if (orchTestModeEnabled() && cfg.scenario && /^[\x20-\x7E]+$/.test(cfg.scenario)) {
+    headers.set("X-Orch-Scenario", cfg.scenario);
+  }
   return headers;
 }
 
 async function readError(res: Response): Promise<string> {
   const text = await res.text().catch(() => "");
-  if (!text) return "";
+  if (!text) return `HTTP ${res.status}`;
   try {
     const json = JSON.parse(text) as { detail?: unknown; message?: unknown };
     if (typeof json.detail === "string") return json.detail;
     if (typeof json.message === "string") return json.message;
+    // A2 отдаёт 409 отчётов как `{detail: {code, current_version}}` — не показываем
+    // пользователю сырой JSON, собираем фразу.
+    if (json.detail && typeof json.detail === "object") {
+      const d = json.detail as { detail?: unknown; code?: unknown; current_version?: unknown };
+      if (typeof d.detail === "string") return d.detail;
+      if (d.code === "version_conflict") {
+        return typeof d.current_version === "number"
+          ? `конфликт версий: актуальная v${d.current_version}`
+          : "конфликт версий отчёта";
+      }
+      if (typeof d.code === "string") return d.code;
+    }
   } catch {
     /* текст как есть */
   }
   return text.slice(0, 300);
 }
 
-async function postJson<T>(cfg: OrchClientConfig, path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+/** Общий POST: Bearer, 401 и не-2xx. postJson и postApproval не расходятся по этим проверкам. */
+async function postOrch(cfg: OrchClientConfig, path: string, body: unknown, signal?: AbortSignal): Promise<Response> {
   assertBearerTarget(cfg.apiBase);
   const headers = orchAuthHeaders(cfg);
   headers.set("Content-Type", "application/json");
@@ -214,9 +301,17 @@ async function postJson<T>(cfg: OrchClientConfig, path: string, body: unknown, s
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) {
-    throw humanApiError(res.status, await readError(res));
+  if (res.status === 401) {
+    throw new OrchApiError(401, "401 — токен не принят");
   }
+  if (!res.ok) {
+    throw new OrchApiError(res.status, await readError(res));
+  }
+  return res;
+}
+
+async function postJson<T>(cfg: OrchClientConfig, path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  const res = await postOrch(cfg, path, body, signal);
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -229,32 +324,198 @@ export function postOrchMessage(
   return postJson(cfg, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/message`, body, signal);
 }
 
-// Эта линия (WebVideoPipeline) решает карточку в ручках сессии чата: сессия внутри движка
-// несёт арендатора, так что чужая карточка или чужой чат просто не находятся (404).
-//   approve → POST /api/orchestrator/chat/{session}/approve {change_id, decision:"approve"}
-//   reject  → POST /api/orchestrator/chat/{session}/reject  {change_id}
-//   kill    → POST /api/orchestrator/chat/{session}/kill    {project_id?}
-function sessionPath(cfg: OrchClientConfig, tail: string): string {
-  return `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/${tail}`;
+/** Правка отчёта (`update_report`) или восстановление пометки. Тело в контракте #378 не задано. */
+export function postOrchActionMessage(
+  cfg: OrchClientConfig,
+  body: { text: string; action: { name: string; report_id?: number; change_id?: string; snapshot_id?: string; archive_ref?: string; base_version?: number } },
+  signal?: AbortSignal,
+): Promise<OrchMessageAckHttp> {
+  return postJson(cfg, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/message`, body, signal);
 }
 
-export function postOrchApprove(cfg: OrchClientConfig, body: OrchApprovalDecision, signal?: AbortSignal): Promise<{ ok: boolean }> {
-  return postJson(cfg, sessionPath(cfg, "approve"), { change_id: body.approval_id, decision: "approve" }, signal);
+export type ApprovalHttpResult = {
+  status: number;
+  body: { ok?: boolean; matched?: boolean; approval_id?: string; change_id?: string; decision?: string | null } | null;
+};
+
+/** Approve. Пустое тело — успех только при status === 204. Остальные 2xx без тела — не успех. */
+async function postApproval(
+  cfg: OrchClientConfig,
+  path: string,
+  body: unknown,
+  signal?: AbortSignal,
+): Promise<ApprovalHttpResult> {
+  const res = await postOrch(cfg, path, body, signal);
+  if (res.status === 204) return { status: 204, body: null };
+  const text = await res.text();
+  if (!text.trim()) return { status: res.status, body: null };
+  try {
+    const parsed = JSON.parse(text) as ApprovalHttpResult["body"];
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { status: res.status, body: null };
+    }
+    return { status: res.status, body: parsed };
+  } catch {
+    throw new OrchApiError(res.status, text.slice(0, 300));
+  }
 }
 
-export function postOrchReject(cfg: OrchClientConfig, body: OrchApprovalDecision, signal?: AbortSignal): Promise<{ ok: boolean }> {
+/** Решение `POST /api/orchestrator/chat/{session}/approve`. Лишние поля ручка запрещает. */
+export type OrchPaidDecision = "approve" | "retry_step" | "deny";
+
+/** Тело `ApproveIn` (#370). Лишние поля (`approval_id`, `task_id`) не отправляются. */
+export interface OrchApproveIn {
+  change_id: string;
+  decision: OrchPaidDecision;
+  retry_grant?: boolean;
+}
+
+/** Успешный `POST .../approve`: 200 и JSON, не 204. */
+export interface OrchApproveResult {
+  executed?: boolean;
+  reason?: string | null;
+  forecast_usd?: number | null;
+  retry_armed?: boolean;
+  change_id?: string | null;
+  decision?: string | null;
+  ok?: boolean;
+  matched?: boolean;
+  approval_id?: string;
+}
+
+export type OrchChatApproveResult = OrchApproveResult;
+
+/**
+ * Явное решение по карточке. `change_id` — orch-appr, не change_id шага.
+ * `retry_grant` не шлётся: это отдельный одноразовый допуск после прогноза.
+ */
+export function postOrchChatApprove(
+  cfg: OrchClientConfig,
+  body: { change_id: string; decision: OrchPaidDecision },
+  signal?: AbortSignal,
+): Promise<OrchChatApproveResult> {
+  return postOrchDecision(cfg, { change_id: body.change_id, decision: body.decision }, signal);
+}
+
+const APPROVE_NOT_JSON = "ответ approve — не JSON 200";
+
+const APPROVE_REFUSAL: Record<number, string> = {
+  401: "401 — нет токена или токен неверный",
+  400: "400 — плохой session_id",
+  422: "422 — тело не по схеме",
+  404: "404 — нет сессии, change_id из чужой сессии или неизвестный change_id",
+  409: "409 — решение уже принято, change_id не текущий или переход недопустим",
+  403: "403 — not_in_whitelist",
+};
+
+/** Все решения: `POST /api/orchestrator/chat/{session}/approve`. 204 — отказ. */
+export async function postOrchDecision(
+  cfg: OrchClientConfig,
+  body: OrchApproveIn,
+  signal?: AbortSignal,
+): Promise<OrchApproveResult> {
+  assertBearerTarget(cfg.apiBase);
+  const headers = orchAuthHeaders(cfg);
+  headers.set("Content-Type", "application/json");
+  const payload: { change_id: string; decision: OrchApproveIn["decision"]; retry_grant?: boolean } = {
+    change_id: body.change_id,
+    decision: body.decision,
+  };
+  if (body.retry_grant === true) payload.retry_grant = true;
+  const res = await fetch(apiUrl(cfg.apiBase, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/approve`), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+    signal,
+  });
+  if (res.status === 204) throw new OrchApiError(204, APPROVE_NOT_JSON);
+  const refusal = APPROVE_REFUSAL[res.status];
+  if (refusal) throw new OrchApiError(res.status, refusal);
+  if (!res.ok) throw new OrchApiError(res.status, await readError(res));
+  if (res.status !== 200) throw new OrchApiError(res.status, APPROVE_NOT_JSON);
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    throw new OrchApiError(res.status, APPROVE_NOT_JSON);
+  }
+  if (!json || typeof json !== "object") throw new OrchApiError(200, APPROVE_NOT_JSON);
+  return json as OrchApproveResult;
+}
+
+/** Снять `missing_project_id`. Это не /approve. */
+export function postOrchProject(
+  cfg: OrchClientConfig,
+  projectId: number,
+  signal?: AbortSignal,
+): Promise<{ ok?: boolean; project_id?: number }> {
   return postJson(
     cfg,
-    sessionPath(cfg, "reject"),
-    { change_id: body.approval_id, ...(body.reason ? { reason: body.reason } : {}) },
+    `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/project`,
+    { project_id: projectId },
     signal,
   );
 }
 
 export function postOrchKill(cfg: OrchClientConfig, body: OrchKillRequest, signal?: AbortSignal): Promise<OrchKillResult> {
-  // Сессия — из пути; в теле только причина и проект.
-  const { session_id: _session, ...rest } = body;
-  return postJson(cfg, sessionPath(cfg, "kill"), rest, signal);
+  return postJson(cfg, "/api/orchestrator/kill", body, signal);
+}
+
+/** Ответ POST /api/orchestrator/chat/{session}/resume. Тела у ручки нет. */
+export interface OrchResumeResult {
+  ok: boolean;
+  session: string;
+  task_id: number;
+  status: string;
+}
+
+/**
+ * Продолжить с чекпоинта. Тело пустое: у `post_resume` нет модели.
+ * 404 `not found` — нет задачи или чекпоинта. 409 `invalid transition` — живой прогон
+ * или переход, которого нет в FSM (в том числе `cancelled` → `executing`).
+ */
+/** Ответ GET /api/orchestrator/chat/{session}/partial-changes?task_id=. Откат не делается. */
+export interface OrchPartialChanges {
+  ok: boolean;
+  session: string;
+  task_id: number;
+  change_ids: string[];
+}
+
+export function getOrchPartialChanges(
+  cfg: OrchClientConfig,
+  taskId: number,
+  signal?: AbortSignal,
+): Promise<OrchPartialChanges> {
+  const query = new URLSearchParams({ task_id: String(taskId) });
+  return getJson(
+    cfg,
+    `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/partial-changes?${query.toString()}`,
+    signal,
+  );
+}
+
+/** GET /api/orchestrator/chat/{session}/status. Совпадает с последним agent_status. */
+export interface OrchSessionStatus {
+  session: string;
+  task_id: number | null;
+  status: string;
+  resume_allowed: boolean;
+}
+
+export function getOrchSessionStatus(cfg: OrchClientConfig, signal?: AbortSignal): Promise<OrchSessionStatus> {
+  return getJson(cfg, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/status`, signal);
+}
+
+export async function postOrchResume(cfg: OrchClientConfig, signal?: AbortSignal): Promise<OrchResumeResult> {
+  assertBearerTarget(cfg.apiBase);
+  const res = await fetch(
+    apiUrl(cfg.apiBase, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/resume`),
+    { method: "POST", headers: orchAuthHeaders(cfg), signal },
+  );
+  if (res.status === 401) throw new OrchApiError(401, "401 — токен не принят");
+  if (!res.ok) throw new OrchApiError(res.status, await readError(res));
+  return (await res.json()) as OrchResumeResult;
 }
 
 /** Проверка Bearer до записи в localStorage. Тело стрима закрывается сразу после статуса. */
@@ -267,10 +528,12 @@ export async function probeOrchAuth(cfg: OrchClientConfig): Promise<void> {
     signal: ac.signal,
   });
   const status = res.status;
-  const detail = res.ok ? "" : await readError(res);
+  let message = "";
+  if (status === 401) message = "401 — токен не принят";
+  else if (!res.ok) message = await readError(res);
   ac.abort();
   void res.body?.cancel().catch(() => undefined);
-  if (!res.ok) throw humanApiError(status, detail);
+  if (status === 401 || !res.ok) throw new OrchApiError(status, message || `HTTP ${status}`);
 }
 
 /**
@@ -296,6 +559,13 @@ export interface ReportMutation {
   change_id: string;
 }
 
+export interface OrchSessionSnapshot {
+  session: string;
+  task_id: number | null;
+  status: string;
+  resume_allowed: boolean;
+}
+
 async function getJson<T>(cfg: OrchClientConfig, path: string, signal?: AbortSignal): Promise<T> {
   assertBearerTarget(cfg.apiBase);
   const res = await fetch(apiUrl(cfg.apiBase, path), {
@@ -303,7 +573,8 @@ async function getJson<T>(cfg: OrchClientConfig, path: string, signal?: AbortSig
     headers: orchAuthHeaders(cfg, { Accept: "application/json" }),
     signal,
   });
-  if (!res.ok) throw humanApiError(res.status, await readError(res));
+  if (res.status === 401) throw new OrchApiError(401, "401 — токен не принят");
+  if (!res.ok) throw new OrchApiError(res.status, await readError(res));
   return (await res.json()) as T;
 }
 
@@ -402,7 +673,6 @@ export interface StreamHandlers {
   onOpen?: () => void;
   signal: AbortSignal;
   lastEventId: number;
-  idleMs?: number;
 }
 
 /**
@@ -415,42 +685,27 @@ export async function consumeOrchStream(cfg: OrchClientConfig, handlers: StreamH
   if (handlers.lastEventId > 0) {
     headers.set("Last-Event-ID", String(handlers.lastEventId));
   }
-  const local = new AbortController();
-  const relay = () => local.abort();
-  if (handlers.signal.aborted) local.abort();
-  else handlers.signal.addEventListener("abort", relay);
-  let idleTimer: ReturnType<typeof setTimeout> | null = null;
-  let stale = false;
-  const arm = () => {
-    if (!handlers.idleMs) return;
-    if (idleTimer != null) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      stale = true;
-      local.abort();
-    }, handlers.idleMs);
-  };
-  let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+  const res = await fetch(
+    apiUrl(cfg.apiBase, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/stream`),
+    { method: "GET", headers, signal: handlers.signal },
+  );
+  if (res.status === 401) {
+    throw new OrchApiError(401, "401 — токен не принят");
+  }
+  if (!res.ok) {
+    throw new OrchApiError(res.status, await readError(res));
+  }
+  if (!res.body) {
+    throw new OrchApiError(res.status, "пустой поток SSE");
+  }
+  handlers.onOpen?.();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
   try {
-    arm();
-    const res = await fetch(
-      apiUrl(cfg.apiBase, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/stream`),
-      { method: "GET", headers, signal: local.signal },
-    );
-    if (!res.ok) {
-      throw humanApiError(res.status, await readError(res));
-    }
-    if (!res.body) {
-      throw new OrchApiError(res.status, "Сервер открыл ленту событий, но не прислал данных. Повторю подключение сам.");
-    }
-    handlers.onOpen?.();
-    reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    arm();
     while (!handlers.signal.aborted) {
       const { done, value } = await reader.read();
       if (done) break;
-      arm();
       buffer += decoder.decode(value, { stream: true });
       const taken = takeSseEvents(buffer);
       buffer = taken.rest;
@@ -459,18 +714,11 @@ export async function consumeOrchStream(cfg: OrchClientConfig, handlers: StreamH
         if (event) handlers.onEvent(event);
       }
     }
-  } catch (error) {
-    if (stale && !handlers.signal.aborted) return;
-    throw error;
   } finally {
-    if (idleTimer != null) clearTimeout(idleTimer);
-    handlers.signal.removeEventListener("abort", relay);
-    if (reader) {
-      try {
-        reader.releaseLock();
-      } catch {
-        /* уже закрыт */
-      }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* уже закрыт */
     }
   }
 }

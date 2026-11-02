@@ -64,9 +64,6 @@ from app.orchestrator import app_ref
 from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
-from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
-from app.orchestrator.agents.planner import PlanSchemaError
-from app.orchestrator.agents.light_scope import light_as_coverage
 from app.orchestrator.agents.failure_scope import (
     content_check_scope,
     failure_reads,
@@ -75,7 +72,9 @@ from app.orchestrator.agents.failure_scope import (
     is_bare_fix,
     plan_fix_from_last,
 )
-from app.orchestrator.agents.upload_scope import upload_source_from_goal
+from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
+from app.orchestrator.agents.light_scope import light_as_coverage
+from app.orchestrator.agents.planner import PlanSchemaError
 from app.orchestrator.agents.settings_scope import scope_settings
 from app.orchestrator.agents.stubs import (
     ActionBackedExecutor,
@@ -85,6 +84,7 @@ from app.orchestrator.agents.stubs import (
     UnlinkedValidators,
 )
 from app.orchestrator.agents.task_store import TaskStore
+from app.orchestrator.agents.upload_scope import upload_source_from_goal
 from app.orchestrator.agents.validator_call import run_validator
 from app.orchestrator.checkpoints import CheckpointStore
 from app.orchestrator.contracts import (

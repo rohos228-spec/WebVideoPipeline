@@ -15,7 +15,7 @@ import { NodeStudio } from "@/components/studio/node-studio";
 import { api } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { gptTextSlotForNode, resolvePromptSlots, resolvePromptSlotsForNode, type NodePromptSlot } from "@/lib/node-prompts";
-import { isExcelGptNode, EXCEL_GPT_STEP_CODE } from "@/lib/excel-gpt-config";
+import { isExcelGptNode, isShotsReportNode, EXCEL_GPT_STEP_CODE } from "@/lib/excel-gpt-config";
 import { withSlotVariant } from "@/lib/prompt-slot-storage";
 import { stepCodeForNodeType } from "@/lib/node-step-map";
 import { getNodeSpec } from "@/lib/node-catalog";
@@ -24,7 +24,6 @@ import { shouldShowStopBar } from "@/lib/project-running";
 import { useMontageBusy } from "@/hooks/use-montage-busy";
 import { isAiControlMode } from "@/lib/control-mode";
 import { HitlModal } from "@/components/hitl/hitl-banner";
-import { VisionPauseBanner } from "@/components/hitl/vision-pause-banner";
 import { hitlKindForNodeType } from "@/components/canvas/node-hitl-badge";
 import { NodeAiReviewDialog } from "@/components/canvas/node-ai-review-dialog";
 import { isHitlNodeType } from "@/lib/gpt-text-steps";
@@ -33,20 +32,17 @@ import {
   type NodeResultContext,
 } from "@/lib/node-result-resolver";
 import { NodeResultPanel } from "@/components/canvas/node-result-panel";
-import { AssembleMontageBoard } from "@/components/canvas/montage-board-router";
+import { AssembleMontageBoard } from "@/components/canvas/assemble-montage-board";
 import { ShotMenuBoard } from "@/components/canvas/shot-menu-board";
 
 export function StudioWorkspace({
   projectId,
-  workflowId = null,
   selectedNodeKey,
   onSelectNode,
   studioOpen,
   onStudioOpenChange,
 }: {
   projectId: number | null;
-  /** Режим шаблона: без проекта канвас правит этот Workflow. */
-  workflowId?: number | null;
   selectedNodeKey: string | null;
   onSelectNode: (key: string | null) => void;
   studioOpen: boolean;
@@ -61,9 +57,10 @@ export function StudioWorkspace({
     nodeKey: string;
     nodeType: string;
     promptFocus: NodePromptSlot | null;
-    tab: "settings" | "prompts" | "results";
+    tab: "settings" | "prompts" | "results" | "excel";
+    nodeData?: Record<string, any> | null;
   } | null>(null);
-  const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results">(
+  const [studioTab, setStudioTab] = useState<"settings" | "prompts" | "results" | "excel">(
     "settings",
   );
   const [vMenuNodeKey, setVMenuNodeKey] = useState<string | null>(null);
@@ -89,7 +86,7 @@ export function StudioWorkspace({
   const setVMenuNodeKeySynced = useCallback(
     (key: string | null) => {
       if (key) onSelectNode(key);
-      setVMenuNodeKey(key);
+      setVMenuNodeKey(null); // old V-menu detached
     },
     [onSelectNode],
   );
@@ -125,20 +122,27 @@ export function StudioWorkspace({
     setStudioTarget(null);
     setStudioTab("settings");
     setVMenuNodeKey(null);
+    window.dispatchEvent(new CustomEvent("node-studio-closed"));
   }, [onStudioOpenChange, onSelectNode]);
 
-  const openStudioForNode = useCallback(
+  const openStudioInline = useCallback(
     (
       nodeKey: string,
       nodeType: string,
       slot: NodePromptSlot | null,
-      tab: "settings" | "prompts" | "results" = "prompts",
+      tab: "settings" | "prompts" | "results" | "excel" = "prompts",
+      nodeData?: Record<string, any> | null,
     ) => {
       suppressStudioOpenUntil.current = 0;
-      const resolvedTab =
-        slot?.kind === "excel"
+      setResultPanel(null);
+      setHitlModalOpen(false);
+      setHitlModalId(null);
+        const resolvedTab =
+        slot?.kind === "excel" && isExcelGptNode(nodeType)
           ? "settings"
-          : tab;
+          : slot?.kind === "excel"
+            ? "excel"
+            : tab;
       let focus = slot;
       if (!focus) {
         const slots = resolvePromptSlots(nodeType, null);
@@ -148,15 +152,21 @@ export function StudioWorkspace({
           slots[0] ??
           null;
       }
-      const focusTab =
-        focus?.kind === "excel"
+      const focusTab = isShotsReportNode(nodeKey)
+        ? "results"
+        : !focus
           ? "settings"
-          : resolvedTab;
+          : slot?.kind === "excel" && isExcelGptNode(nodeType)
+            ? "settings"
+            : focus?.kind === "excel"
+              ? "excel"
+              : resolvedTab;
       setStudioTarget({
         nodeKey,
         nodeType,
         promptFocus: focus,
         tab: focusTab,
+        nodeData,
       });
       onSelectNode(nodeKey);
       setVMenuNodeKey(null);
@@ -166,11 +176,27 @@ export function StudioWorkspace({
     },
     [onSelectNode, onStudioOpenChange],
   );
+  const openStudioForNode = useCallback(
+    (
+      nodeKey: string,
+      nodeType?: string,
+      slot?: NodePromptSlot | null,
+      tab: "settings" | "prompts" | "results" | "excel" = "settings",
+      nodeData?: Record<string, any> | null,
+    ) => {
+      const type = nodeType ?? nodeTypeFromKey(nodeKey);
+      openStudioInline(nodeKey, type, slot ?? null, tab, nodeData);
+    },
+    [openStudioInline],
+  );
 
   useEffect(() => {
     const onOpen = (ev: Event) => {
       const d = (ev as CustomEvent<{ hitlId: number }>).detail;
       if (d?.hitlId == null) return;
+      suppressStudioOpenUntil.current = Date.now() + 1000;
+      setResultPanel(null);
+      onStudioOpenChange(false);
       setHitlModalId(d.hitlId);
       setHitlModalOpen(true);
     };
@@ -203,6 +229,11 @@ export function StudioWorkspace({
     return () => window.removeEventListener("canvas-open-ai-node", onOpen);
   }, [onSelectNode]);
 
+  const selectedNodeKeyRef = useRef(selectedNodeKey);
+  useEffect(() => {
+    selectedNodeKeyRef.current = selectedNodeKey;
+  }, [selectedNodeKey]);
+
   // Шапка «Промты» → студия выбранной ноды (не legacy PromptEditor из SQLite).
   useEffect(() => {
     const onOpenPrompts = (ev: Event) => {
@@ -210,22 +241,34 @@ export function StudioWorkspace({
         toast.error("Сначала выберите проект");
         return;
       }
-      const d = (ev as CustomEvent<{ nodeKey?: string | null }>).detail ?? {};
-      const nodeKey = d.nodeKey ?? selectedNodeKey;
+      if (Date.now() < suppressStudioOpenUntil.current) {
+        return;
+      }
+      if (hitlModalOpen || resultPanel != null) {
+        return;
+      }
+      const d = (ev as CustomEvent<{
+        nodeKey?: string | null;
+        initialTab?: "settings" | "prompts";
+        inline?: boolean;
+        nodeData?: Record<string, any> | null;
+      }>).detail ?? {};
+      const nodeKey = d.nodeKey ?? selectedNodeKeyRef.current;
       if (!nodeKey) {
         toast.error("Выберите ноду на канвасе");
         return;
       }
       const nodeType = nodeTypeFromKey(nodeKey);
-      if (nodeType === "topic") {
+      if (nodeType === "topic" && d.initialTab !== "settings") {
         toast.message("У ноды «Тема» нет файловых промтов");
         return;
       }
-      openStudioForNode(nodeKey, nodeType, null, "prompts");
+      setVMenuNodeKey(null);
+      openStudioInline(nodeKey, nodeType, null, d.initialTab ?? "settings", d.nodeData);
     };
     window.addEventListener("studio-open-node-prompts", onOpenPrompts);
     return () => window.removeEventListener("studio-open-node-prompts", onOpenPrompts);
-  }, [projectId, selectedNodeKey, openStudioForNode]);
+  }, [projectId, openStudioInline]);
 
   const project = useQuery({
     queryKey: ["project", projectId],
@@ -369,7 +412,12 @@ export function StudioWorkspace({
         openStudioForNode(nodeKey, nodeType, slot, "prompts");
       },
       onViewAllPrompts: (nodeKey: string, nodeType: string) => {
-        openStudioForNode(nodeKey, nodeType, null, "prompts");
+        const slots = resolvePromptSlots(nodeType, null);
+        if (slots.length === 0) {
+          openStudioForNode(nodeKey, nodeType, null, "settings");
+        } else {
+          openStudioForNode(nodeKey, nodeType, null, "prompts");
+        }
       },
       onAddPrompt: async (nodeKey: string, nodeType: string) => {
         const meta = (project.data?.meta || {}) as {
@@ -416,7 +464,7 @@ export function StudioWorkspace({
       },
       onRemovePrompt: async (nodeKey: string, nodeType: string, slot: NodePromptSlot) => {
         if (slot.kind === "excel" || slot.id === "excel") {
-          toast.error("Excel нельзя удалить — он обязателен первым в каждой ноде");
+          toast.error("Сценарий нельзя удалить — он обязателен первым в каждой ноде");
           return;
         }
         const meta = (project.data?.meta || {}) as {
@@ -432,8 +480,12 @@ export function StudioWorkspace({
       },
       onRunNode: async (nodeKey: string, nodeType: string, mode: "full" | "resume" = "resume") => {
         if (!projectId) return;
+        if (nodeType === "publish" || nodeKey === "publish") {
+          toast.message("Публикация находится в разработке");
+          return;
+        }
         if (disabledNodes.has(nodeKey)) {
-          toast.error("Нода отключена — включите её в меню V");
+          toast.error("Нода отключена — включите её в настройках ноды");
           return;
         }
         const step = stepCodeForNodeType(nodeType);
@@ -454,11 +506,10 @@ export function StudioWorkspace({
           );
           qc.invalidateQueries({ queryKey: ["project", projectId] });
           qc.invalidateQueries({ queryKey: ["project-run", projectId] });
-          qc.invalidateQueries({ queryKey: ["db-graph-project", projectId] });
-          qc.invalidateQueries({ queryKey: ["project-frames", projectId] });
-          qc.invalidateQueries({ queryKey: ["frames", projectId] });
-          qc.invalidateQueries({ queryKey: ["artifacts", projectId] });
-          await qc.refetchQueries({ queryKey: ["project-run", projectId] });
+          await Promise.all([
+            qc.refetchQueries({ queryKey: ["project", projectId] }),
+            qc.refetchQueries({ queryKey: ["project-run", projectId] }),
+          ]);
         } catch (e) {
           toast.error(errorMessageFromUnknown(e));
         }
@@ -504,12 +555,18 @@ export function StudioWorkspace({
           .sort((a, b) => b.id - a.id);
         const pending = rows.find((h) => h.decision === "pending");
         if (pending) {
+          suppressStudioOpenUntil.current = Date.now() + 1000;
+          setResultPanel(null);
+          onStudioOpenChange(false);
           setHitlModalId(pending.id);
           setHitlModalOpen(true);
           return;
         }
         const latest = rows[0];
         if (latest) {
+          suppressStudioOpenUntil.current = Date.now() + 1000;
+          setResultPanel(null);
+          onStudioOpenChange(false);
           setHitlModalId(latest.id);
           setHitlModalOpen(true);
           if (latest.decision !== "pending") {
@@ -529,10 +586,17 @@ export function StudioWorkspace({
         setAiReview({ nodeKey, nodeType });
       },
       onOpenHitlById: (hitlId: number) => {
+        suppressStudioOpenUntil.current = Date.now() + 1000;
+        setResultPanel(null);
+        onStudioOpenChange(false);
         setHitlModalId(hitlId);
         setHitlModalOpen(true);
       },
       onOpenNodeResult: (nodeKey: string, nodeType: string) => {
+        suppressStudioOpenUntil.current = Date.now() + 1000;
+        setHitlModalOpen(false);
+        setHitlModalId(null);
+        onStudioOpenChange(false);
         setResultPanel({ nodeKey, nodeType });
       },
       montageBoardOpen,
@@ -618,32 +682,27 @@ export function StudioWorkspace({
       <div className="relative h-full w-full">
         <FlowCanvas
           projectId={projectId}
-          workflowId={workflowId}
           selectedNodeKey={selectedNodeKey}
           onSelectNode={(key) => {
             onSelectNode(key);
           }}
           onCanvasZoom={setCanvasZoom}
           onNodeActivate={(nodeKey, nodeType) => {
-            if (Date.now() < suppressStudioOpenUntil.current) return;
-            // Режим шаблона: НодСтудия проектная (промты, результаты, HITL),
-            // без ролика открывать нечего — только выделение.
-            if (!projectId) {
-              onSelectNode(nodeKey);
-              return;
-            }
+            if (Date.now() < suppressStudioOpenUntil.current) return true;
             if (nodeType === "topic") {
               onSelectNode(nodeKey);
-              return;
+              return false;
             }
             if (nodeType === "shot_menu") {
               onSelectNode(nodeKey);
+              suppressStudioOpenUntil.current = Date.now() + 1000;
               setShotMenuOpen(true);
-              return;
+              return true;
             }
             if (isHitlNodeType(nodeType)) {
+              suppressStudioOpenUntil.current = Date.now() + 1000;
               canvasActions.onOpenHitlReview(nodeKey, nodeType);
-              return;
+              return true;
             }
             const kind = hitlKindForNodeType(nodeType);
             if (kind) {
@@ -651,31 +710,18 @@ export function StudioWorkspace({
                 (h) => h.kind === kind && h.decision === "pending",
               );
               if (pending) {
+                suppressStudioOpenUntil.current = Date.now() + 1000;
                 canvasActions.onOpenHitlReview(nodeKey, nodeType);
-                return;
+                return true;
               }
             }
+            // Old side-sheet auto-open on select removed; single click expands inline.
             onSelectNode(nodeKey);
-            setStudioTarget({
-              nodeKey,
-              nodeType,
-              promptFocus: null,
-              tab: "settings",
-            });
-            setPromptFocus(null);
-            setStudioTab("settings");
-            onStudioOpenChange(true);
+            return false;
           }}
           disabledNodes={disabledNodes}
           runStepNodeKey={effectiveNodeKey}
         />
-        {projectId != null && (
-          <div className="pointer-events-none absolute left-1/2 top-3 z-[6] w-[min(92%,34rem)] -translate-x-1/2">
-            <div className="pointer-events-auto">
-              <VisionPauseBanner projectId={projectId} />
-            </div>
-          </div>
-        )}
         {projectId && assetTray && (
           <AssetTray
             projectId={projectId}
@@ -708,6 +754,11 @@ export function StudioWorkspace({
         projectId={projectId}
         nodeKey={effectiveNodeKey}
         initialTab={studioTarget?.tab ?? studioTab}
+        nodeData={
+          effectiveNodeKey && studioTarget?.nodeKey === effectiveNodeKey
+            ? studioTarget.nodeData
+            : null
+        }
         promptFocus={
           effectiveNodeKey && studioTarget?.nodeKey === effectiveNodeKey
             ? studioTarget.promptFocus ?? promptFocus
@@ -715,6 +766,17 @@ export function StudioWorkspace({
         }
         nodeDisabled={
           effectiveNodeKey != null && disabledNodes.has(effectiveNodeKey)
+        }
+        onEnableNode={
+          effectiveNodeKey
+            ? () => {
+                const next = new Set(disabledNodes);
+                next.delete(effectiveNodeKey);
+                void persistMeta({ disabled_nodes: [...next] }).then(() => {
+                  toast.message("Нода включена");
+                });
+              }
+            : undefined
         }
         promptSlots={
           effectiveNodeKey
@@ -738,7 +800,10 @@ export function StudioWorkspace({
           open={hitlModalOpen}
           onOpenChange={(o) => {
             setHitlModalOpen(o);
-            if (!o) setHitlModalId(null);
+            if (!o) {
+              setHitlModalId(null);
+              suppressStudioOpenUntil.current = Date.now() + 500;
+            }
           }}
         />
       )}
@@ -766,7 +831,10 @@ export function StudioWorkspace({
         <NodeResultPanel
           open
           onOpenChange={(o) => {
-            if (!o) setResultPanel(null);
+            if (!o) {
+              setResultPanel(null);
+              suppressStudioOpenUntil.current = Date.now() + 500;
+            }
           }}
           projectId={projectId}
           nodeKey={resultPanel.nodeKey}

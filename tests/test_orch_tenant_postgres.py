@@ -632,7 +632,7 @@ def _migrate_schema_with_engine_rows(monkeypatch, *, accounts: bool, admins: int
         with engine.begin() as conn:
             conn.exec_driver_sql(f"CREATE SCHEMA {schema}")
         with engine.begin() as conn:
-            command.upgrade(alembic_config(conn), "0019")
+            command.upgrade(alembic_config(conn), "0022")
             for i, uid in enumerate(ids):
                 conn.execute(
                     text(
@@ -665,7 +665,7 @@ def _migrate_schema_with_engine_rows(monkeypatch, *, accounts: bool, admins: int
                 {"n": now},
             )
         with engine.begin() as conn:
-            command.upgrade(alembic_config(conn), "0020")
+            command.upgrade(alembic_config(conn), "0023")
         out: dict = {"admins": ids}
         with engine.begin() as conn:
             # Перенесённые строки видны только от имени админа (политика FORCE).

@@ -762,7 +762,7 @@ async def montage_board_insert_frame(
 
     p = _project_or_404(await session.get(Project, project_id))
     after_raw = body.get("after_frame_id")
-    after_id = int(after_raw) if after_raw not in (None, "") else None
+    after_id = int(after_raw) if after_raw not in (None, "") else None  # type: ignore[arg-type]
     voiceover = str(body.get("voiceover") or "")
     kind = str(body.get("kind") or "parent")
     try:
@@ -2617,3 +2617,49 @@ async def harness_verify(
     out = report.to_dict()
     out["forbidden_steps"] = sorted(HARNESS_FORBIDDEN_STEPS)
     return out
+
+
+@router.post("/{project_id}/node-bg")
+async def upload_node_background(
+    project_id: int,
+    node_key: str = Query(..., min_length=1),
+    file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Загрузить кастомный фон для карточки ноды на канвасе."""
+    import re
+    from urllib.parse import quote
+
+    p = _project_or_404(await session.get(Project, project_id))
+    safe_key = re.sub(r"[^a-zA-Z0-9_\-]", "_", node_key.strip())
+    suffix = Path(file.filename or "bg.png").suffix.lower()
+    if suffix not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
+        suffix = ".png"
+
+    bg_dir = Path(p.data_dir) / "node_backgrounds"
+    bg_dir.mkdir(parents=True, exist_ok=True)
+    target = bg_dir / f"{safe_key}{suffix}"
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="пустой файл")
+    target.write_bytes(content)
+
+    if settings.s3_configured:
+        try:
+            import json
+            import mimetypes
+
+            from app.services.storage import get_storage, tenant_key
+
+            mime = mimetypes.guess_type(target.name)[0] or "image/png"
+            storage = get_storage()
+            key = tenant_key(p.tenant_id, f"projects/{project_id}/node_backgrounds/{target.name}")
+            await storage.put_file(key, target, content_type=mime)
+            sidecar = target.with_suffix(".json")
+            sidecar.write_text(json.dumps({"storage_key": key, "mime": mime}, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            logger.warning("хранилище: сбой загрузки фона ноды {} в S3", target.name, exc_info=True)
+
+    preview_url = f"/api/files?path={quote(str(target.resolve()))}"
+    return {"ok": True, "preview_url": preview_url}

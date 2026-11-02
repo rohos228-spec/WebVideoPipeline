@@ -2227,3 +2227,11 @@ async def insert_node_group(
         "check_nodes": [local_to_id[s.local_key] for s in group.nodes if s.operator_config],
         "project_meta": dict(group.project_meta),
     }
+
+
+def is_script_frames_qc_gpt_node(meta: Any = None, *, node_key: str | None = None) -> bool:
+    """Проверка, относится ли нода к группе QC сценария/кадров."""
+    nk = str(node_key or "")
+    if nk.endswith(("_fw_shots", "_fw_frames", "_fw_qc", "_fw_script", "_fw_action")):
+        return True
+    return False

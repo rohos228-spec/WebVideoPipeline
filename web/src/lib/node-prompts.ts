@@ -21,26 +21,37 @@ export interface NodePromptSlot {
 
 const NO_EXCEL_NODE_TYPES = new Set([
   "topic",
+  "plan",
   "excel_feed",
   "excel_gpt",
-  "hero",
-  "items",
-  "image_prompts",
+  "storage",
+  "shot_menu",
+  "style_extract",
+  "hitl_style",
+]);
+
+export const NO_PROMPTS_NODE_TYPES = new Set([
   "images",
-  "animation_prompts",
   "videos",
   "audio",
   "music",
   "sfx_plan",
   "sfx_gen",
   "sfx",
+  "assemble",
+  "publish",
+  "topic",
   "storage",
   "shot_menu",
+  "style_extract",
+  "hitl_style",
 ]);
 
 const BASE: Record<string, NodePromptSlot[]> = {
   topic: [],
   shot_menu: [],
+  style_extract: [],
+  hitl_style: [],
   plan: [
     { id: "main", title: "Промт сценария", kind: "gpt", stepCode: "plan" },
   ],
@@ -77,64 +88,17 @@ const BASE: Record<string, NodePromptSlot[]> = {
     { id: "main", title: "Промт предмета", kind: "gpt", stepCode: "items" },
   ],
   excel_gpt: [
-    { id: "main", title: "Промты", kind: "gpt", stepCode: "excel_gpt" },
+    { id: "main", title: "Промт режиссера", kind: "gpt", stepCode: "excel_gpt" },
   ],
   image_prompts: [
     { id: "main", title: "Промт картинок", kind: "gpt", stepCode: "img_pr" },
   ],
-  images: [
-    {
-      id: "frame_prompts",
-      title: "Промты кадров",
-      kind: "frame_prompts",
-      description: "image_prompt по кадрам — уходит в генератор",
-    },
-    {
-      id: "master",
-      title: "Мастер-промт",
-      kind: "gpt",
-      stepCode: "img_pr",
-      description: "prompts/05_image_prompts (шаг 6)",
-    },
-  ],
+  images: [],
   animation_prompts: [
-    {
-      id: "frame_prompts",
-      title: "Промты по кадрам",
-      kind: "frame_prompts",
-      description: "animation_prompt по кадрам — уходит в модель видео",
-    },
-    {
-      id: "main",
-      title: "Мастер-промт",
-      kind: "gpt",
-      stepCode: "anim_pr",
-      description: "prompts/07_animation — правила сборки видеопромптов",
-    },
+    { id: "main", title: "Промт анимации", kind: "gpt", stepCode: "anim_pr" },
   ],
-  videos: [
-    {
-      id: "frame_prompts",
-      title: "Промты анимации",
-      kind: "frame_prompts",
-      description: "animation_prompt по кадрам — уходит в модель видео",
-    },
-    {
-      id: "master",
-      title: "Мастер-промт",
-      kind: "gpt",
-      stepCode: "anim_pr",
-      description: "prompts/07_animation — правила сборки видеопромптов",
-    },
-  ],
-  audio: [
-    {
-      id: "voiceover",
-      title: "Закадр по кадрам",
-      kind: "frame_prompts",
-      description: "Закадровый текст диктора по кадрам (Frame.voiceover_text)",
-    },
-  ],
+  videos: [],
+  audio: [],
   music: [
     {
       id: "main",
@@ -164,9 +128,12 @@ export function sceneAgentFromNodeKey(nodeKey?: string | null): string | undefin
 }
 
 export function defaultPromptSlots(nodeType: string): NodePromptSlot[] {
-  if (isHitlNodeType(nodeType) || nodeType === "shot_menu") return [];
+  if (isHitlNodeType(nodeType) || nodeType === "shot_menu" || NO_PROMPTS_NODE_TYPES.has(nodeType)) return [];
   const base = BASE[nodeType];
-  if (base?.length) return base;
+  if (base) return base;
+  if (nodeTypeRequiresExcel(nodeType)) {
+    return [excelSlotForNodeType(nodeType), { id: "main", title: "Настройки ноды", kind: "gpt" }];
+  }
   return [{ id: "main", title: "Настройки ноды", kind: "gpt" }];
 }
 
@@ -234,11 +201,7 @@ export function mergePromptSlotsWithDefaults(
     merged.push(s);
   }
 
-  const excel =
-    slots.find((s) => s.kind === "excel") ??
-    defaults.find((s) => s.kind === "excel");
-
-  return excel ? [excel, ...merged] : merged;
+  return merged;
 }
 
 export function ensureBlocksPromptSlot(
@@ -251,10 +214,8 @@ export function ensureBlocksPromptSlot(
 }
 
 function normalizeExcelGptSlots(slots: NodePromptSlot[]): NodePromptSlot[] {
-  const excel = slots.find((s) => s.kind === "excel");
   const others = slots.filter((s) => s.kind !== "excel" && s.kind !== "text");
   const out: NodePromptSlot[] = [];
-  if (excel) out.push(excel);
   const seen = new Set<string>();
   for (const s of others) {
     if (seen.has(s.id)) continue;
@@ -287,7 +248,7 @@ function applyExcelGptNodeContext(
             ? s.title
             : s.custom
               ? s.title
-              : "Промты",
+              : "Промт режиссера",
       };
     }
     if (!s.stepCode) return { ...s, stepCode: enrichStep };
@@ -301,6 +262,7 @@ export function resolvePromptSlots(
   nodeKey?: string,
   slotIndex?: number,
 ): NodePromptSlot[] {
+  if (NO_PROMPTS_NODE_TYPES.has(nodeType)) return [];
   const raw = slots?.length
     ? mergePromptSlotsWithDefaults(nodeType, [...slots])
     : [...defaultPromptSlots(nodeType)];
@@ -308,7 +270,7 @@ export function resolvePromptSlots(
 
   let result: NodePromptSlot[];
   if (!nodeTypeRequiresExcel(nodeType)) {
-    const filtered = raw.filter((s) => s.kind !== "text");
+    const filtered = raw.filter((s) => s.kind !== "text" && s.kind !== "excel");
     if (isExcelGptNode(nodeType)) {
       const normalized = normalizeExcelGptSlots(filtered);
       result = applyExcelGptNodeContext(normalized, nodeKey, slotIndex);
@@ -316,11 +278,7 @@ export function resolvePromptSlots(
       result = filtered;
     }
   } else {
-    const excel =
-      raw.find((s) => s.kind === "excel") ??
-      defaultPromptSlots(nodeType).find((s) => s.kind === "excel") ??
-      excelSlotForNodeType(nodeType);
-    result = [excel, ...rest];
+    result = rest;
   }
   return result.filter((s) => s.kind !== "blocks");
 }

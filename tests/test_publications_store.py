@@ -312,7 +312,7 @@ def test_database_at_0017_is_caught_up_and_upgrade_is_idempotent(tmp_path):
     assert _tables(db) >= _TABLES
     upgrade_to_head_sync(db)
     with sqlite3.connect(db) as con:
-        assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0021"
+        assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "0024"
 
 
 async def test_store_works_on_alembic_database_and_matches_its_shape(tmp_path):

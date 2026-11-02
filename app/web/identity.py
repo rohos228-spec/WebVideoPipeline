@@ -99,15 +99,19 @@ PROTECTED_PREFIXES: tuple[str, ...] = ("/api/", "/ws/")
 #: ли отсюда, сколько система тратит на стороне.
 TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/me",
+    "/api/profile",
+    "/api/ratings",
+    "/api/node-reviews",
     "/api/auth/logout",
     "/api/auth/password",
     "/api/billing/",
     "/api/chat",
     # Чат оркестратора — для каждого клиента студии. Его история, планы,
-    # одобрения, журнал действий и откат закрыты RLS (ревизия 0020), имя
+    # одобрения, журнал действий и откат закрыты RLS (ревизия 0023), имя
     # сессии внутри движка несёт арендатора (`app/services/orch_tenancy.py`).
     # Инструменты студии под этими префиксами (реестр резервов, общие отчёты)
     # закрыты ролью в самом роутере: `engine_access.require_engine_admin`.
+    "/api/orchestrator/chat",
     "/api/orchestrator/chat/",
     "/api/action-layer/",
     "/api/change-control/",
@@ -119,6 +123,7 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/prompt-files",
     "/api/meta-agent",
     "/api/projects",  # проекты и всё вложенное: кадры, шаги, смета, холст
+    "/api/db/projects",  # база проекта: операции, чат оркестратора, подтверждения
     "/api/artifacts",
     "/api/files",
     "/api/hitl",
@@ -142,6 +147,11 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/text-llm",
     # Каталог голосов и аудио-сэмплы
     "/api/voices",
+    # Проба прав для админ-панели: отвечает про САМОГО участника (роль, почта,
+    # «прав нет»), себестоимости и чужих данных не отдаёт. Без неё страница
+    # /admin не может отличить «ты не админ» от «ручки нет» — middleware режет
+    # путь в 404 ещё до роутера, и человек видит «Раздел не найден».
+    "/api/admin/access",
 )
 
 

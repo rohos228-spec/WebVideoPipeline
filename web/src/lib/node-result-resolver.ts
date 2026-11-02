@@ -3,7 +3,6 @@ import type { ArtifactDTO, FrameDTO, NodeRunStatus, ProjectDetail } from "@/lib/
 import { MIN_GENERAL_PLAN_CHARS } from "@/lib/node-run-status";
 import { isEnrichNode } from "@/lib/node-prompts";
 import {
-  pickGeneralPlanSheet,
   projectHasXlsx,
   ROW_VOICEOVER_V8,
   SHEET_PLAN_V8,
@@ -34,6 +33,7 @@ export type NodeResultReplaceMode = "text" | "xlsx" | "assets" | "studio" | "non
 
 export type NodeResultViewMode =
   | "default"
+  | "director_plan"
   | "xlsx_general_plan"
   | "voiceover_wide"
   | "xlsx_split_row"
@@ -41,6 +41,7 @@ export type NodeResultViewMode =
   | "frame_images"
   | "frame_videos"
   | "topic_edit"
+  | "html_report"
   | "sfx_plan"
   | "sfx_gen";
 
@@ -62,14 +63,6 @@ export interface NodeResultContext {
   frames: FrameDTO[];
   mediaImages: ProjectAsset[];
   mediaVideos: ProjectAsset[];
-  operatorResolve?: {
-    lastResult?: {
-      replyPreview?: string;
-      outputPaths?: string[];
-      gateStatus?: string | null;
-    };
-    lastReplyText?: string;
-  } | null;
 }
 
 function meaningfulGeneralPlan(project: ProjectDetail | null | undefined): string | null {
@@ -242,7 +235,7 @@ export function resolveNodeResult(
   nodeStatus?: NodeRunStatus,
   nodeKey?: string | null,
 ): NodeResultSnapshot {
-  const snapshot = computeNodeResult(nodeType, ctx, nodeKey);
+  const snapshot = computeNodeResult(nodeType, ctx, nodeKey, nodeStatus);
   return gateNodeResultVisibility(snapshot, nodeType, nodeStatus);
 }
 
@@ -250,6 +243,7 @@ function computeNodeResult(
   nodeType: string,
   ctx: NodeResultContext,
   nodeKey?: string | null,
+  nodeStatus?: NodeRunStatus,
 ): NodeResultSnapshot {
   const empty = (
     summary: string,
@@ -307,23 +301,19 @@ function computeNodeResult(
     case "hitl_gate": {
       const planText = meaningfulGeneralPlan(project);
       if (planText) {
-        const items: NodeResultItem[] = [
-          { id: "general_plan", label: "Сценарий (текст)", kind: "text", content: planText },
-        ];
-        if (projectHasXlsx(ctx.assets)) {
-          items.push({ id: "xlsx_general", label: "Сценарий (Excel)", kind: "xlsx" });
-        }
         return {
           hasResult: true,
-          itemCount: items.length,
-          summary: `Сценарий готов (${planText.length} симв.)`,
-          items,
+          itemCount: 1,
+          summary: `Режиссёрский сценарий готов (${planText.length.toLocaleString("ru-RU")} симв.)`,
+          items: [
+            { id: "general_plan", label: "Режиссёрский сценарий", kind: "text", content: planText },
+          ],
           replaceMode: "text",
-          viewMode: "xlsx_general_plan",
+          viewMode: "director_plan",
           textField: "general_plan",
         };
       }
-      return empty("Сценарий ещё не сгенерирован", "text", "xlsx_general_plan");
+      return empty("Сценарий ещё не сгенерирован", "text", "director_plan");
     }
 
     case "script": {
@@ -356,7 +346,15 @@ function computeNodeResult(
           textField: "script_text",
         };
       }
-      return empty("Закадровый текст ещё не готов", "text", "voiceover_wide");
+      return {
+        hasResult: true,
+        itemCount: 0,
+        summary: "Закадровый текст ещё не задан",
+        items: [{ id: "script_text", label: "Закадровый текст", kind: "text", content: "" }],
+        replaceMode: "text",
+        viewMode: "voiceover_wide",
+        textField: "script_text",
+      };
     }
 
     case "split": {
@@ -431,6 +429,25 @@ function computeNodeResult(
           "assets",
         );
       }
+      const isDoneHero =
+        nodeStatus === "done" ||
+        Boolean((project?.meta as Record<string, unknown> | undefined)?.hero_skipped_empty);
+      if (isDoneHero) {
+        return ready(
+          [
+            {
+              id: "hero_empty",
+              label: "Персонажи не требуются",
+              kind: "text" as const,
+              content:
+                "В сценарии этого ролика нет персонажей (hero). Шаг успешно завершён — для создания видео персонаж не требуется.",
+            },
+          ],
+          "0 персонажей (не требуются для ролика)",
+          "assets",
+          "default",
+        );
+      }
       return empty("Персонажи ещё не сгенерированы", "assets");
     }
 
@@ -480,17 +497,26 @@ function computeNodeResult(
           "assets",
         );
       }
-      if (project?.meta?.items_skipped_empty) {
-        return {
-          hasResult: true,
-          itemCount: 0,
-          summary: "Предметы пропущены (в ролике нет отдельного реквизита)",
-          items: [],
-          replaceMode: "assets",
-          viewMode: "default",
-        };
+      const isDoneItems =
+        nodeStatus === "done" ||
+        Boolean((project?.meta as Record<string, unknown> | undefined)?.items_skipped_empty);
+      if (isDoneItems) {
+        return ready(
+          [
+            {
+              id: "items_empty",
+              label: "Предметы не требуются",
+              kind: "text" as const,
+              content:
+                "В сценарии этого ролика нет ключевых предметов (реквизита). Шаг успешно завершён — для создания видео предметы не требуются.\n\nЕсли хотите сгенерировать реквизит, добавьте описания предметов в свойствах ноды «Предметы» и запустите шаг снова.",
+            },
+          ],
+          "0 предметов (не требуются для ролика)",
+          "assets",
+          "default",
+        );
       }
-      return empty("Предметы не заданы", "assets");
+      return empty("Предметы ещё не сгенерированы", "assets");
     }
 
     case "excel_gpt":
@@ -500,6 +526,23 @@ function computeNodeResult(
     case "enrich_4":
     case "enrich_5":
     case "enrich": {
+      if (nodeKey?.endsWith("_fw_report") && project?.id) {
+        const url = api.projectShotsReportUrl(project.id);
+        return ready(
+          [
+            {
+              id: "shots_report",
+              label: "Отчёт кадров",
+              kind: "file",
+              downloadUrl: url,
+              previewUrl: url,
+            },
+          ],
+          "HTML-отчёт кадров + промты/QC",
+          "none",
+          "html_report",
+        );
+      }
       const meta = project?.meta as
         | {
             xlsx_snapshots_by_node?: Record<string, { name?: string }>;
@@ -521,27 +564,8 @@ function computeNodeResult(
         nodeKey && meta?.excel_gpt_nodes?.[nodeKey]
           ? meta.excel_gpt_nodes[nodeKey]
           : undefined;
-      const opResolve = ctx.operatorResolve as
-        | {
-            lastResult?: {
-              replyPreview?: string;
-              outputPaths?: string[];
-              gateStatus?: string | null;
-            };
-            lastReplyText?: string;
-          }
-        | undefined;
-      const replyPreview = String(
-        last?.replyPreview ||
-        opResolve?.lastResult?.replyPreview ||
-        opResolve?.lastReplyText ||
-        ""
-      ).trim();
-      const hasReplyMeta = Boolean(
-        replyPreview ||
-        cfg?.lastReplyPath ||
-        (opResolve?.lastResult?.outputPaths && opResolve.lastResult.outputPaths.length > 0)
-      );
+      const replyPreview = String(last?.replyPreview || "").trim();
+      const hasReplyMeta = Boolean(replyPreview || cfg?.lastReplyPath);
       const xlsx = xlsxAsset(ctx.assets);
       const snapMeta = meta?.xlsx_snapshots_by_node;
       const snapName =
@@ -562,7 +586,7 @@ function computeNodeResult(
         if (replyPreview) {
           items.push({
             id: "gpt_reply",
-            label: "Режиссура сцен",
+            label: "Ответ GPT",
             kind: "text",
             content: replyPreview,
           });
@@ -570,10 +594,10 @@ function computeNodeResult(
         return ready(
           items,
           snapName
-            ? `Снимок: ${snapName}`
+            ? `Снимок Excel: ${snapName}`
             : hasReplyMeta
-              ? "Режиссура сцен готова"
-              : "Данные сцен",
+              ? "Excel + ответ GPT"
+              : "Таблица Excel",
           "xlsx",
           "default",
         );
@@ -583,12 +607,12 @@ function computeNodeResult(
           [
             {
               id: "gpt_reply",
-              label: "Режиссура сцен",
+              label: "Ответ GPT",
               kind: "text",
               content: replyPreview,
             },
           ],
-          "Режиссура сцен готова",
+          "",
           "text",
         );
       }
@@ -597,11 +621,11 @@ function computeNodeResult(
         return {
           hasResult: true,
           itemCount: 1,
-          summary: "Режиссура сцен готова",
+          summary: "",
           items: [
             {
               id: "gpt_reply_path",
-              label: "Режиссура сцен",
+              label: "Ответ GPT",
               kind: "text",
               content: "",
             },
@@ -693,11 +717,8 @@ function computeNodeResult(
       const audioAssets = ctx.assets.filter(
         (a) => a.kind === "audio" || a.kind.includes("subtitle"),
       );
-      const audioArts = arts.filter(
-        (a) => a.kind === "audio" || (a.kind || "").includes("subtitle"),
-      );
       const items = dedupeResultItems([
-        ...artifactItems(audioArts),
+        ...artifactItems(arts),
         ...assetItems(audioAssets),
       ]);
       if (items.length) return ready(items, `${items.length} аудио-файлов`, "assets");
@@ -708,11 +729,8 @@ function computeNodeResult(
       const musicAssets = ctx.assets.filter(
         (a) => a.kind === "music" || /[/\\]music[/\\]/i.test(a.path || ""),
       );
-      const musicArts = arts.filter(
-        (a) => a.kind === "music" || /[/\\]music[/\\]/i.test(a.path || ""),
-      );
       const items = dedupeResultItems([
-        ...artifactItems(musicArts),
+        ...artifactItems(arts),
         ...assetItems(musicAssets),
       ]);
       if (items.length) {
@@ -813,9 +831,7 @@ function computeNodeResult(
           viewMode: "default",
         };
       }
-      const final = ctx.assets.filter((a) => a.kind.includes("final"));
-      if (final.length) return ready(assetItems(final), "Готово к публикации", "assets");
-      return empty("Публикация ещё не выполнена", "none");
+      return empty("В разработке", "none");
     }
 
     default: {

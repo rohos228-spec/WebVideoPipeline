@@ -8,6 +8,7 @@ type Media = "image" | "video" | "audio";
 
 const IMAGE_BASE: Record<string, number> = {
   "gpt-image-2": 0.5,
+  "gpt-image-2-vip": 1,
   "nano-banana": 0.3,
   "nano-banana-fast": 0.3,
   "nano-banana-2-lite": 0.3,
@@ -36,7 +37,7 @@ const VIDEO_BASE: Record<string, number> = {
 
 const AUDIO_BASE: Record<string, number> = {
   "suno-5-5": 2.5,
-  "elevenlabs-v4": 3,
+  "elevenlabs-v3": 1,
 };
 
 function roundTokens(n: number): number {

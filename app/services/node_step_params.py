@@ -117,11 +117,11 @@ def calculate_fallback_split_limits(
     if not target_frames:
         dur = duration_seconds_for_step(project, "plan")
         if dur:
-            target_frames = max(8, min(30, int(round(dur / 3.5))))
+            target_frames = max(6, min(24, int(round(dur / 5.0))))
         elif char_count > 0:
-            target_frames = max(8, min(30, int(round(char_count / 50))))
+            target_frames = max(6, min(24, int(round(char_count / 70))))
         else:
-            target_frames = 18
+            target_frames = 12
     else:
         target_frames = max(4, min(30, target_frames))
 
@@ -132,7 +132,7 @@ def calculate_fallback_split_limits(
         calc_avg_min = max(20, round(avg * 0.8))
         calc_avg_max = max(30, round(avg * 1.15))
     else:
-        calc_min, calc_max, calc_avg_min, calc_avg_max = 20, 85, 35, 60
+        calc_min, calc_max, calc_avg_min, calc_avg_max = 25, 110, 45, 80
 
     return calc_min, calc_max, calc_avg_min, calc_avg_max
 

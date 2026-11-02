@@ -7,12 +7,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
 from app.db import commit_with_retry
-from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus
+from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus, WorkflowRun
 from app.services.default_project import default_auto_mode_for_new_project
 from app.services.event_bus import publish_project_event
 from app.services.mass_factory import mass_parent_id
@@ -93,6 +93,7 @@ def _slugify(s: str) -> str:
 async def list_projects(
     session: AsyncSession = Depends(get_session),
     pipeline_mode: str | None = Query(default=None),
+    mine_only: bool = Query(default=False),
 ) -> list[ProjectSummary]:
     """Лёгкий список для сайдбара: без recompute/disk-recover.
 
@@ -114,6 +115,16 @@ async def list_projects(
     query = select(Project)
     if mode is not None:
         query = query.where(Project.pipeline_mode == mode)
+    if mine_only:
+        from app.services.studio_auth import current_identity
+
+        identity = current_identity()
+        if identity and identity.is_admin:
+            tid = identity.tenant_id
+            if tid:
+                query = query.where(or_(Project.tenant_id == tid, Project.tenant_id.is_(None)))
+            else:
+                query = query.where(Project.tenant_id.is_(None))
     rows = (
         (
             await session.execute(
@@ -210,6 +221,25 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
     await commit_with_retry(session)
     await session.refresh(p)
     return project_to_detail(p)
+
+
+@router.get("/{project_id}/run", response_model=WorkflowRunDetail)
+async def get_project_run(
+    project_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> WorkflowRun:
+    """Возвращает последний WorkflowRun проекта (snapshot нод и рёбер)."""
+    run = (
+        await session.execute(
+            select(WorkflowRun)
+            .where(WorkflowRun.project_id == project_id)
+            .order_by(WorkflowRun.id.desc())
+            .options(selectinload(WorkflowRun.node_runs))
+        )
+    ).scalars().first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
 
 
 @router.post("", response_model=ProjectDetail, status_code=status.HTTP_201_CREATED)
@@ -666,6 +696,11 @@ async def run_project_step(
     await commit_with_retry(session)
     await session.refresh(p)
     await sync_run_for_project(project_id)
+    try:
+        from app.services.pipeline_worker import wake_worker
+        wake_worker()
+    except Exception:
+        pass
     await publish_project_event(
         project_id,
         event_type="project_updated",

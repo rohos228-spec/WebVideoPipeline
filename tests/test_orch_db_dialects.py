@@ -6,7 +6,7 @@
 alembic до head — ровно тем путём, каким её получит SaaS-база; таблицы
 движка перед каждым тестом очищаются.
 
-Отдельно на SQLite проверяется, что ревизия 0018 строит ту же схему, что и
+Отдельно на SQLite проверяется, что ревизия 0021 строит ту же схему, что и
 собственный раннер SQL-файлов движка: владельческая база, на которой раннер
 уже отработал, и свежая база после alembic не должны расходиться.
 """
@@ -427,13 +427,13 @@ def test_alembic_builds_the_runner_schema_on_sqlite(tmp_path: Path) -> None:
         assert apply_migrations(con) == []
     finally:
         con.close()
-    # 0018 накатывает ORCH_SQL_FILES, 0020 — колонку арендатора (010), 0021 — провайдера (011).
+    # 0021 накатывает ORCH_SQL_FILES, 0023 — колонку арендатора (010), 0024 — провайдера (011).
     assert journal == set(ORCH_SQL_FILES) | {"010_orch_tenant.sql", "011_orch_llm_calls_provider.sql"}
     assert {"chat_notices", "notification_log"} <= tables
 
 
 def test_alembic_on_runner_made_db_keeps_data(tmp_path: Path) -> None:
-    """База владельца, где раннер уже создал таблицы и есть строки: 0018 их не трогает."""
+    """База владельца, где раннер уже создал таблицы и есть строки: 0021 их не трогает."""
     from app.db_migrations import upgrade_to_head_sync
 
     db = tmp_path / "owner.db"
@@ -452,7 +452,7 @@ def test_alembic_on_runner_made_db_keeps_data(tmp_path: Path) -> None:
         con.close()
 
 
-def test_downgrade_0018_drops_engine_tables_and_journal(tmp_path: Path) -> None:
+def test_downgrade_0021_drops_engine_tables_and_journal(tmp_path: Path) -> None:
     from alembic import command
     from sqlalchemy import create_engine
 
@@ -466,7 +466,7 @@ def test_downgrade_0018_drops_engine_tables_and_journal(tmp_path: Path) -> None:
     try:
         with engine.begin() as conn:
             cfg.attributes["connection"] = conn
-            command.downgrade(cfg, "0017")
+            command.downgrade(cfg, "0020")
     finally:
         engine.dispose()
     con = sqlite3.connect(db)

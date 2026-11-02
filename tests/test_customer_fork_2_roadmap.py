@@ -355,7 +355,7 @@ def test_settings_have_no_tokenrouter() -> None:
         assert field not in Settings.model_fields, field
         assert not hasattr(settings, field), field
     assert not hasattr(settings, "text_llm_is_tokenrouter")
-    assert settings.resolved_text_llm_provider() in {"kie", "vibecode"}
+    assert settings.resolved_text_llm_provider() in {"kie", "vibecode", "pay52"}
 
 
 def test_error_catalog_points_at_vibecode() -> None:

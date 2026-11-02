@@ -20,6 +20,16 @@ from loguru import logger
 
 from app.services.event_bus import get_bus
 from app.web.identity import IdentityMiddleware
+from app.web.member_money import MemberMoneyMiddleware
+from app.web.routers import (
+    admin_access as admin_access_router,
+)
+from app.web.routers import (
+    admin_costs as admin_costs_router,
+)
+from app.web.routers import (
+    admin_users as admin_users_router,
+)
 from app.web.routers import (
     artifacts as artifacts_router,
 )
@@ -49,6 +59,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     gen_assistant as gen_assistant_router,
+)
+from app.web.routers import (
+    generation as generation_router,
 )
 from app.web.routers import (
     generation_options as generation_options_router,
@@ -84,10 +97,16 @@ from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
+    node_reviews as node_reviews_router,
+)
+from app.web.routers import (
     outsee_create as outsee_create_router,
 )
 from app.web.routers import (
     outsee_http as outsee_http_router,
+)
+from app.web.routers import (
+    profile as profile_router,
 )
 from app.web.routers import (
     project_graph as project_graph_router,
@@ -108,6 +127,9 @@ from app.web.routers import (
     prompts as prompts_router,
 )
 from app.web.routers import (
+    ratings as ratings_router,
+)
+from app.web.routers import (
     runs as runs_router,
 )
 from app.web.routers import (
@@ -118,6 +140,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     stages as stages_router,
+)
+from app.web.routers import (
+    storage as storage_router,
 )
 from app.web.routers import (
     studio_chat as studio_chat_router,
@@ -144,16 +169,25 @@ async def _ensure_engine_schema() -> None:
     вместе с движком. Вызов идемпотентный. Делается при любом ENGINE_STARTUP:
     ручки /api/action-layer и /api/change-control подключены всегда, и без
     таблиц их чтение отвечало бы 500.
+
+    После create_all на Postgres навешиваем RLS: иначе `assert_rls_or_die`
+    валит lifespan (таблицы есть, политик нет / вне списков) — /api/health
+    не отвечает, deploy healthcheck откатывает v2.
     """
     from app.db import engine
     from app.services.action_layer.attachments import ensure_attachments_schema
     from app.services.action_layer.store import ensure_action_layer_schema
     from app.services.change_control.store import ensure_change_control_schema
+    from app.services.rls_apply import apply_tenant_isolation_sync
+    from app.services.tenant_tables import ENGINE_TENANT_TABLES
 
     async with engine.begin() as conn:
         await ensure_action_layer_schema(conn)
         await ensure_attachments_schema(conn)
         await ensure_change_control_schema(conn)
+        await conn.run_sync(
+            lambda sync_conn: apply_tenant_isolation_sync(sync_conn, ENGINE_TENANT_TABLES)
+        )
 
 
 async def _start_engine() -> asyncio.Task | None:
@@ -203,6 +237,7 @@ async def _start_engine() -> asyncio.Task | None:
     except Exception:  # noqa: BLE001
         logger.exception("orchestrator approval expiry failed to start (non-fatal)")
         return None
+
 
 
 @asynccontextmanager
@@ -281,6 +316,11 @@ async def _lifespan(app: FastAPI):
     # BYPASSRLS игнорирует политики. Ни один не даст ошибки в логе — он даст
     # утечку чужого ролика. Падение на старте чинится за минуту, утечка не
     # чинится вовсе.
+    try:
+        await _ensure_engine_schema()
+    except Exception:  # noqa: BLE001
+        logger.exception("схема движка (action_layer/change_control) не создана")
+
     if settings.is_postgres:
         from app.db import session_scope as _scope
         from app.services.rls_check import assert_rls_or_die
@@ -304,16 +344,8 @@ async def _lifespan(app: FastAPI):
         from app.services import prompt_store
 
         async with session_scope() as s:
-            loaded = await prompt_store.refresh(s)
-            if not loaded:
-                # Пустая база — наполняем системный уровень с диска. Уже
-                # загруженное не трогаем: файл мог остаться от прошлой
-                # версии, а в базе промт могли править.
-                stats = await prompt_store.import_from_disk(s)
-                await prompt_store.refresh(s)
-                logger.info("web lifespan: промт-библиотека с диска {}", stats)
-            else:
-                logger.info("web lifespan: промт-библиотека из базы, {} строк", loaded)
+            stats = await prompt_store.sync_system_prompts_from_disk(s)
+            logger.info("web lifespan: синхронизация системных промтов с диска {}", stats)
 
             # Встроенные промты — в базу, если их там нет. Именно в базу, а не
             # на диск: на сервере диск только для чтения, и шаг без файла
@@ -474,6 +506,7 @@ def create_app() -> FastAPI:
     app.include_router(media_recovery_router.router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
+    app.include_router(generation_router.router, prefix=API_PREFIX)
     app.include_router(config_presets_router.router, prefix=API_PREFIX)
     app.include_router(outsee_create_router.router, prefix=API_PREFIX)
     app.include_router(outsee_http_router.router, prefix=API_PREFIX)
@@ -485,6 +518,9 @@ def create_app() -> FastAPI:
     app.include_router(runtime_streams_router.router, prefix=API_PREFIX)
     app.include_router(runs_router.router, prefix=API_PREFIX)
     app.include_router(llm_costs_router.router, prefix=API_PREFIX)
+    app.include_router(admin_access_router.router, prefix=API_PREFIX)
+    app.include_router(admin_costs_router.router, prefix=API_PREFIX)
+    app.include_router(admin_users_router.router, prefix=API_PREFIX)
     app.include_router(prompts_router.router, prefix=API_PREFIX)
     app.include_router(prompt_studio_router.router, prefix=API_PREFIX)
     app.include_router(prompt_files_router.router, prefix=API_PREFIX)
@@ -507,9 +543,13 @@ def create_app() -> FastAPI:
     app.include_router(stages_router.router, prefix=API_PREFIX)
     app.include_router(meta_agent_router.router, prefix=API_PREFIX)
     app.include_router(project_graph_router.router, prefix=API_PREFIX)
+    app.include_router(storage_router.router, prefix=API_PREFIX)
     app.include_router(voices_router.router, prefix=API_PREFIX)
+    app.include_router(profile_router.router, prefix=API_PREFIX)
+    app.include_router(ratings_router.router, prefix=API_PREFIX)
+    app.include_router(node_reviews_router.router, prefix=API_PREFIX)
     # Чат оркестратора (движок). /api/orchestrator/chat/ в TENANT_ALLOWED_PREFIXES:
-    # участник ходит в свой чат (сессия несёт арендатора, строки под RLS 0020);
+    # участник ходит в свой чат (сессия несёт арендатора, строки под RLS 0023);
     # роутер требует живую личность (engine_access.require_engine_member).
     # Прочее под /api/orchestrator/ — вне списка, участнику 404.
     from app.orchestrator import app_ref
@@ -518,7 +558,7 @@ def create_app() -> FastAPI:
     app.include_router(orchestrator_chat_router.router, prefix=API_PREFIX)
     # Слой действий (планы, одобрения, резервы, вложения) и контроль изменений
     # движка. Поддеревья /api/action-layer/ и /api/change-control/ в
-    # TENANT_ALLOWED_PREFIXES: данные арендатора под RLS (ревизия 0020); каждая
+    # TENANT_ALLOWED_PREFIXES: данные арендатора под RLS (ревизия 0023); каждая
     # ручка берёт EngineAuthDep (живая личность), инструменты студии (реестр
     # резервов) — EngineAdminDep (только админ, 403 участнику).
     # Подключать до catch-all `api_write_not_found` ниже, иначе POST сюда

@@ -2,18 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause, Sparkles } from "lucide-react";
+import { Loader2, Save, ChevronDown, ChevronUp, Calculator, Mic, Play, Pause } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { api } from "@/lib/api";
 import type { ProjectDetail } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
+  FEMALE_RU_VOICES,
+  MALE_RU_VOICES,
+  STANDARD_ELEVENLABS_VOICES,
+  elevenLabsVoiceLabel,
   findElevenLabsVoice,
 } from "@/lib/elevenlabs-voices";
+import { VoiceLibraryModal, getVoiceById } from "@/components/outsee/voice-library-modal";
 import {
   charCountFromDuration,
   effectiveDurationSeconds,
@@ -100,7 +104,6 @@ function PlanScriptFields({
       </div>
       <NumField
         label="Длина, секунд"
-        description="Пустое поле в GPT-сообщении отображается как ____"
         value={durDraft}
         onChange={setDurDraft}
       />
@@ -112,7 +115,7 @@ function PlanScriptFields({
       </div>
       <Button
         size="sm"
-        className="w-fit self-start h-8 px-5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/20 rounded-xl transition-all disabled:opacity-50"
+        className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
         disabled={saving}
         onClick={() => {
           const trimmed = durDraft.trim();
@@ -140,8 +143,8 @@ function AudioFields({
   const savedId = params.audio?.elevenlabs_voice_id ?? DEFAULT_ELEVENLABS_VOICE_ID;
   const [voiceDraft, setVoiceDraft] = useState(savedId);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isPlayingSample, setIsPlayingSample] = useState(false);
+  const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     setVoiceDraft(savedId);
@@ -149,52 +152,42 @@ function AudioFields({
 
   useEffect(() => {
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
       }
     };
   }, []);
 
-  const selectedStandard = findElevenLabsVoice(voiceDraft);
+  const selected = findElevenLabsVoice(voiceDraft);
   const ruVoice = getVoiceById(voiceDraft);
 
-  const voicesStatus = useQuery({
-    queryKey: ["elevenlabs-voices-status"],
-    queryFn: () => api.elevenLabsVoicesStatus(),
-    staleTime: 3600_000,
-    retry: false,
-  });
-  const deadIds = new Set(
-    voicesStatus.data?.checked ? (voicesStatus.data?.dead ?? []) : [],
-  );
-
   const togglePlaySample = () => {
-    if (isPlaying) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
+    if (isPlayingSample) {
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+        sampleAudioRef.current = null;
       }
-      setIsPlaying(false);
+      setIsPlayingSample(false);
       return;
     }
-    const sampleUrl = ruVoice?.sample_url || (ruVoice ? `/api/voices/${ruVoice.id}/sample` : null);
+    const sampleUrl = ruVoice?.sample_url || selected?.sample_url || `/api/voices/${voiceDraft}/sample`;
     if (!sampleUrl) return;
     const a = new Audio(sampleUrl);
-    audioRef.current = a;
-    setIsPlaying(true);
-    a.play().catch(() => setIsPlaying(false));
+    sampleAudioRef.current = a;
+    setIsPlayingSample(true);
+    a.play().catch(() => setIsPlayingSample(false));
     a.onended = () => {
-      setIsPlaying(false);
-      audioRef.current = null;
+      setIsPlayingSample(false);
+      sampleAudioRef.current = null;
     };
     a.onerror = () => {
-      setIsPlaying(false);
-      audioRef.current = null;
+      setIsPlayingSample(false);
+      sampleAudioRef.current = null;
     };
   };
 
-  const handleSelectFromModal = (voiceId: string, voiceName: string) => {
+  const handleSelectVoiceFromModal = (voiceId: string, voiceName: string) => {
     setVoiceDraft(voiceId);
     onSave({ elevenlabs_voice_id: voiceId });
     toast.success(`Выбран голос: ${voiceName}`);
@@ -202,89 +195,123 @@ function AudioFields({
 
   return (
     <section className="flex flex-col gap-4 rounded-lg border border-white/10 bg-white/[0.02] p-4">
-      <div>
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-foreground">ElevenLabs v4 (WaveSpeed) — голос</h3>
-          <span className="rounded bg-cyan-500/10 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] font-medium text-cyan-400">
-            200 голосов
-          </span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">11Labs — голос</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            200 русских премиум-голосов (100 Ж / 100 М) ElevenLabs v4 с естественной интонацией и таймингами ASR.
+          </p>
         </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Сверхреалистичная озвучка ElevenLabs v4 через WaveSpeed AI с автоматической нарезкой таймингов слов через ASR.
-        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setLibraryOpen(true)}
+          className="h-8 gap-1.5 border-cyan-500/30 text-xs text-cyan-400 hover:bg-cyan-500/10 hover:text-cyan-300"
+        >
+          <Mic className="h-3.5 w-3.5" />
+          Библиотека 200 голосов
+        </Button>
       </div>
 
-      {voicesStatus.data?.checked && deadIds.size > 0 && deadIds.has(voiceDraft) ? (
-        <p className="text-xs font-medium text-amber-400">
-          Выбранный голос недоступен в API — выбери другой голос из списка.
-        </p>
-      ) : null}
-
       {/* Карточка выбранного голоса */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10 border border-cyan-500/25 text-cyan-400">
-            <Mic className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 flex flex-col">
-            <div className="flex items-center gap-2">
-              <span className="truncate text-sm font-semibold text-foreground">
-                {ruVoice ? ruVoice.name : selectedStandard ? selectedStandard.name : `Голос ${voiceDraft}`}
-              </span>
-              {ruVoice ? (
-                <span className="shrink-0 rounded bg-cyan-500/15 border border-cyan-500/30 px-1.5 py-0.5 text-[10px] text-cyan-300">
-                  {ruVoice.gender === "female" ? "Женский" : "Мужской"} #{ruVoice.index}
-                </span>
-              ) : null}
+      {selected ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-pink-500/30 bg-pink-500/15 text-pink-400">
+              <Mic className="h-4 w-4" />
             </div>
-            <span className="truncate text-xs text-muted-foreground">
-              {ruVoice ? ruVoice.description : selectedStandard ? selectedStandard.description : "Пользовательский голос"}
-            </span>
-            <span className="font-mono text-[10px] text-muted-foreground/60">
-              ID: {voiceDraft}
-            </span>
+            <div className="flex min-w-0 flex-col">
+              <div className="flex items-center gap-2">
+                <span className="truncate text-sm font-semibold text-foreground">
+                  {selected.name}
+                </span>
+                <span className="shrink-0 rounded border border-cyan-500/30 bg-cyan-500/15 px-1.5 py-0.5 text-[10px] text-cyan-300">
+                  {selected.gender === "female" ? "Женский" : selected.gender === "male" ? "Мужской" : "Стандартный"}
+                  {selected.index ? ` #${selected.index}` : ""}
+                </span>
+              </div>
+              <span className="truncate text-xs text-muted-foreground">
+                {selected.description}
+              </span>
+            </div>
           </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
-          {ruVoice ? (
+          <div className="flex shrink-0 items-center gap-2">
+            {ruVoice ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={togglePlaySample}
+                className="h-8 gap-1.5 text-xs text-foreground"
+              >
+                {isPlayingSample ? <Pause className="h-3.5 w-3.5 text-cyan-400" /> : <Play className="h-3.5 w-3.5 text-cyan-400" />}
+                {isPlayingSample ? "Пауза" : "Образец"}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={togglePlaySample}
-              className="h-8 gap-1.5 px-2.5 text-xs border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/10"
-              title="Прослушать образец голоса"
+              onClick={() => setLibraryOpen(true)}
+              className="h-8 text-xs text-muted-foreground hover:text-foreground"
             >
-              {isPlaying ? <Pause className="h-3.5 w-3.5 fill-current" /> : <Play className="h-3.5 w-3.5 fill-current" />}
-              {isPlaying ? "Пауза" : "Слушать"}
+              Выбрать из 200
             </Button>
-          ) : null}
-
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => setLibraryOpen(true)}
-            className="h-8 gap-1.5 px-3 text-xs font-medium bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg border border-cyan-400/30 shadow-sm shadow-cyan-500/20"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            Библиотека 200 голосов
-          </Button>
+          </div>
         </div>
-      </div>
-
-      {saving ? (
-        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-400" />
-          Сохранение голоса…
-        </span>
       ) : null}
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-sm font-medium text-foreground">Выбрать из списка</span>
+        <select
+          className="h-9 w-full max-w-xl rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
+          value={voiceDraft}
+          onChange={(e) => setVoiceDraft(e.target.value)}
+        >
+          <optgroup label="Женские голоса (100)">
+            {FEMALE_RU_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                #{v.index} {v.name} — {v.description}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Мужские голоса (100)">
+            {MALE_RU_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                #{v.index} {v.name} — {v.description}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Стандартные ElevenLabs (9)">
+            {STANDARD_ELEVENLABS_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name} — {v.description}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+      </label>
+
+      <Button
+        size="sm"
+        className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
+        disabled={saving}
+        onClick={() =>
+          onSave({
+            elevenlabs_voice_id: voiceDraft || DEFAULT_ELEVENLABS_VOICE_ID,
+          })
+        }
+      >
+        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+        Сохранить
+      </Button>
 
       <VoiceLibraryModal
         open={libraryOpen}
         onOpenChange={setLibraryOpen}
         selectedVoiceId={voiceDraft}
-        onSelectVoice={handleSelectFromModal}
+        onSelectVoice={handleSelectVoiceFromModal}
       />
     </section>
   );
@@ -407,66 +434,81 @@ function AssembleFields({
       />
       <button
         type="button"
+        data-keep-bg
         disabled={saving}
         onClick={() => onSave({ send_to_main_pc: !sendToMain })}
         className={cn(
-          "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-          sendToMain ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent/40",
+          "flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+          sendToMain
+            ? "border-emerald-500/35 bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12]"
+            : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]",
         )}
       >
         <span className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">Отправить на основной ПК</span>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-sm font-medium transition-colors", sendToMain ? "text-emerald-300" : "text-white/90")}>
+            Отправить на основной ПК
+          </span>
+          <span className={cn("text-xs transition-colors", sendToMain ? "text-emerald-400/80" : "text-zinc-400")}>
             {sendToMain
               ? "После музыки проект уйдёт на hub для ASR и FFmpeg"
               : "Монтаж локально на этой станции"}
           </span>
         </span>
         <span
+          data-keep-bg
           className={cn(
-            "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors border shadow-inner",
-            sendToMain ? "bg-primary border-primary" : "bg-zinc-700/90 border-zinc-500/80",
+            "mt-0.5 h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors",
+            sendToMain ? "border-emerald-500/60 bg-emerald-500" : "border-white/20 bg-zinc-800",
           )}
         >
           <span
+            data-keep-bg
             className={cn(
-              "block h-4 w-4 rounded-full bg-white shadow-md transition-transform",
-              sendToMain && "translate-x-4",
+              "block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+              sendToMain ? "translate-x-4" : "translate-x-0",
             )}
           />
         </span>
       </button>
       <button
         type="button"
+        data-keep-bg
         disabled={saving}
         onClick={() => onSave({ subtitles_enabled: !subsOn })}
         className={cn(
-          "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-          subsOn ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent/40",
+          "flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+          subsOn
+            ? "border-emerald-500/35 bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12]"
+            : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]",
         )}
       >
         <span className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">Субтитры в ролике</span>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-sm font-medium transition-colors", subsOn ? "text-emerald-300" : "text-white/90")}>
+            Субтитры в ролике
+          </span>
+          <span className={cn("text-xs transition-colors", subsOn ? "text-emerald-400/80" : "text-zinc-400")}>
             {subsOn ? "Включены — ASS вшивается при сборке" : "Выключены — без прожига текста"}
           </span>
         </span>
         <span
+          data-keep-bg
           className={cn(
-            "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors border shadow-inner",
-            subsOn ? "bg-primary border-primary" : "bg-zinc-700/90 border-zinc-500/80",
+            "mt-0.5 h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors",
+            subsOn ? "border-emerald-500/60 bg-emerald-500" : "border-white/20 bg-zinc-800",
           )}
         >
           <span
+            data-keep-bg
             className={cn(
-              "block h-4 w-4 rounded-full bg-white shadow-md transition-transform",
-              subsOn && "translate-x-4",
+              "block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+              subsOn ? "translate-x-4" : "translate-x-0",
             )}
           />
         </span>
       </button>
       <button
         type="button"
+        data-keep-bg
         disabled={saving}
         onClick={() =>
           onSave({
@@ -475,28 +517,34 @@ function AssembleFields({
           })
         }
         className={cn(
-          "flex w-full items-start justify-between gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors",
-          skipIntroOn ? "border-primary/40 bg-primary/10" : "border-border/60 hover:bg-accent/40",
+          "flex w-full items-start justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
+          skipIntroOn
+            ? "border-emerald-500/35 bg-emerald-500/[0.08] hover:bg-emerald-500/[0.12]"
+            : "border-white/10 bg-white/[0.02] hover:bg-white/[0.05]",
         )}
       >
         <span className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">Не учитывать первые секунды</span>
-          <span className="text-xs text-muted-foreground">
+          <span className={cn("text-sm font-medium transition-colors", skipIntroOn ? "text-emerald-300" : "text-white/90")}>
+            Не учитывать первые секунды
+          </span>
+          <span className={cn("text-xs transition-colors", skipIntroOn ? "text-emerald-400/80" : "text-zinc-400")}>
             {skipIntroOn
               ? `Отрезаем начало ролика: ${skipIntroLabel}`
               : "Выкл — ролик с 0:00 без обрезки начала"}
           </span>
         </span>
         <span
+          data-keep-bg
           className={cn(
-            "mt-0.5 h-5 w-9 shrink-0 rounded-full p-0.5 transition-colors border shadow-inner",
-            skipIntroOn ? "bg-primary border-primary" : "bg-zinc-700/90 border-zinc-500/80",
+            "mt-0.5 h-5 w-9 shrink-0 rounded-full border p-0.5 transition-colors",
+            skipIntroOn ? "border-emerald-500/60 bg-emerald-500" : "border-white/20 bg-zinc-800",
           )}
         >
           <span
+            data-keep-bg
             className={cn(
-              "block h-4 w-4 rounded-full bg-white shadow-md transition-transform",
-              skipIntroOn && "translate-x-4",
+              "block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform",
+              skipIntroOn ? "translate-x-4" : "translate-x-0",
             )}
           />
         </span>
@@ -652,7 +700,7 @@ function SplitFields({
       </div>
       <Button
         size="sm"
-        className="w-fit self-start h-8 px-5 text-xs font-semibold text-white bg-cyan-600 hover:bg-cyan-500 border border-cyan-400/50 shadow-md shadow-cyan-500/20 rounded-xl transition-all disabled:opacity-50"
+        className="w-fit self-start h-9 px-5 text-[13px] font-medium text-white border border-white/25 rounded-md shadow-none transition-colors hover:border-white/60 disabled:opacity-50"
         disabled={saving}
         onClick={() =>
           onSave({
@@ -708,7 +756,7 @@ function MediaStreamsFields({
           Параллельные потоки генерации
         </h3>
         <p className="mt-1 text-xs text-muted-foreground">
-          Количество одновременных задач в Outsee API для генерации {nodeType === "images" ? "картинок" : "видео"}.
+          Количество одновременных задач в VIA Render для генерации {nodeType === "images" ? "картинок" : "видео"}.
         </p>
       </div>
 
@@ -723,7 +771,7 @@ function MediaStreamsFields({
             className={cn(
               "h-8 px-3.5 text-xs",
               streams === num
-                ? "bg-primary text-black font-semibold shadow-sm"
+                ? "bg-white text-black font-medium"
                 : "text-muted-foreground hover:text-foreground",
             )}
             onClick={() => handleSelect(num)}
@@ -735,9 +783,6 @@ function MediaStreamsFields({
         ))}
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
-        💡 При выборе 3 или 4 потоков генерация кадров завершается быстрее, если ваш API-токен поддерживает параллельные запросы.
-      </p>
     </section>
   );
 }
@@ -799,12 +844,6 @@ export function NodeStepParamsPanel({
 
   return (
     <div className="flex flex-col gap-4">
-      {step !== "audio" && step !== "assemble" && step !== "images" && step !== "videos" ? (
-        <p className="text-xs text-muted-foreground">
-          Эти параметры автоматически добавляются в конец сопроводительного текста для генератора
-          (вкладка «Промпты»).
-        </p>
-      ) : null}
       {step === "plan" ? (
         <PlanScriptFields
           header="Сценарий"
@@ -842,14 +881,46 @@ export function NodeStepParamsPanel({
           saving={save.isPending}
         />
       ) : null}
-      {step === "images" || step === "videos" ? (
+      {false && (step === "images" || step === "videos") ? (
         <MediaStreamsFields
           metaRecord={metaRecord}
           onSave={persistMeta}
           saving={save.isPending}
-          nodeType={step}
+          nodeType={step as "images" | "videos"}
         />
       ) : null}
+    </div>
+  );
+}
+
+/** Compact streams selector (project meta outsee_streams/img_streams, read by generate_images/videos/hero). */
+export function StreamsPicker({ projectId }: { projectId: number }) {
+  const qc = useQueryClient();
+  const project = useQuery({ queryKey: ["project", projectId], queryFn: () => api.getProject(projectId), enabled: projectId > 0 });
+  const meta = (project.data?.meta || {}) as Record<string, unknown>;
+  const cur = Number(meta.outsee_streams ?? meta.img_streams ?? 2);
+  const save = useMutation({
+    mutationFn: (n: number) =>
+      api.patchProject(projectId, { meta: { img_streams: n, outsee_streams: n } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["project", projectId] }),
+    onError: (e) => toast.error(errorMessageFromUnknown(e)),
+  });
+  return (
+    <div data-vp-streams className="flex items-center gap-2">
+      <span className="text-[11px] uppercase tracking-[0.12em] text-white/50">Потоки</span>
+      <div className="flex">
+        {[1, 2, 3, 4].map((n) => (
+          <button
+            key={n}
+            type="button"
+            disabled={save.isPending || !project.isSuccess}
+            onClick={() => save.mutate(n)}
+            className={cn("h-8 w-8 border text-[13px] first:rounded-l-md last:rounded-r-md", n === cur ? "border-white bg-white text-black" : "border-white/15 text-white/70 hover:text-white")}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

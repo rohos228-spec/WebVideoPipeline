@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { NodeResultViewBody } from "./node-result-views";
 
 const WIDE_MODES = new Set([
+  "director_plan",
   "xlsx_general_plan",
   "voiceover_wide",
   "xlsx_split_row",
@@ -21,6 +22,7 @@ const WIDE_MODES = new Set([
   "frame_images",
   "frame_videos",
   "topic_edit",
+  "html_report",
   "sfx_plan",
   "sfx_gen",
 ]);
@@ -47,16 +49,32 @@ export function NodeResultPanel({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
+        onPointerDownOutside={(e) => {
+          // Предотвратить закрытие диалога при протяжке выделения текста за границы окна
+          e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          e.preventDefault();
+        }}
         className={cn(
           "flex flex-col overflow-hidden",
           wide
-            ? "h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] gap-2 p-4 sm:p-5"
+            ? snapshot.viewMode === "html_report"
+              ? "h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] gap-0 bg-black p-0"
+              : "h-[92vh] max-h-[92vh] w-[96vw] max-w-[96vw] gap-2 p-4 sm:p-5"
             : "max-h-[85vh] max-w-2xl",
         )}
       >
-        <DialogHeader className="shrink-0">
+        <DialogHeader
+          className={cn(
+            "shrink-0",
+            snapshot.viewMode === "html_report" && "px-4 pt-4 pb-2",
+          )}
+        >
           <DialogTitle>Результат — {spec.label}</DialogTitle>
-          <DialogDescription>{snapshot.summary}</DialogDescription>
+          {snapshot.summary && snapshot.summary !== "Ответ GPT готов" && snapshot.summary !== "Ответ GPT на диске" ? (
+            <DialogDescription>{snapshot.summary}</DialogDescription>
+          ) : null}
         </DialogHeader>
 
         {!snapshot.hasResult && snapshot.viewMode === "default" ? (
@@ -64,16 +82,23 @@ export function NodeResultPanel({
             Результат этого шага ещё не готов. Запустите ноду или дождитесь завершения генерации.
           </p>
         ) : (
-          <NodeResultViewBody
-            projectId={projectId}
-            nodeKey={nodeKey}
-            nodeType={nodeType}
-            snapshot={snapshot}
-            onHeroReplaced={() => {
-              qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
-              qc.invalidateQueries({ queryKey: ["media-review", projectId] });
-            }}
-          />
+          <div
+            className={cn(
+              "flex min-h-0 flex-1 flex-col overflow-hidden",
+              snapshot.viewMode === "html_report" && "bg-black",
+            )}
+          >
+            <NodeResultViewBody
+              projectId={projectId}
+              nodeKey={nodeKey}
+              nodeType={nodeType}
+              snapshot={snapshot}
+              onHeroReplaced={() => {
+                qc.invalidateQueries({ queryKey: ["project-assets", projectId] });
+                qc.invalidateQueries({ queryKey: ["media-review", projectId] });
+              }}
+            />
+          </div>
         )}
       </DialogContent>
     </Dialog>

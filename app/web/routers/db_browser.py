@@ -8,16 +8,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import commit_with_retry
+from app.db import SessionLocal, commit_with_retry
 from app.models import (
     Entity,
     Frame,
@@ -420,15 +423,19 @@ _ORCHESTRATOR_SYSTEM = (
     "простыни кода, цитаты исходников, листинги файлов. "
     "Скажи: какая нода/шаг, текст ошибки человеческим языком, что делать дальше.\n"
     "ЗАПРЕТ ОТКАЗОВ: не пиши «не поддерживается / нет такого действия / "
-    "не умею», если действие есть в списке ниже. "
-    "Если нужны действия (не вопрос про ошибку) — сначала JSON action, "
-    "потом коротко по-русски.\n"
-    "ФОРМАТ ОТВЕТА ПРИ ФИКСЕ КОДА: один JSON "
+    "не умею», если действие есть в списке ниже.\n"
+    "ПОРЯДОК ФОРМИРОВАНИЯ ОТВЕТА: ВСЕГДА сначала пиши понятный живой ответ "
+    "пользователю по-русски (что ты сделал, запустил или предлагаешь), чтобы пользователь "
+    "сразу в реальном времени видел печатающийся текст. "
+    "Технический JSON с действиями (actions/ops) размещай СТРОГО В САМОМ ХВОСТЕ ответа "
+    "после всего русского текста. НИКОГДА не выводи JSON в начале или посреди текста. "
+    "Человек видит действия в виде интерактивных плашек интерфейса, поэтому в своём тексте "
+    "не дублируй сырой JSON (не пиши `{\"actions\":[...]}`).\n"
+    "ФОРМАТ ОТВЕТА ПРИ ФИКСЕ КОДА: краткий понятный итог по-русски, и в конце один JSON "
     '{"actions":[{"read_file":…},{"edit_files":[…]},{"run_tests":[…]},'
     '{"git_commit_push":{…}}]} — плоский список, БЕЗ вложенного '
     '{"actions":[{"actions":…}]}. '
-    "В чат НЕ вставляй исходники файлов и не дублируй JSON много раз — "
-    "только краткий итог по-русски после actions. "
+    "В чат НЕ вставляй исходники файлов и не дублируй JSON много раз.\n"
     "Нельзя закончить на одних read_file: после чтения сразу edit_files.\n"
     "read_file/edit_files/run_tests/git — ТОЛЬКО если пользователь ЯВНО "
     "просит починить/исправить баг В КОДЕ программы / закоммитить. "
@@ -558,7 +565,12 @@ _ORCHESTRATOR_SYSTEM = (
     "assemble — «Сборка»; publish — «Публикация»; topic — «Тема»; "
     "storage — хранилище.\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
-    "неизвестное = отклонено с ошибкой. Одна операция = один кадр."
+    "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
+    "ВАЖНО ПО ФОРМАТУ ОТВЕТА: сначала всегда идёт живой понятный русский текст для человека. "
+    "Технический JSON (actions, ops) помещай строго в самый конец ответа после текста. "
+    "В человеческом тексте НИКОГДА не выводи сырой JSON (например, не пиши "
+    "{\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде интерактивных плашек "
+    "интерфейса, а твой текст должен содержать только естественный живой русский ответ."
 )
 
 _STEP_RU: dict[str, str] = {
@@ -2150,23 +2162,14 @@ class OrchestratorChatBody(BaseModel):
     history: list[dict] = Field(default_factory=list)
     # Кнопка «Фикс багов» в Studio — чинить, не только объяснить.
     fix_bugs: bool = False
+    auto_apply: bool = False
 
 
-@router.post("/projects/{project_id}/orchestrator/chat")
-async def orchestrator_chat(
-    project_id: int,
+async def _build_orchestrator_prompt(
+    session: AsyncSession,
+    project: Project,
     body: OrchestratorChatBody,
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    """Диалог с оркестратором по текущему проекту.
-
-    Контекст = граф DB (uuid кадров). Ответ модели с ``{"ops": [...]}``
-    применяется через ``db_apply.apply_ops`` (fail-closed) + авто-экспорт
-    в project.xlsx. Текстовый ответ (вопрос/обсуждение) — без записи.
-    """
-    from app.services.gpt_client import GptApiUnavailable, get_gpt_client
-
-    project = await _project(session, project_id)
+) -> tuple[str, bool, dict, list[str]]:
     await db_v2.backfill_project_v2(session, project)
     await commit_with_retry(session)
     graph = await db_v2.project_graph(session, project)
@@ -2212,22 +2215,53 @@ async def orchestrator_chat(
                 else ""
             )
         )
+        + (
+            "\n\nВАЖНО: Если пользователь просит показать доступные действия, возможности или справку (например, «Покажи доступные действия»):\n"
+            "Описывай свои возможности обычным русским текстом. НИКОГДА не выводи в таком ответе сырые JSON-блоки вроде {\"ops\":[...]} или {\"actions\":[...]}\n"
+            "в качестве примеров, так как система парсит весь ответ и пытается исполнить найденный JSON как реальную команду в базе данных!\n"
+        )
+        + (
+            "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: АВТОНОМНЫЙ (АВТОМАТИЧЕСКИЙ).\n"
+            "Пользователь включил автоматический режим. Все действия, изменения темы/промтов/настроек, генерацию и запуск шагов выполняй сразу через JSON ops/actions без запроса подтверждения!"
+            if (getattr(body, "auto_apply", False) or "[РЕЖИМ: АВТОНОМНЫЙ" in body.message)
+            else (
+                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ.\n"
+                "Любые важные операции (удаление нод/проектов, push, запуск планов) предлагай пользователю и выводи подтверждение."
+            )
+        )
         + "\n\nПОЛЬЗОВАТЕЛЬ: "
         + body.message
     )
-    try:
-        reply = await get_gpt_client().ask_fresh(prompt, timeout=600, project_id=project.id)
-    except GptApiUnavailable as e:
-        raise HTTPException(503, str(e)) from None
+    return prompt, diagnose_only, canvas_keymap, diag_lines
 
+
+async def _execute_orchestrator_reply(
+    session: AsyncSession,
+    project: Project,
+    reply: str,
+    diagnose_only: bool,
+    canvas_keymap: dict,
+    diag_lines: list[str],
+    body_message: str,
+) -> dict:
     applied = None
     actions_run: list[dict] = []
     ui_actions: list[dict] = []
     pending_confirm: list[dict] = []
     error = None
+    def _is_dummy_uuid(val: Any) -> bool:
+        s = str(val or "").strip()
+        return (
+            not s
+            or s in ("...", "…", "<uuid>", "uuid", "none", "null")
+            or s.startswith(("<", "...", "…"))
+            or ("uuid" in s.lower() and "<" in s)
+        )
+
     ops_data = db_apply.extract_apply_ops_json(reply or "")
     if ops_data:
-        ops = ops_data.get("ops") or []
+        raw_ops = ops_data.get("ops") or []
+        ops = [op for op in raw_ops if isinstance(op, dict) and not _is_dummy_uuid(op.get("frame_uuid"))]
         chars = ops_data.get("characters") or []
         scenes = ops_data.get("scenes") or []
         if ops or chars or scenes:
@@ -2243,7 +2277,10 @@ async def orchestrator_chat(
                 await commit_with_retry(session)
             except db_apply.ApplyOpsError as e:
                 await session.rollback()
-                error = str(e)
+                err_msg = str(e)
+                # Если в ошибке фигурируют заглушки '...' / '<...>', это был просто пример из текста
+                if not any(x in err_msg for x in ("'...' ", "['...']", "['…']", "<", ">")):
+                    error = err_msg
         raw_actions = list(ops_data.get("actions") or [])
 
         def _flatten_orchestrator_actions(items: list) -> list[dict]:
@@ -2521,7 +2558,7 @@ async def orchestrator_chat(
             project.data_dir,
             {
                 "type": "orchestrator_chat",
-                "message": body.message[:500],
+                "message": body_message[:500],
                 "reply": (reply or "")[:500],
                 "applied": bool(applied),
                 "actions": [sorted(a.keys()) for a in actions_run],
@@ -2560,6 +2597,21 @@ async def orchestrator_chat(
         else:
             reply = human
 
+    # Очищаем сырой JSON технических действий из ответа человеку для всех режимов
+    clean_human_reply = re.sub(
+        r"```(?:json)?\s*\{[\s\S]*?\"(?:actions|ops)\"[\s\S]*?\}\s*```",
+        "",
+        reply or "",
+    )
+    clean_human_reply = re.sub(
+        r'\{\s*"(?:actions|ops)"\s*:\s*\[[\s\S]*?\]\s*\}',
+        "",
+        clean_human_reply,
+    )
+    clean_human_reply = re.sub(r"\n{3,}", "\n\n", clean_human_reply).strip()
+    if clean_human_reply:
+        reply = clean_human_reply
+
     return {
         "reply": reply,
         "applied": applied,
@@ -2568,6 +2620,129 @@ async def orchestrator_chat(
         "pending_confirm": pending_confirm,
         "error": error,
     }
+
+
+@router.post("/projects/{project_id}/orchestrator/chat")
+async def orchestrator_chat(
+    project_id: int,
+    body: OrchestratorChatBody,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Диалог с оркестратором по текущему проекту (синхронный / fallback)."""
+    from app.services.gpt_api import GptApiError
+    from app.services.gpt_client import GptApiUnavailable, get_gpt_client
+
+    project = await _project(session, project_id)
+    prompt, diagnose_only, canvas_keymap, diag_lines = await _build_orchestrator_prompt(session, project, body)
+    try:
+        reply = await get_gpt_client().ask_fresh(prompt, timeout=600, project_id=project.id)
+    except GptApiUnavailable as e:
+        raise HTTPException(503, str(e)) from None
+    except GptApiError as e:
+        raise HTTPException(502, str(e)[:800]) from None
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, str(e)[:800]) from None
+
+    return await _execute_orchestrator_reply(
+        session, project, reply, diagnose_only, canvas_keymap, diag_lines, body.message
+    )
+
+
+@router.post("/projects/{project_id}/orchestrator/chat-stream")
+async def orchestrator_chat_stream(
+    project_id: int,
+    body: OrchestratorChatBody,
+) -> StreamingResponse:
+    """Потоковый диалог с оркестратором по SSE (генерация текста в реальном времени)."""
+    from app.services.gpt_client import get_gpt_client
+    from app.services.tenant import current_tenant, tenant_scope
+
+    captured_tenant = current_tenant()
+
+    async def _generator():
+        yield f"data: {json.dumps({'type': 'phase', 'phase': 'thinking', 'detail': 'Анализирую граф проекта…'}, ensure_ascii=False)}\n\n"
+        await asyncio.sleep(0.01)
+
+        async with SessionLocal() as session:
+            try:
+                project = await _project(session, project_id)
+                prompt, diagnose_only, canvas_keymap, diag_lines = await _build_orchestrator_prompt(session, project, body)
+            except Exception as e:
+                logger.error("orchestrator_chat_stream prompt error: {}", e)
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+                return
+
+            queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+            async def _on_delta(delta: str) -> None:
+                if delta:
+                    await queue.put(("delta", delta))
+
+            yield f"data: {json.dumps({'type': 'phase', 'phase': 'generating', 'detail': 'Печатает ответ…'}, ensure_ascii=False)}\n\n"
+
+            async def _runner() -> None:
+                with tenant_scope(captured_tenant):
+                    try:
+                        reply = await get_gpt_client().ask_fresh(
+                            prompt,
+                            timeout=600,
+                            project_id=project.id,
+                            on_delta=_on_delta,
+                        )
+                        await queue.put(("done", reply))
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as e:
+                        logger.error("orchestrator_chat_stream runner error: {}", e)
+                        await queue.put(("error", str(e)))
+
+            task = asyncio.create_task(_runner())
+
+            full_reply = ""
+            saw_deltas = False
+            try:
+                while True:
+                    try:
+                        kind, data = await asyncio.wait_for(queue.get(), timeout=0.35)
+                        if kind == "delta":
+                            saw_deltas = True
+                            full_reply += data
+                            yield f"data: {json.dumps({'type': 'delta', 'delta': data}, ensure_ascii=False)}\n\n"
+                        elif kind == "done":
+                            full_reply = data or full_reply
+                            if not saw_deltas and full_reply:
+                                yield f"data: {json.dumps({'type': 'delta', 'delta': full_reply}, ensure_ascii=False)}\n\n"
+                            break
+                        elif kind == "error":
+                            yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
+                            return
+                    except TimeoutError:
+                        if task.done() and queue.empty():
+                            break
+            finally:
+                if not task.done():
+                    task.cancel()
+
+            yield f"data: {json.dumps({'type': 'phase', 'phase': 'executing', 'detail': 'Применение действий и проверка…'}, ensure_ascii=False)}\n\n"
+
+            try:
+                result = await _execute_orchestrator_reply(
+                    session, project, full_reply, diagnose_only, canvas_keymap, diag_lines, body.message
+                )
+                yield f"data: {json.dumps({'type': 'done', **result}, ensure_ascii=False)}\n\n"
+            except Exception as e:
+                logger.error("orchestrator_chat_stream execute error: {}", e)
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+
+    return StreamingResponse(
+        _generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/projects/{project_id}/orchestrator/feedback")

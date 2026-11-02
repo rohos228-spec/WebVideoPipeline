@@ -4,15 +4,17 @@
 """
 from __future__ import annotations
 
+pytest_plugins = ['tests.action_layer_support']
+
 import asyncio
+from datetime import UTC
 
 import pytest
 
 from app.services import step_cancel
 from app.services.action_layer import approval, executor, service
 from app.services.action_layer.spec import JobState
-from tests.action_layer_support import env, fresh_registry, make_spec  # noqa: F401
-from datetime import UTC
+from tests.action_layer_support import fresh_registry, make_spec
 
 OP = approval.OperatorIdentity("web_operator:slots")
 PROJ_SCHEMA = {"type": "object", "properties": {"project_id": {"type": "integer", "minimum": 1}},
@@ -296,7 +298,7 @@ def test_waits_for_slot_only_when_all_slots_are_busy(monkeypatch, slots2) -> Non
 
 def test_worker_reason_decides_what_is_a_queue(monkeypatch, slots2) -> None:
     """Очередь - это места заняты или впереди очередь генерации; пауза и стоп - не очередь."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     monkeypatch.setattr(step_cancel, "is_generation_active", lambda pid: False)
     monkeypatch.setattr(step_cancel, "active_advance_count", lambda: 0)
