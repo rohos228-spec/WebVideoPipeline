@@ -4147,6 +4147,9 @@ class Supervisor:
         if frame_soft_delete_state(step.action, self.actions) is not None:
             return [index]
         seen = {_step_project(step)}
+        # Правки доски монтажа одной просьбы («объедини 3–6» = три слияния) идут
+        # одной карточкой и в одном проекте: человек одобряет просьбу целиком.
+        same_project_ok = step.action.startswith("montage.")
         found = [index]
         cursor = index + 1
         while cursor < len(plan):
@@ -4154,7 +4157,7 @@ class Supervisor:
             project = _step_project(nxt)
             if nxt.action != step.action or nxt.parallel_group != step.parallel_group:
                 break
-            if project is None or project in seen:
+            if project is None or (project in seen and not same_project_ok):
                 break
             seen.add(project)
             found.append(cursor)

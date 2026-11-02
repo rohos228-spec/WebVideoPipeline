@@ -223,3 +223,38 @@ def test_group_card_sums_cost_and_tags_warnings_with_project() -> None:
 )
 def test_projects_ru(count: int, text: str) -> None:
     assert approval_steps.projects_ru(count) == text
+
+
+_MERGE = "montage.merge_scenes"
+
+
+def _merge(right: int) -> PlanStep:
+    return PlanStep(
+        action=_MERGE,
+        params={"project_id": 4, "left_frame_id": 235, "right_frame_id": right},
+        mutating=True,
+        risk="high",
+    )
+
+
+@pytest.mark.asyncio
+async def test_montage_merges_in_one_project_are_one_card(token: str) -> None:
+    """«Объедини 3–6» = три слияния в одном проекте: одна карточка, каждый шаг со своими проверками."""
+    del token
+    actions = _registry()
+    actions.table[_MERGE] = {"risk": "high", "read_only": False, "destructive": False, "paid": False}
+    validators = MockValidators()
+    runtime = _runtime(actions, validators, [_merge(236), _merge(237), _merge(238)])
+    set_runtime(runtime)
+    session = "batch-montage"
+    try:
+        task_id = await runtime.supervisor.start_task(session, "объедини кадры 3, 4, 5 и 6")
+        cards = await _approve_all(runtime, session, task_id)
+        assert len(cards) == 1
+        card = cards[0]
+        assert len(card["steps"]) == 3
+        assert "3 действия одним подтверждением" in card["title"]
+        assert runtime.tasks.get(task_id)["status"] == TaskStatus.done.value
+        assert [c["params"]["right_frame_id"] for c in _calls(actions, _MERGE)] == [236, 237, 238]
+    finally:
+        set_runtime(None)
