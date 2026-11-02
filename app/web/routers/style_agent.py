@@ -93,6 +93,9 @@ async def run_style_agent(
     if sa_job.is_running(project.id):
         raise HTTPException(status_code=409, detail="разбор уже идёт")
     overrides = sa_job.normalize_settings(payload if isinstance(payload, dict) else {})
+    if sa_job._pipeline_text_override(sa_job.resolve_model(project, node_key)) is None:
+        # Фоновая задача упала бы с той же причиной уже после кнопки; говорим сразу.
+        raise HTTPException(status_code=400, detail=sa_job.NO_PAY52_ROUTE)
     if not sa_job.list_ref_videos(project, node_key):
         raise HTTPException(
             status_code=400, detail="нет роликов: загрузите mp4 в ноду или подключите «Файлы»"

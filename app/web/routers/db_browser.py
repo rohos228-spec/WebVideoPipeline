@@ -560,7 +560,9 @@ _ORCHESTRATOR_SYSTEM = (
     "images — «Картинки»; animation_prompts — «Промты анимации»; "
     "videos — «Видео»; audio — «Озвучка»; music — «Музыка»; "
     "assemble — «Сборка»; publish — «Публикация»; topic — «Тема»; "
-    "storage — хранилище.\n"
+    "storage — хранилище; style_extract — «Разбор стиля» (агент разбирает загруженные "
+    "ролики-референсы и пишет паспорт стиля); hitl_style — «Проверка стиля» (человек "
+    "одобряет паспорт стиля).\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
     "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
     "БРИФИНГ ПРОЕКТА (пошаговый опросник подготовки проекта):\n"
@@ -1297,6 +1299,7 @@ def _all_node_types() -> set[str]:
     from app.orchestrator.node_registry import (
         CONFIG_NODE_TYPES,
         HITL_NODE_TYPES,
+        STYLE_AGENT_NODE_TYPES,
         UI_MENU_NODE_TYPES,
         WORK_NODES,
     )
@@ -1306,6 +1309,7 @@ def _all_node_types() -> set[str]:
         | set(HITL_NODE_TYPES)
         | set(CONFIG_NODE_TYPES)
         | set(UI_MENU_NODE_TYPES)
+        | set(STYLE_AGENT_NODE_TYPES)
         | {"excel_gpt", "excel_feed"}
     )
 
@@ -1721,6 +1725,13 @@ def _linear_order(nodes: list[dict], edges: list[dict]) -> list[str]:
     return order
 
 
+def _node_type_ru(node_type: str) -> str:
+    """Подпись новой ноды по-русски («Разбор стиля»), а не тип style_extract."""
+    from app.services.action_layer.builtin_insight import _TYPE_RU
+
+    return _TYPE_RU.get(node_type, node_type)
+
+
 async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -> dict:
     """Вставить ноду в граф проекта (project.meta.canvas_graph), цепочка перешивается.
 
@@ -1742,9 +1753,11 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
         )
     after = str((spec or {}).get("after") or "each").strip()
     base_label = str((spec or {}).get("label") or "").strip() or (
-        "Проверка"
+        "Проверка стиля"
+        if node_type == "hitl_style"
+        else "Проверка"
         if node_type.startswith("hitl")
-        else ("Работа с GPT" if node_type == "excel_gpt" else node_type)
+        else ("Работа с GPT" if node_type == "excel_gpt" else _node_type_ru(node_type))
     )
 
     meta = dict(project.meta or {})
@@ -1830,8 +1843,9 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
                 "id": new_id,
                 "type": node_type,
                 "position": {
-                    "x": min_x + (k - 1) * 200.0,
-                    "y": max_y + 160.0,
+                    # Карточка ноды на холсте 336–384×192+ px: шаг меньше налезал на соседей.
+                    "x": min_x + (k - 1) * 440.0,
+                    "y": max_y + 320.0,
                 },
                 "data": {
                     "label": node_label,

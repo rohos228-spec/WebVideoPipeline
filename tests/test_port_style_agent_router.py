@@ -123,9 +123,26 @@ async def test_estimate_does_not_call_model() -> None:
         assert "settings" in est and "cost" in est
 
 
+async def test_run_without_pay52_route_is_refused_before_spawn(monkeypatch) -> None:
+    p = await _project()
+    spawned: list[tuple] = []
+    monkeypatch.setattr(sa_job, "_pipeline_text_override", lambda _model: None)
+    monkeypatch.setattr(sa_job, "spawn_style_extract_job", lambda *a, **k: spawned.append(a))
+    async with _client() as c:
+        await c.post(
+            f"/api/projects/{p.id}/style-agent/upload",
+            files={"file": ("a.mp4", b"vid", "video/mp4")},
+        )
+        r = await c.post(f"/api/projects/{p.id}/style-agent/run?node_key=style_extract", json={})
+    assert r.status_code == 400
+    assert "52pay" in r.json()["detail"] and "деньги не потрачены" in r.json()["detail"]
+    assert spawned == []
+
+
 async def test_run_requires_videos_then_spawns_job(monkeypatch) -> None:
     p = await _project()
     spawned: list[tuple] = []
+    monkeypatch.setattr(sa_job, "_pipeline_text_override", lambda _model: object())
     monkeypatch.setattr(
         sa_job,
         "spawn_style_extract_job",

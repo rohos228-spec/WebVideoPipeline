@@ -965,6 +965,9 @@ def spawn_style_extract_job(
     return task
 
 
+NO_PAY52_ROUTE = "нет маршрута 52pay для разбора стиля: разбор стиля идёт только через 52pay, а ключа 52pay (PAY52_GPT_KEY) в настройках сервера нет — разбор не запущен, деньги не потрачены"
+
+
 def _pipeline_text_override(model: dict[str, Any] | None) -> Any:
     """Как во всём пайплайне: текстовые вызовы разбора идут через 52pay (gpt-5.6-sol и т.п.), а не через vibecode."""
     from app.services.llm_override import NodeLlmOverride
@@ -1061,7 +1064,7 @@ async def _run_job(project_id: int, *, node_key: str | None, overrides: dict[str
     try:
         ov = _pipeline_text_override(model)
         if ov is None:
-            raise RuntimeError("нет маршрута 52pay для разбора стиля")
+            raise RuntimeError(NO_PAY52_ROUTE)
         if not videos:
             raise RuntimeError("нет роликов: загрузите mp4 в ноду или подключите «Файлы»")
         with use_override(ov):

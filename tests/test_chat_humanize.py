@@ -82,3 +82,11 @@ def test_set_prompt_note_names_the_step_not_its_code():
 
     note = action_note({"set_prompt": "script→nii67"}, {})
     assert "script" not in note and "«Закадровый текст»" in note and "«nii67»" in note
+
+
+def test_chat_can_add_style_agent_nodes_with_russian_labels():
+    from app.web.routers.db_browser import _all_node_types, _node_type_ru
+
+    assert {"style_extract", "hitl_style"} <= _all_node_types()
+    assert _node_type_ru("style_extract") == "Разбор стиля"
+    assert _node_type_ru("hitl_style") == "Проверка стиля"

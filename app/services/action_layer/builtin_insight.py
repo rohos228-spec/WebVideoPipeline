@@ -75,6 +75,8 @@ _TYPE_RU = {
     "sfx_gen": "Звуки",
     "shot_menu": "Меню съёмки",
     "excel_feed": "Вход Excel",
+    "style_extract": "Разбор стиля",
+    "hitl_style": "Проверка стиля",
 }
 _NODE_STATUS_RU = {
     "pending": "ждёт",
