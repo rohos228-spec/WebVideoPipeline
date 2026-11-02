@@ -1309,3 +1309,30 @@ def test_history_size_survives_unserializable_content() -> None:
     assert _history_size("abc") == 3
     assert _history_size([{"type": "text", "text": "ab"}]) == len('[{"type": "text", "text": "ab"}]')
     assert _history_size({"x": object()}) > 0
+
+
+def test_parse_choice_empty_content_is_retryable() -> None:
+    from app.services.gpt_api import GptApiError, _parse_choice
+
+    # 1. Empty content -> retryable
+    with pytest.raises(GptApiError) as exc_info:
+        _parse_choice({"choices": [{"message": {"role": "assistant", "content": ""}}]})
+    assert exc_info.value.retryable is True
+    assert "пустой content" in str(exc_info.value)
+
+    # 2. Empty choices -> retryable
+    with pytest.raises(GptApiError) as exc_info_choices:
+        _parse_choice({"choices": []})
+    assert exc_info_choices.value.retryable is True
+    assert "пустой choices" in str(exc_info_choices.value)
+
+    # 3. Fallback to reasoning_content when content is null/empty
+    text, finish = _parse_choice({
+        "choices": [{
+            "message": {"role": "assistant", "content": "", "reasoning_content": "Plan step 2: 10 scenes"},
+            "finish_reason": "stop"
+        }]
+    })
+    assert text == "Plan step 2: 10 scenes"
+    assert finish == "stop"
+
