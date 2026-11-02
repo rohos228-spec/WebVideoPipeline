@@ -12,6 +12,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import {
   Copy,
   Download,
+  Check,
   FileText,
   History,
   Loader2,
@@ -661,7 +662,14 @@ export function PromptFilesPanel({
                 {activating ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
                 ) : null}
-                {activeVariant === selectedName ? "Активен" : "Сделать активным"}
+                {activeVariant === selectedName ? (
+                  <>
+                    <Check className="h-3 w-3 stroke-[2.5]" />
+                    <span>Активен</span>
+                  </>
+                ) : (
+                  "Сделать активным"
+                )}
               </Button>
             ) : null}
             <Button
