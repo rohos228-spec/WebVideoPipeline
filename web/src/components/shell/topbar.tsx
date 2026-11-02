@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext } from "react";
-import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck } from "lucide-react";
+import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck, Workflow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
@@ -95,6 +95,13 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
         <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
         <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
+        <RailBtn
+          icon={<Workflow className="h-[18px] w-[18px]" />}
+          label="Оркестратор"
+          labelClassName="text-[10px]"
+          title="Чат супервизора и служебные блоки — панель внизу студии"
+          onClick={openOrchestratorDock}
+        />
         <BugReportButton />
         {isAdmin ? (
           <RailBtn
@@ -156,11 +163,23 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
   );
 }
 
-function RailBtn({ icon, label, title, onClick, active }: { icon: React.ReactNode; label: string; title?: string; onClick: () => void; active?: boolean }) {
+/**
+ * Док «Оркестратор» живёт на главной студии (OrchestratorDock, событие OPEN_ORCHESTRATOR_CHAT).
+ * Имя события строкой, чтобы не тянуть код чата во все страницы с левой панелью.
+ */
+function openOrchestratorDock() {
+  if (window.location.pathname === "/") {
+    window.dispatchEvent(new CustomEvent("studio-open-orchestrator-chat", { detail: { tab: "chat" } }));
+    return;
+  }
+  window.location.href = "/?chat=open";
+}
+
+function RailBtn({ icon, label, title, onClick, active, labelClassName }: { icon: React.ReactNode; label: string; title?: string; onClick: () => void; active?: boolean; labelClassName?: string }) {
   return (
     <button type="button" onClick={onClick} title={title ?? label} className={"flex w-[62px] flex-col items-center gap-1 py-1.5 text-[11px] tracking-[-0.02em] transition-colors " + (active ? "text-white" : "text-zinc-400") + " hover:bg-white/[0.05] hover:text-white"}>
       {icon}
-      <span className="leading-none">{label}</span>
+      <span className={cn("leading-none", labelClassName)}>{label}</span>
     </button>
   );
 }

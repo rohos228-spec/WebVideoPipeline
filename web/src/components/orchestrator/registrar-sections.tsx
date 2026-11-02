@@ -10,6 +10,7 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useHideMoney } from "@/hooks/use-hide-money";
 import { usePersistedState } from "@/hooks/use-persisted-state";
+import { AutonomySection } from "./autonomy-section";
 import { ObservationSection } from "./observation-section";
 import { KillSwitchSection } from "./kill-switch-section";
 import { SpendSection } from "./spend-section";
@@ -20,6 +21,7 @@ import { ActionLayerSection } from "../action-layer/action-layer-section";
 import { ChangeControlSection } from "../change-control/change-control-section";
 
 export const REGISTRAR_SECTIONS: { id: string; title: string }[] = [
+  { id: "autonomy", title: "Автономия" },
   { id: "observation", title: "Наблюдение, автономный запуск и телеметрия" },
   { id: "kill", title: "Аварийный стоп" },
   { id: "spend", title: "Траты" },
@@ -31,6 +33,7 @@ export const REGISTRAR_SECTIONS: { id: string; title: string }[] = [
 ];
 
 function registrarSection(id: string, projectId: number | null) {
+  if (id === "autonomy") return <AutonomySection />;
   if (id === "observation") return <ObservationSection projectId={projectId} />;
   if (id === "kill") return <KillSwitchSection projectId={projectId} />;
   if (id === "spend") return <SpendSection projectId={projectId} />;

@@ -51,8 +51,22 @@ function approvalPostAccepted(
   return true;
 }
 
-export function useOrchestratorChat() {
-  const boot = useMemo(() => readOrchBoot(), []);
+/**
+ * Необязательные настройки для чата-дока студии: своя сессия на проект и явный проект
+ * (null — «вся фабрика»). Без них — как раньше: сессия и проект из адреса страницы.
+ */
+export interface OrchestratorChatOptions {
+  session?: string;
+  projectId?: number | null;
+}
+
+export function useOrchestratorChat(options?: OrchestratorChatOptions) {
+  const sessionOverride = options?.session ?? "";
+  const projectOverride = options?.projectId;
+  const boot = useMemo(() => {
+    const fromUrl = readOrchBoot();
+    return sessionOverride ? { ...fromUrl, session: sessionOverride } : fromUrl;
+  }, [sessionOverride]);
   const [token, setToken] = useState("");
   const [ready, setReady] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -213,9 +227,9 @@ export function useOrchestratorChat() {
   );
 
   const sendMessage = useCallback(
-    async (text: string, mode?: "task") => {
+    async (text: string, mode?: "task"): Promise<boolean> => {
       const trimmed = text.trim();
-      if (!trimmed || blocked) return;
+      if (!trimmed || blocked) return false;
       dispatch({
         type: "user-message",
         id: `user-${Date.now()}-${state.messages.length}`,
@@ -226,7 +240,7 @@ export function useOrchestratorChat() {
       setAckMs(null);
       setPending(true);
       const asTask = orchTaskModeEnabled() && mode === "task";
-      const projectId = readOrchProjectId();
+      const projectId = projectOverride !== undefined ? projectOverride : readOrchProjectId();
       const body = {
         text: trimmed,
         ...(asTask ? { mode: "task" as const } : {}),
@@ -235,15 +249,17 @@ export function useOrchestratorChat() {
       try {
         await postOrchMessage(cfg, body);
         setSendError("");
+        return true;
       } catch (error) {
         if (!noteAuth(error)) {
           setSendError(error instanceof Error ? error.message : "не отправилось");
         }
+        return false;
       } finally {
         setPending(false);
       }
     },
-    [blocked, cfg, noteAuth, state.messages.length],
+    [blocked, cfg, noteAuth, projectOverride, state.messages.length],
   );
 
   const sendReportEdit = useCallback(

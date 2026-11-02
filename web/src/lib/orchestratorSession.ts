@@ -765,15 +765,63 @@ function ensureTask(tasks: TaskView[], id: string, title?: string): TaskView {
   return task;
 }
 
-function appendToken(state: OrchScreenState, taskId: string | null, text: string): void {
+/** Id пузыря, который собирается из `token` одной строки orch_messages (`message_id`). */
+const STREAM_PREFIX = "asst-m";
+const STREAM_DONE = "-done";
+
+function streamingId(messageId: unknown): string | null {
+  return typeof messageId === "number" && Number.isFinite(messageId) ? `${STREAM_PREFIX}${messageId}` : null;
+}
+
+function isOpenStream(message: ChatMessage | undefined): message is ChatMessage {
+  return (
+    message != null &&
+    message.role === "assistant" &&
+    message.id.startsWith(STREAM_PREFIX) &&
+    !message.id.endsWith(STREAM_DONE)
+  );
+}
+
+/**
+ * Кусок потокового ответа. Ответ на новую реплику — новый пузырь после неё: раньше токены
+ * дописывались в последний старый ответ выше по ленте, и новый ответ не было видно.
+ */
+function appendToken(state: OrchScreenState, taskId: string | null, text: string, messageId?: unknown): void {
   if (!text) return;
   const messages = state.messages;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message && message.role === "assistant" && message.taskId === taskId) {
-      message.text += text;
+  const id = streamingId(messageId);
+  if (id) {
+    const existing = messages.findLast((message) => message.id === id);
+    if (existing) {
+      existing.text += text;
       return;
     }
+  } else {
+    const last = messages.at(-1);
+    if (isOpenStream(last) && last.taskId === taskId) {
+      last.text += text;
+      return;
+    }
+  }
+  messages.push({
+    id: id ?? `${STREAM_PREFIX}x${messages.length}`,
+    role: "assistant",
+    text,
+    taskId,
+  });
+}
+
+/**
+ * Итоговое `message` ответа. Сервер шлёт его после токенов того же ответа целым текстом:
+ * совпадает с собранным пузырём — закрываем пузырь, иначе это отдельная реплика.
+ */
+function appendFinalMessage(state: OrchScreenState, taskId: string | null, text: string): void {
+  const messages = state.messages;
+  const last = messages.at(-1);
+  if (isOpenStream(last) && last.taskId === taskId && last.text && text.startsWith(last.text.trimEnd().slice(0, 40))) {
+    last.text = text;
+    last.id = `${last.id}${STREAM_DONE}`;
+    return;
   }
   messages.push({
     id: `asst-${taskId ?? "none"}-${messages.length}`,
@@ -788,6 +836,16 @@ function rememberActionResult(state: OrchScreenState, payload: Record<string, un
   if (!view) return;
   if (state.actionResults.some((item) => item.id === view.id)) return;
   state.actionResults.push(view);
+}
+
+/** Вопрос уже в ленте после последнего ответа (живая отправка ставит его до ack). */
+function askedSinceLastAnswer(messages: ChatMessage[], text: string): boolean {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role === "assistant") return false;
+    if (message.text.trim() === text) return true;
+  }
+  return false;
 }
 
 export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenAction): OrchScreenState {
@@ -955,6 +1013,12 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
       text: accepted || !str(payload.text) ? "принял, разбираю" : str(payload.text),
       seq: event.seq,
     };
+    // Повтор истории после перезагрузки: вопрос человека приходит только в ack. Без этого в
+    // ленте остаются одни ответы. Живой вопрос уже стоит в ленте (user-message) — не дублируем.
+    const asked = accepted ? str(payload.text).trim() : "";
+    if (asked && !askedSinceLastAnswer(next.messages, asked)) {
+      next.messages.push({ id: `user-ack-${event.seq}`, role: "user", text: asked, taskId: null });
+    }
     return next;
   }
 
@@ -979,14 +1043,14 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
 
   if (event.type === "message") {
     const text = str(payload.text);
-    if (text && str(payload.role) !== "user") appendToken(next, taskId, text);
+    if (text && str(payload.role) !== "user") appendFinalMessage(next, taskId, text);
     absorbLlmSignal(next, taskId, payload, event.seq, event.session_id || null);
     rememberActionResult(next, payload, event.seq);
     return next;
   }
 
   if (event.type === "token") {
-    appendToken(next, taskId, str(payload.text));
+    appendToken(next, taskId, str(payload.text), payload.message_id);
     return next;
   }
 

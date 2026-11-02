@@ -10,6 +10,7 @@ import { StudioWorkspace } from "@/components/studio/studio-workspace";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
 import { OrchestratorPanel } from "@/components/orchestrator/orchestrator-panel";
+import { OPEN_ORCHESTRATOR_CHAT, OrchestratorDock } from "@/components/orchestrator/orchestrator-dock";
 import { useGlobalEvents } from "@/hooks/use-bus";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { api } from "@/lib/api";
@@ -72,6 +73,19 @@ function HomePageInner() {
     return () => window.removeEventListener("studio-select-project", onSelectProject);
   }, [setSelectedProjectId]);
 
+  // Кнопка «Оркестратор» с другой страницы ведёт на /?chat=open: открыть док чата супервизора.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("chat") !== "open") return;
+    params.delete("chat");
+    const rest = params.toString();
+    window.history.replaceState(null, "", rest ? `/?${rest}` : "/");
+    const timer = window.setTimeout(() => {
+      window.dispatchEvent(new CustomEvent(OPEN_ORCHESTRATOR_CHAT, { detail: { tab: "chat" } }));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // «Начать проект» с лендинга приходит сюда как /?new=1 — открываем окно нового
   // проекта и убираем параметр из адреса, чтобы F5 не открывал окно снова.
   useEffect(() => {
@@ -110,6 +124,7 @@ function HomePageInner() {
             onStudioOpenChange={setStudioOpen}
           />
           <StreamsFloat projectId={selectedProjectId} />
+          <OrchestratorDock projectId={selectedProjectId} />
         </main>
       </div>
       <OrchestratorPanel projectId={selectedProjectId} />

@@ -752,3 +752,44 @@ export function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> 
     signal.addEventListener("abort", onAbort);
   });
 }
+
+/** Переключатели автономии чата при сбое ноды (`GET/PUT /api/orchestrator/chat/autonomy`). */
+export interface OrchAutonomySettings {
+  auto_retry: boolean;
+  auto_model_switch: boolean;
+  auto_fix_on_failure: boolean;
+  max_auto_retries_per_node: number;
+  auto_spend_limit_usd: number;
+}
+
+export interface OrchAutonomyView extends OrchAutonomySettings {
+  modes: Partial<Record<"auto_retry" | "auto_model_switch" | "auto_fix_on_failure", string>>;
+  updated_by: string | null;
+  updated_at: string | null;
+  defaults: OrchAutonomySettings;
+  limits: { max_auto_retries_per_node: [number, number]; auto_spend_limit_usd: [number, number] };
+}
+
+const AUTONOMY_PATH = "/api/orchestrator/chat/autonomy";
+
+async function autonomyRequest(init: RequestInit): Promise<OrchAutonomyView> {
+  const apiBase = envOrchApiBase();
+  assertBearerTarget(apiBase);
+  const res = await fetch(apiUrl(apiBase, AUTONOMY_PATH), init);
+  if (!res.ok) throw new OrchApiError(res.status, await readError(res));
+  return (await res.json()) as OrchAutonomyView;
+}
+
+export function getOrchAutonomy(signal?: AbortSignal): Promise<OrchAutonomyView> {
+  return autonomyRequest({ method: "GET", signal });
+}
+
+/** Частичная правка: неназванные поля сервер оставляет как были. */
+export function putOrchAutonomy(body: Partial<OrchAutonomySettings>, signal?: AbortSignal): Promise<OrchAutonomyView> {
+  return autonomyRequest({
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
