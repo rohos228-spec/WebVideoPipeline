@@ -828,7 +828,12 @@ def _montage_done_text(action: str, body: dict[str, Any]) -> str:
         return ""
     frame = body.get("frame_number") or body.get("number")
     where = f" (кадр {frame})" if frame not in (None, "") else ""
-    return f"Готово: {step_title(action).rstrip('.')}{where}."
+    done = f"Готово: {step_title(action).rstrip('.')}{where}."
+    reason = str(body.get("reason") or "").strip()
+    if body.get("applied") is False and reason:
+        # «Улучши сцену»: сцена переписана, а картинки не стартовали — «Готово» без этого врёт.
+        return f"{done} Картинки не запущены: {reason.rstrip('.')}."
+    return done
 
 
 def known_text(action: str, body: dict[str, Any]) -> str:

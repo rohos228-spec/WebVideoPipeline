@@ -80,3 +80,34 @@ def test_card_shows_board_numbers_not_row_ids() -> None:
     assert approval_steps._params_text({"project_id": 4, "frame_id": 237}) == "кадр 5; проект #4"
     text = approval_steps._params_text({"project_id": 4, "frame_id": 237, "frame_ids": [235, 236, 237, 238]})
     assert text == "кадр 5; кадры сцены 3, 4, 5, 6; проект #4"
+
+
+def test_improve_and_generate_scene_go_to_card_not_deletion_ban() -> None:
+    from app.orchestrator.contracts import PlanStep, step_is_deletion
+    from app.services.action_layer.spec import ensure_builtin_actions, registry
+
+    ensure_builtin_actions()
+    from app.orchestrator.agents.wiring import load_actions
+
+    actions, _missing = load_actions()
+    for name in ("montage.improve_scene", "montage.generate_scene", "montage.split_scene"):
+        step = PlanStep(action=name, params={"project_id": 4, "frame_id": 235}, mutating=True, risk="high")
+        assert step_is_deletion(step, actions) is False, name
+    assert registry.find("montage.improve_scene") is not None
+
+
+def test_improve_scene_image_limit_covers_scene_still_and_frames() -> None:
+    out = _fill("montage.improve_scene", {"project_id": 4, "frame_id": 3, "max_image_ops": 2,
+                                          "prompt": "улучши", "image_generator": "x", "image_resolution": "2k"})
+    assert out["frame_id"] == 235 and out["max_image_ops"] == 5  # сцена 3–6: still + 4 кадра
+    big = _fill("montage.improve_scene", {"project_id": 4, "frame_id": 9, "max_image_ops": 7,
+                                          "prompt": "улучши", "image_generator": "x", "image_resolution": "2k"})
+    assert big["max_image_ops"] == 7
+
+
+def test_done_text_says_images_did_not_start() -> None:
+    from app.orchestrator.agents.summarizer import known_text
+
+    body = {"improved": True, "applied": False, "reason": "операций картинок 3 больше заявленных 2"}
+    text = known_text("montage.improve_scene", body)
+    assert text.startswith("Готово: ") and "Картинки не запущены: операций картинок 3 больше заявленных 2." in text

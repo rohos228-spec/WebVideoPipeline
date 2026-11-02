@@ -920,6 +920,10 @@ APPROVABLE_DESTRUCTIVE = frozenset(
         # которые идут карточкой: перезапись полей шотов / замена картинок с архивом в old/.
         "montage.set_scene_chain",
         "montage.generate_scene_images",
+        # «Улучши/сгенерируй сцену» из дока падали в «план удалял данные»: сцена переписывается,
+        # прежние картинки уходят в old/ — карточка с ценой и последствиями, а не запрет.
+        "montage.improve_scene",
+        "montage.generate_scene",
     }
 )
 PIPELINE_FORECAST_LIMIT_USD = 40.0

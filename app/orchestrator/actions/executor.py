@@ -737,6 +737,25 @@ async def _board_frames(project_id: int) -> list[dict] | None:
     return [f for f in board.get("frames") or [] if isinstance(f, dict)]
 
 
+async def _scene_image_ops(params: dict) -> dict:
+    """«Улучши сцену 3–4»: модель ставила max_image_ops=2 по числу кадров, а очередь — still сцены
+    и картинка каждого кадра (3). Лимит меньше операций — картинки не стартовали, а чат писал
+    «Готово». Берём размер сцены с доски: карточка показывает честную цену."""
+    if params.get("project_id") is None or not isinstance(params.get("frame_id"), int):
+        return params
+    from app.services.action_layer.builtin_montage_more import MAX_IMPROVE_IMAGE_OPS
+
+    frames = await _board_frames(int(params["project_id"]))
+    at = next((f for f in frames or [] if str(f.get("frame_id")) == str(params["frame_id"])), None)
+    if at is None:
+        return params
+    need = min(int(at.get("vo_scene_size") or 1) + 1, MAX_IMPROVE_IMAGE_OPS)
+    have = params.get("max_image_ops")
+    if isinstance(have, int) and not isinstance(have, bool) and have >= need:
+        return params
+    return {**params, "max_image_ops": need}
+
+
 async def _check_split(params: dict) -> dict:
     """«Раздели сцену 3–6 на 3–4 и 5–6»: до карточки сверяем с доской, иначе карточка падала уже
     после «Подтвердить» («первый кадр сцены нельзя отделить»)."""
@@ -929,6 +948,8 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
         params = await _fill_frame_ids(params)
     if str(name) == "montage.split_scene":
         return await _check_split(params)
+    if str(name) == "montage.improve_scene":
+        params = await _scene_image_ops(params)
     if str(name) == "montage.link_ref":
         return await _fill_ref_file(params)
     if str(name) in _SHOT_FILL:
