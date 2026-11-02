@@ -48,9 +48,10 @@ function registrarSection(id: string, projectId: number | null) {
 // Траты (общая касса провайдеров, себестоимость) и реестр резервов — инструменты студии:
 // участнику бэкенд отвечает 403 (engine_access.require_engine_admin, plan.ADMIN_ONLY_*).
 const ADMIN_ONLY_SECTIONS = new Set(["spend", "reserves", "kill"]);
-// Блоки, чьих ручек на этой линии нет (роутеры observations / timeline / publications /
-// media-recovery не перенесены): показывать их значит показать вечную ошибку загрузки.
-const NOT_ON_THIS_LINE = new Set(["observation", "kill", "spend", "publications", "journal"]);
+// Блоки, чьих ручек на этой линии нет: показывать их значит показать вечную ошибку загрузки.
+// Наблюдение, стоп, траты и журнал перенесены (app/web/routers/observations.py); журнала
+// публикаций с подтверждениями (роутер publications и шаг публикации с проверкой) нет.
+const NOT_ON_THIS_LINE = new Set(["publications"]);
 
 export function RegistrarSections({ projectId }: { projectId: number | null }) {
   const [openIds, setOpenIds] = usePersistedState<string[]>("vp-registrar-open", []);

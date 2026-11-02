@@ -1358,7 +1358,10 @@ async def _coverage_parent_png(
     parent = find_coverage_parent_frame(list(frames), frame)
     if parent is None or int(parent.number) == int(frame.number):
         return None
-    return find_shot1_image(out_dir, int(parent.number))
+    from app.services.plan_shot2 import resolve_coverage_parent_png
+
+    # Still сцены (frame_NNN_parent_*.png) — опора шотов; нет его — shot1 родителя.
+    return resolve_coverage_parent_png(out_dir, int(parent.number))
 
 
 async def _claim_shot2_batch(

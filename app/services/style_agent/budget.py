@@ -28,6 +28,8 @@ SYNTH_AGENT = "synth"
 
 # Лимит vision-входа gpt_api (см. style_analyzer.BATCH_SIZE): ≤ 8 картинок/запрос.
 IMAGES_PER_CALL = 8
+# shots: ответ на 8 листов не влезал в JSON → по 4 листа за вызов (единый источник для агента и сметы)
+SHOTS_IMAGES_PER_CALL = 4
 
 # Приближённые токены на вызов — для оценки цены (не биллинг).
 _TOKENS_IN_TEXT = 4500
@@ -51,6 +53,26 @@ class BudgetExceeded(RuntimeError):
     """Лимит LLM-запросов исчерпан — дальше модель не вызываем."""
 
 
+_FATAL_MARKERS = (
+    "http 402",
+    "http 403",
+    "http 401",
+    "余额",
+    "insufficient",
+    "balance",
+    "quota",
+    "billing",
+    "payment required",
+    "充值",
+)
+
+
+def is_fatal_provider_error(err: str) -> bool:
+    """Ошибка, после которой повтор бессмыслен и стоит денег/времени (нет баланса, доступ запрещён)."""
+    low = str(err or "").lower()
+    return any(m in low for m in _FATAL_MARKERS)
+
+
 def clamp_max_calls(value: Any, default: int = DEFAULT_MAX_LLM_CALLS) -> int:
     try:
         n = int(value)
@@ -65,6 +87,7 @@ class LlmBudget:
     used: int = 0
     spent: int = 0
     log: list[dict[str, Any]] = field(default_factory=list)
+    fatal: str | None = None  # провайдер отказал (баланс/403/квота) — больше не звоним
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
@@ -72,10 +95,17 @@ class LlmBudget:
         return max(0, self.max_calls - self.used)
 
     def can_reserve(self, n: int = 1) -> bool:
-        return self.used + n <= self.max_calls
+        return self.fatal is None and self.used + n <= self.max_calls
+
+    def fail(self, reason: str) -> None:
+        with self._lock:
+            if self.fatal is None:
+                self.fatal = str(reason)[:300]
 
     def reserve(self, label: str = "") -> int:
         with self._lock:
+            if self.fatal is not None:
+                raise BudgetExceeded(f"вызовы остановлены: {self.fatal}")
             if self.used >= self.max_calls:
                 raise BudgetExceeded(
                     f"лимит LLM-запросов исчерпан ({self.used}/{self.max_calls}) — {label or 'call'}"
@@ -92,7 +122,10 @@ class LlmBudget:
             return self.spent
 
     def snapshot(self) -> dict[str, Any]:
-        return {"used": self.used, "limit": self.max_calls, "remaining": self.remaining}
+        out: dict[str, Any] = {"used": self.used, "limit": self.max_calls, "remaining": self.remaining}
+        if self.fatal:
+            out["fatal"] = self.fatal
+        return out
 
 
 def model_prices(model: dict[str, Any] | None, model_id: str | None = None) -> tuple[float, float]:
@@ -110,10 +143,10 @@ def model_prices(model: dict[str, Any] | None, model_id: str | None = None) -> t
     return FALLBACK_PRICES_USD_PER_M.get(mid, _DEFAULT_PRICE)
 
 
-def _vision_sheet_batches(n_sheets: int) -> int:
+def _vision_sheet_batches(n_sheets: int, per_call: int = IMAGES_PER_CALL) -> int:
     if n_sheets <= 0:
         return 0
-    return (n_sheets + IMAGES_PER_CALL - 1) // IMAGES_PER_CALL
+    return (n_sheets + per_call - 1) // per_call
 
 
 def plan_calls(
@@ -151,7 +184,8 @@ def plan_calls(
                 if agent == "shots"
                 else (1 if agent == "visual" else sheets_per_video)
             )
-            per_video[agent] = max(1, _vision_sheet_batches(n_sheets)) if n_videos else 0
+            per_call = SHOTS_IMAGES_PER_CALL if agent == "shots" else IMAGES_PER_CALL
+            per_video[agent] = max(1, _vision_sheet_batches(n_sheets, per_call)) if n_videos else 0
         else:
             per_video[agent] = 1 if n_videos else 0
 
@@ -229,7 +263,8 @@ def estimate_cost(
     for agent, calls in per_video.items():
         calls = int(calls or 0) * n
         if agent in VISION_AGENTS:
-            imgs_per_call = min(IMAGES_PER_CALL, max(1, sheets)) if sheets else 1
+            cap = SHOTS_IMAGES_PER_CALL if agent == "shots" else IMAGES_PER_CALL
+            imgs_per_call = min(cap, max(1, sheets)) if sheets else 1
             tok_in += calls * (_TOKENS_IN_TEXT // 2 + imgs_per_call * _TOKENS_IN_PER_IMAGE)
             tok_out += calls * _TOKENS_OUT_VISION
         else:

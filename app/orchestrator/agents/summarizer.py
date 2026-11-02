@@ -118,14 +118,6 @@ FRAME_DELETE_HINT = (
 )
 
 
-# Разбивки сцен на доске этой линии нет (executor._HELD_UNTIL_R2): объясняем, а не «не умею».
-_SPLIT_SCENE = re.compile(r"(?:отдел|раздел|разбе|разби|расклей)\w*[^.?!]{0,40}сцен", re.IGNORECASE)
-SPLIT_SCENE_HINT = (
-    "Разделять сцены в этой версии доски монтажа нельзя: такой функции на доске нет. "
-    "Объединить сцены можно, напишите «объедини сцены кадров 13 и 14»."
-)
-
-
 # «Удали кадр 5 в проекте 12»: план пустой, и человек получал «Не понял, что сделать».
 _DELETE_VERB = re.compile(r"(?<![а-я])(?:удал|сотр|стер)|(?<![а-я])убер\w*.{0,30}совсем")
 _BOARD_THING = re.compile(r"кадр|сцен|шот|картин|видео")
@@ -148,8 +140,6 @@ def missing_action_text(reason: str, goal: str = "") -> str:
         return ""
     if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):
         return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
-    if _SPLIT_SCENE.search(goal or ""):
-        return f"{NOT_SUPPORTED} {SPLIT_SCENE_HINT}"
     why = _other_reasons(reason)
     return f"{NOT_SUPPORTED} {why}" if why else NOT_SUPPORTED
 

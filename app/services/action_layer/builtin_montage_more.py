@@ -496,9 +496,10 @@ async def _improve_scene(ctx, params):
 
 def _improve_estimate(p: dict) -> CostEstimate:
     n = p["max_image_ops"]
-    llm_note = f"улучшение сцены: до 3 шагов LLM по {LLM_SCENE_CALL_HIGH:.1f} кр"
+    # Шаг действия может повториться один раз, если есть заказ оператора: до 4 вызовов.
+    llm_note = f"улучшение сцены: до 4 вызовов LLM по {LLM_SCENE_CALL_HIGH:.1f} кр"
     est = _media_estimate(
-        p, 1, n, 0, extra_low=3 * _LLM_CALL_MIN, extra_high=3 * LLM_SCENE_CALL_HIGH, note=llm_note
+        p, 1, n, 0, extra_low=3 * _LLM_CALL_MIN, extra_high=4 * LLM_SCENE_CALL_HIGH, note=llm_note
     )
     return est
 
@@ -1110,7 +1111,7 @@ def _specs() -> list[ActionSpec]:
         S(
             id="montage.improve_scene",
             title_ru="Улучшить сцену (LLM + картинки кадров)",
-            description_ru="Самое дорогое действие панели: до 3 шагов LLM (действие, кадры, QC) "
+            description_ru="Самое дорогое действие панели: до 4 вызовов LLM (действие, кадры, QC) "
             "переписывают сцену ячейки, затем картинки всех кадров сцены идут в "
             "фоновую генерацию. Если операций больше max_image_ops или в очереди "
             "есть видео для этих кадров, генерация не стартует (сцена уже переписана)." + stop_note,
@@ -1187,7 +1188,8 @@ def _specs() -> list[ActionSpec]:
         S(
             id="montage.generate_scene",
             title_ru="Сгенерировать сцены ячейки (LLM)",
-            description_ru="Один вызов LLM пишет сцены ячейки по заказу оператора; replace_ns "
+            description_ru="LLM пишет сцены ячейки по заказу оператора (обычно полный проход "
+            "улучшения: 3–4 вызова; с replace_ns — один); replace_ns "
             "пересобирает только выбранные куски цепочки. Могут появиться кадры. "
             "Картинки не запускаются.",
             params_schema=_obj(
@@ -1208,7 +1210,11 @@ def _specs() -> list[ActionSpec]:
             destructive=True,
             reversible=False,
             idempotent=False,
-            estimator=lambda p: _llm_only(1, "один вызов LLM сцены; замеренные ставки, объём допущен"),
+            estimator=lambda p: (
+                _llm_only(1, "один вызов LLM сцены (replace_ns); замеренные ставки")
+                if p.get("replace_ns")
+                else _llm_only(4, "полный проход улучшения сцены: до 4 вызовов LLM; замеренные ставки")
+            ),
             destructive_effects=lambda p: (
                 "Действия и сцена ячейки (или выбранные куски) будут перезаписаны ответом LLM, "
                 "прежний текст не сохраняется; в ячейке могут появиться новые кадры."

@@ -1,6 +1,7 @@
 "use client";
 
 import {useEffect,useRef,useState} from 'react';
+import { formatRunStatus } from "@/lib/format-labels";
 import {Button} from '@/components/ui/button';
 import {managedLaunchError,actionStatus,scopedLaunchStrategies} from '@/lib/actions-view';
 import {observations,type ManagedLaunchOptions,type ManagedLaunchRequest,type ManagedLaunch,
@@ -120,7 +121,7 @@ export function ManagedLaunchSection({projectId,context,actions,diagnosis,onExec
           {options?.nodes.map(node=><label key={node.node_key} className="flex items-start gap-2">
             <input type="checkbox" checked={nodes.includes(node.node_key)} disabled={!node.supported || node.status!=='pending'}
               onChange={event=>setNodes(previous=>event.target.checked ? [...previous,node.node_key] : previous.filter(key=>key!==node.node_key))}/>
-            <span>{node.title} · {node.status}{!node.supported && <span className="text-amber-200"> · {node.reason}</span>}</span>
+            <span>{node.title} · {formatRunStatus(node.status)}{!node.supported && <span className="text-amber-200"> · {node.reason}</span>}</span>
           </label>)}
         </div>
         <div className="space-y-1">{(nodes.length ? scopedLaunchStrategies(options,nodes) : options?.strategies ?? []).map(strategy=><label key={strategy} className="flex items-center gap-2">

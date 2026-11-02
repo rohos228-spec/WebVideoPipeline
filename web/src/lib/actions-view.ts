@@ -33,7 +33,7 @@ export function managedLaunchError(options:{configured:boolean;request_limit_max
   profiles?:{profile_id:string}[];profile_catalog_hash?:string|null}|null,
   selection:{node_keys:string[];strategies:string[];request_limit:number;
     profile_ids?:string[];profile_catalog_hash?:string|null}):string|null {
-  if(!options?.configured) return 'Управляемый запуск выключен: разрешённый маршрут Decision не настроен.';
+  if(!options?.configured) return 'Автономный запуск выключен: модель для принятия решений не настроена.';
   if(!selection.node_keys.length) return 'Выберите область выполнения.';
   if(new Set(selection.node_keys).size!==selection.node_keys.length ||
     selection.node_keys.some(key=>!options.nodes.some(node=>node.node_key===key && node.supported)))

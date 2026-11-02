@@ -43,9 +43,11 @@ from app.services.plan_shot2 import (
     SHOT2_PROMPT_ATTR,
     SHOT2_VIDEO_PROMPT_ATTR,
     Shot2ColumnInfo,
+    find_parent_still_image,
     find_shot1_image,
     find_shot2_image,
     plan_column_for_frame,
+    resolve_coverage_parent_png,
     shot2_video_file_pattern,
 )
 from app.services.shot2_timeline import split_voiceover_duration
@@ -53,6 +55,7 @@ from app.services.vo_shot_expand import (
     coverage_parent_shot_id,
     coverage_shot_id,
     find_coverage_parent_frame,
+    is_coverage_leftover,
     is_shot_child,
     kadry_are_scene_shots,
     looks_like_scene_chain,
@@ -214,7 +217,7 @@ def _group_refs_for_frames(
             if hidden:
                 person_ids = [i for i in person_ids if i.lower() not in hidden]
                 item_ids_all = [i for i in item_ids_all if i.lower() not in hidden]
-            parent_png = find_shot1_image(scenes_dir, pno)
+            parent_png = resolve_coverage_parent_png(scenes_dir, pno)
             parent_ref = {
                 "number": pno,
                 "label": f"родитель #{pno}",
@@ -236,7 +239,7 @@ def _group_refs_for_frames(
             if int(still.number) == pno:
                 still_ref = shared["ref_parent"]
             else:
-                still_png = find_shot1_image(scenes_dir, int(still.number))
+                still_png = resolve_coverage_parent_png(scenes_dir, int(still.number))
                 still_ref = {
                     "number": int(still.number),
                     "label": f"родитель #{int(still.number)}",
@@ -629,6 +632,8 @@ def _matching_kadry_item(frame: Any) -> dict[str, Any] | None:
 
 
 def _plan_for_frame(frame: Any) -> str:
+    if is_coverage_leftover(frame):
+        return ""
     attrs = getattr(frame, "attrs", None)
     src = attrs if isinstance(attrs, dict) else {}
     cs = src.get("camera_subdivide")
@@ -649,6 +654,8 @@ def _plan_for_frame(frame: Any) -> str:
 
 
 def _action_for_frame(frame: Any, shot: int = 1) -> str:
+    if is_coverage_leftover(frame):
+        return ""
     attrs = getattr(frame, "attrs", None)
     src = attrs if isinstance(attrs, dict) else {}
     if shot == 2:
@@ -734,6 +741,8 @@ def _anchor_count_for_frame(frame: Any, frames: list[_FrameBoardSnapshot]) -> in
 
 
 def _shot_cs_kadry(frame: Any, *keys: str) -> str:
+    if is_coverage_leftover(frame):
+        return ""
     attrs = getattr(frame, "attrs", None)
     src = attrs if isinstance(attrs, dict) else {}
     cs = src.get("camera_subdivide")
@@ -764,6 +773,7 @@ def _empty_coverage_fields() -> dict[str, Any]:
         "anchor_can_add": False,
         "scene_anchor_rows": [],
         "vo_cell_full": "",
+        "vo_span": None,
         "shot_angle": "",
         "shot_move": "",
         "shot_stitch": "",
@@ -784,6 +794,7 @@ def _empty_coverage_fields() -> dict[str, Any]:
         "scene_action": "",
         "vo_scene_number": None,
         "vo_scene_size": 0,
+        "shot_leftover": False,
     }
 
 
@@ -794,12 +805,18 @@ def _coverage_fields_for_frames(
 ) -> dict[int, dict[str, Any]]:
     if not enabled:
         return {fr.number: _empty_coverage_fields() for fr in frames}
-    from app.services.montage_scene_editor import canonical_stitch, frame_board_scene_cell, stitch_label
+    from app.services.montage_scene_editor import (
+        canonical_stitch,
+        frame_board_scene_cell,
+        scene_index,
+        stitch_label,
+    )
 
     out: dict[int, dict[str, Any]] = {}
+    index = scene_index(frames)
     for fr in frames:
         kind, parent_number, parent_id = _shot_kind_payload(fr, frames)
-        extra = frame_board_scene_cell(frames, fr)
+        extra = frame_board_scene_cell(frames, fr, index=index)
         stitch = canonical_stitch(_shot_cs_kadry(fr, "переход", "тип_стыка", "stitch", "transition"))
         row = _empty_coverage_fields()
         row.update(extra)
@@ -981,6 +998,7 @@ async def build_montage_board(
     for fr, vid1, vid2, ex, has_shot2, has_shot2_video in frame_videos:
         img1 = find_shot1_image(scenes_dir, fr.number)
         img2 = find_shot2_image(scenes_dir, fr.number)
+        img_parent = find_parent_still_image(scenes_dir, fr.number)
         scene_seconds = (
             fr.duration_seconds if fr.duration_seconds is not None and fr.duration_seconds > 0 else None
         )
@@ -1019,6 +1037,7 @@ async def build_montage_board(
                 "video_shot2_duration": vid2_dur,
                 "image_shot1_url": _preview_url(img1),
                 "image_shot2_url": _preview_url(img2),
+                "image_parent_url": _preview_url(img_parent),
                 "video_shot1_url": _preview_url(vid1),
                 "video_shot2_url": _preview_url(vid2),
                 "image_prompt_shot1": prompts.get("image_prompt_shot1") or "",

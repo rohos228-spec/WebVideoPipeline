@@ -2028,17 +2028,17 @@ def test_held_actions_are_refused_in_old_action_panel() -> None:
 
     ensure_builtin_actions()
     held = held_actions()
-    for a in ("montage.split_scene", "prompt.save_master", "kill_switch.engage", "publish.send"):
+    for a in ("prompt.save_master", "kill_switch.engage", "publish.send"):
         assert a in held
         assert a in member_hidden_actions()
     m = MacroSpec(
         id="t",
         title_ru="t",
         description_ru="",
-        steps=({"action_id": "montage.split_scene", "params": {}},),
+        steps=({"action_id": "publish.send", "params": {}},),
         params_schema={},
         builtin=True,
         owner="",
         shared=False,
     )
-    assert "montage.split_scene" in m.missing_actions(registry)
+    assert "publish.send" in m.missing_actions(registry)

@@ -51,8 +51,10 @@ from app.services.plan_shot2 import (
     MIN_SHOT2_VIDEO_PROMPT_LEN,
     SHOT2_PROMPT_ATTR,
     SHOT2_VIDEO_PROMPT_ATTR,
+    find_parent_still_image,
     find_shot1_image,
     find_shot2_image,
+    is_parent_slot,
 )
 from app.services.vibecode_catalog import resolve_node_media_settings
 
@@ -72,6 +74,7 @@ class ImageRegenPrep:
     res_slug: str | None = None
     quality_slug: str | None = None
     image_relax: bool = False
+    slot: str = ""
 
 
 @dataclass
@@ -304,7 +307,24 @@ async def _montage_shot1_refs(
     if uses_parent_still(fr):
         parent_png = await _coverage_parent_png(session, project, fr)
         if parent_png is None:
-            return manual, False
+            # Шот без still родителя вышел бы чужим сетапом: просим сначала родителя.
+            from app.services.vo_shot_expand import find_coverage_parent_frame
+
+            rows = list(
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            parent = find_coverage_parent_frame(rows, fr)
+            pnum = int(parent.number) if parent is not None else 0
+            raise RuntimeError(
+                f"нет still родителя #{pnum or '?'} для кадра {fr.number} — "
+                "сначала сгенерируйте родителя"
+            )
         logger.info(
             "montage regen: child #{} ← parent still {}",
             fr.number,
@@ -401,6 +421,7 @@ async def prepare_image_regen(
     board: dict | None = None,
     pinned_prompt: str | None = None,
     ref_person_ids: list[str] | None = None,
+    slot: str = "",
 ) -> ImageRegenPrep:
     fr = await _frame_by_number(session, project.id, frame_number)
     if fr is None:
@@ -442,11 +463,12 @@ async def prepare_image_regen(
             raise RuntimeError("пустая корректировка")
         if board is not None:
             store_correction(board, frame_number, shot, text)
-        current = (
-            find_shot2_image(scenes_dir, frame_number)
-            if shot == 2
-            else find_shot1_image(scenes_dir, frame_number)
-        )
+        if is_parent_slot(slot):
+            current = find_parent_still_image(scenes_dir, frame_number)
+        elif shot == 2:
+            current = find_shot2_image(scenes_dir, frame_number)
+        else:
+            current = find_shot1_image(scenes_dir, frame_number)
         if current is None:
             raise RuntimeError("нет текущего изображения для корректировки")
         # Только текст из модалки + текущий кадр как reference.
@@ -479,7 +501,11 @@ async def prepare_image_regen(
     # Как в generate_images: gen_id и prefix из одного uuid.
     gen_id = uuid.uuid4().hex
     short_uuid = gen_id[:8]
-    if shot == 2:
+    if is_parent_slot(slot):
+        # Still сцены — свой файл рядом с shot1: shot1 кадра не затирается.
+        file_path = scenes_dir / f"frame_{frame_number:03d}_parent_{short_uuid}.png"
+        prompt_id_prefix = build_gen_id_prefix(project.id, frame_number, short_uuid) + "-P"
+    elif shot == 2:
         file_path = scenes_dir / f"frame_{frame_number:03d}_s2_{short_uuid}.png"
         prompt_id_prefix = build_gen_id_prefix(project.id, frame_number, short_uuid) + "-S2"
     else:
@@ -515,6 +541,7 @@ async def prepare_image_regen(
         res_slug=media["resolution_slug"],
         quality_slug=media["quality_slug"],
         image_relax=bool(project.image_relax),
+        slot=slot,
     )
 
 
@@ -586,7 +613,14 @@ async def finalize_image_regen(
     *,
     board: dict | None = None,
 ) -> dict:
-    await finalize_scene_image(session, project, prep.frame_number, shot=prep.shot, new_path=new_path)
+    await finalize_scene_image(
+        session,
+        project,
+        prep.frame_number,
+        shot=prep.shot,
+        new_path=new_path,
+        slot=prep.slot,
+    )
     if board is not None:
         mark_stale_videos(board, prep.frame_number, shot=prep.shot)
     await session.flush()
@@ -603,7 +637,11 @@ async def finalize_image_regen(
         "frame_number": prep.frame_number,
         "shot": prep.shot,
         "path": str(new_path),
-        "highlight": f"{prep.frame_number}:image{prep.shot}",
+        "highlight": (
+            f"{prep.frame_number}:image_parent"
+            if is_parent_slot(prep.slot)
+            else f"{prep.frame_number}:image{prep.shot}"
+        ),
     }
 
 

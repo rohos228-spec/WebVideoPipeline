@@ -80,6 +80,8 @@ def slot_key_from_op(op: dict[str, Any] | None) -> str | None:
     except (TypeError, ValueError):
         shot = 1
     if t.startswith("image_"):
+        if str(op.get("slot") or "").strip().lower() == "parent":
+            return f"{fr}:image_parent"
         return f"{fr}:image{shot}"
     if t.startswith("video_"):
         return trim_key(fr, shot)
@@ -91,6 +93,8 @@ def slot_key_from_op(op: dict[str, Any] | None) -> str | None:
         return f"{fr}:template"
     if t == "coverage_anchors":
         return f"{fr}:anchors"
+    if t == "coverage_vo_span":
+        return f"{fr}:vo_span"
     if t == "coverage_angle":
         return f"{fr}:angle"
     if t == "coverage_move":
@@ -187,6 +191,18 @@ def public_board_meta(board: dict[str, Any]) -> dict[str, Any]:
         "corrections": board.get("corrections") or {},
         "pending_ops": list(board.get("pending_ops") or []),
         "applied_at": board.get("applied_at"),
+        "split_undo": _split_undo_public(board),
+    }
+
+
+def _split_undo_public(board: dict[str, Any]) -> dict[str, Any]:
+    stack = [e for e in (board.get("split_undo") or []) if isinstance(e, dict)]
+    last = stack[-1] if stack else None
+    return {
+        "can_undo": last is not None,
+        "undo_id": last.get("id") if last else None,
+        "kind": last.get("kind") if last else None,
+        "depth": len(stack),
     }
 
 
@@ -294,6 +310,8 @@ def normalize_queue_ops(raw_ops: Any) -> list[dict[str, Any]]:
                 val = raw.get(key)
                 if isinstance(val, str) and val.strip():
                     item[key] = val
+            if str(raw.get("slot") or "").strip().lower() == "parent":
+                item["slot"] = "parent"
             cleaned.append(item)
             continue
         if not op_type.startswith("coverage_"):
@@ -308,6 +326,24 @@ def normalize_queue_ops(raw_ops: Any) -> list[dict[str, Any]]:
             rows = normalize_anchor_rows(raw["anchors"])
             if rows:
                 item["anchors"] = _keep_anchor_hints(rows, raw["anchors"])
+        if op_type == "coverage_vo_span":
+            if raw.get("clear") in (True, 1, "1", "true"):
+                item["clear"] = True
+            text = raw.get("text") or raw.get("закадр")
+            if isinstance(text, str) and text.strip():
+                item["text"] = text.strip()
+            for key in ("start", "end"):
+                try:
+                    item[key] = int(raw[key])
+                except (TypeError, ValueError, KeyError):
+                    pass
+            if isinstance(raw.get("vo_span"), dict):
+                item["vo_span"] = raw["vo_span"]
+            for key in ("full", "vo_cell_full"):
+                val = raw.get(key)
+                if isinstance(val, str) and val.strip():
+                    item["full"] = val.strip()
+                    break
         parent_raw = raw.get("parent_number")
         if parent_raw not in (None, ""):
             try:

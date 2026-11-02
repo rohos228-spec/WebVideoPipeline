@@ -40,14 +40,8 @@ _HELD_UNTIL_R2 = frozenset(
     {
         "group.delete",
         "prompt.delete_master",
-        # На доске этой линии нет этих ручек (scenes/split, scene-improve, scene-action-generate):
-        # шаг падал 404 уже после подтверждения человеком.
-        "montage.split_scene",
-        "montage.explode_scene",
-        "montage.improve_scene",
-        "montage.generate_scene",
-        # coverage_vo_span на этой линии нет (нет apply_vo_span): HTTP 400 после подтверждения.
-        "montage.set_voiceover_span",
+        # Разбивка/улучшение/генерация сцен и закадр на несколько кадров перенесены
+        # из int/chat-v1 (ручки scenes/split, scene-improve, scene-action-generate, coverage_vo_span).
         # Ручки /projects/{id}/observations/kill-switch на этой линии нет (404 после кнопки),
         # а рубильник студии общий на весь сервер — подключать его к кнопке решает владелец.
         "kill_switch.engage",
