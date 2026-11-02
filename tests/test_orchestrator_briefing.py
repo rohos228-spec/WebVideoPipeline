@@ -143,3 +143,33 @@ def test_briefing_duration_given_as_range_is_saved():
     assert "duration=37.5s" in label and "frames=10" in label
     assert p.meta["briefing"]["duration_seconds"] == 37.5
     assert p.meta["briefing"]["target_frames"] == 10
+
+
+def test_briefing_unknown_plan_prompt_falls_back_to_default():
+    """«Вирусный Shorts» без своего файла: раньше писалось неизвестное имя и шаг брал чужой глобальный промт."""
+    p = Project(slug="v", topic="t", meta={}, prompt_overrides={})
+    label = _apply_set_briefing(p, {"plan_prompt": "viral_dynamic_shorts"})
+    assert "plan_prompt=default" in label
+    assert p.prompt_overrides["plan"] == "default"
+    b = p.meta["briefing"]
+    assert b["plan_prompt_requested"] == "viral_dynamic_shorts"
+    assert b["scenario_type"] == "viral_dynamic_shorts"
+    assert "Тип сценария: viral_dynamic_shorts" in build_duration_params_block(p, "plan", header="Сценарий")
+
+
+def test_reply_drops_cjk_inside_russian_word():
+    assert _clean_orchestrator_human_reply("Нужна визуальная一致ность?") == "Нужна визуальная согласованность?"
+    assert _clean_orchestrator_human_reply("Стиль 水彩 акварель") == "Стиль  акварель"
+
+
+def test_briefing_keeps_hero_description():
+    """«один герой, рыжий кот в шарфе»: сохраняется сам герой, а не только hero_mode."""
+    p = Project(slug="h", topic="t", meta={}, prompt_overrides={})
+    label = _apply_set_briefing(p, {"hero_mode": "hero", "hero_description": "рыжий кот в шарфе"})
+    assert "hero_description" in label
+    assert p.hero_description == "рыжий кот в шарфе"
+    assert "Главный герой: рыжий кот в шарфе" in build_duration_params_block(p, "plan", header="Сценарий")
+    p2 = Project(slug="h2", topic="t", meta={}, prompt_overrides={}, hero_description="уже описан")
+    _apply_set_briefing(p2, {"hero_description": "другой"})
+    assert p2.hero_description == "уже описан"
+    assert p2.meta["briefing"]["hero_description"] == "другой"

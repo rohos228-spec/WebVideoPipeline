@@ -565,16 +565,19 @@ _ORCHESTRATOR_SYSTEM = (
     "одобряет паспорт стиля).\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
     "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
+    "Пиши только по-русски, без иероглифов и слов на других языках.\n"
     "БРИФИНГ ПРОЕКТА (пошаговый опросник подготовки проекта):\n"
     "Если пользователь пишет «Брифинг проекта», «брифинг», «опрос», «начни брифинг», «подготовь проект» или отвечает на вопросы опроса:\n"
     "Веди диалог СТРОГО ПО ОДНОМУ ВОПРОСУ за раз и ВСЕГДА в JSON или в теге <choices>[...]</choices> прикрепляй варианты ответов (choices).\n"
     "По мере ответов вызывай действие set_briefing:\n"
+    "Если пользователь ответил своими словами, сохраняй его слова, а не ближайшую кнопку: "
+    "«аниме» — это «Аниме», а не «Тёмное фэнтези / Аниме».\n"
     '{"actions":[{"set_briefing":{...}}], "choices":["Вариант 1", "Вариант 2", "Свой ответ"]}.\n'
     "Шаги брифинга (строго в таком порядке):\n"
     "1. Хронометраж и кадры: спроси длительность ролика. Choices: [\"15–20с (Shorts / 4-6 сцен)\", \"30–45с (Стандарт / 8-12 сцен)\", \"60с (Длинный / 15-20 сцен)\", \"Свой ответ\"]. Сохрани duration_seconds и target_frames.\n"
     "2. Тип сценария и выбор промпта (plan): предложи список типов сценария в виде понятных предложений. Choices: [\"Кинематографичная история (cinematic_story_plan)\", \"Документальный YouTube (default)\", \"Вирусный динамичный Shorts\", \"Свой ответ\"]. Сохрани plan_prompt и scenario_type.\n"
     "3. Закадровый голос: спроси про плотность дикторского текста. Choices: [\"Плотный закадр (на весь ролик)\", \"Редкие фразы / реплики\", \"Без закадра (только музыка и эффекты)\", \"Свой ответ\"]. Сохрани voiceover_mode и voiceover_chars (при 14 симв/сек).\n"
-    "4. Персонажи и предметы: спроси, нужен ли постоянный Главный Герой (ГГ) и есть ли предметы с критичной консистентностью. Choices: [\"Да, один постоянный ГГ\", \"Несколько персонажей\", \"Без постоянных героев (общие планы / графика)\", \"Есть ключевой предмет\", \"Свой ответ\"]. Сохрани hero_mode (hero/no_hero) и items_consistent.\n"
+    "4. Персонажи и предметы: спроси, нужен ли постоянный Главный Герой (ГГ) и есть ли предметы с критичной консистентностью. Choices: [\"Да, один постоянный ГГ\", \"Несколько персонажей\", \"Без постоянных героев (общие планы / графика)\", \"Есть ключевой предмет\", \"Свой ответ\"]. Сохрани hero_mode (hero/no_hero) и items_consistent. Если пользователь описал героя или предмет — сохрани hero_description / items_note его словами.\n"
     "5. Визуальный стиль: спроси стиль рисовки и анимации (идёт ПЕРЕД монтажом). Choices: [\"Кинематографичный фотореализм\", \"3D мультфильм / CGI\", \"Тёмное фэнтези / Аниме\", \"Свой стиль\"]. Сохрани visual_style и animation_style.\n"
     "6. Монтаж, структура сцен и переходы: обязательно уточни про МОНТАЖ (темп склеек, субтитры). Choices: [\"Клиповый монтаж с субтитрами (склейки 2–3с)\", \"Плавный киномонтаж без субтитров (склейки 4–6с)\", \"Динамичный с зумами и субтитрами\", \"Свой ответ\"]. Сохрани structure, transitions, subtitles_enabled (True/False).\n"
     "7. Звукорежиссура и SFX: спроси про звуковые эффекты. Choices: [\"Полноценный SFX (акцентные звуки и шаги)\", \"Только музыка и диктор (без SFX)\", \"Звуки в промте видео\", \"Свой ответ\"]. Сохрани sfx_enabled (True/False).\n"
@@ -1168,14 +1171,18 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
                 clean_var = p_var
             try:
                 _apply_set_prompt(project, "plan", clean_var)
-                briefing["plan_prompt"] = clean_var
-                updated_keys.append(f"plan_prompt={clean_var}")
-            except Exception:
-                briefing["plan_prompt"] = clean_var
-                overrides = dict(project.prompt_overrides or {})
-                overrides["plan"] = clean_var
-                project.prompt_overrides = overrides
-                updated_keys.append(f"plan_prompt={clean_var}")
+            except Exception:  # noqa: BLE001
+                # Такого промта нет в библиотеке: неизвестное имя шаг молча пропустит
+                # и возьмёт глобальный промт (раньше «вирусный Shorts» уходил
+                # в «кинематографичную историю»). Берём default, а сам тип сценария
+                # идёт в блок параметров плана строкой «Тип сценария».
+                briefing["plan_prompt_requested"] = clean_var
+                if not briefing.get("scenario_type"):
+                    briefing["scenario_type"] = p_var
+                clean_var = "default"
+                _apply_set_prompt(project, "plan", clean_var)
+            briefing["plan_prompt"] = clean_var
+            updated_keys.append(f"plan_prompt={clean_var}")
 
     if "scenario_type" in data:
         briefing["scenario_type"] = str(data["scenario_type"]).strip()
@@ -1200,6 +1207,14 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
             project.hero_mode = hm
             briefing["hero_mode"] = hm
             updated_keys.append(f"hero_mode={hm}")
+
+    hero_text = str(data.get("hero_description") or data.get("hero_note") or "").strip()
+    if hero_text:
+        # «один герой, рыжий кот в шарфе»: раньше сохранялся только hero_mode, а сам герой терялся.
+        briefing["hero_description"] = hero_text
+        if not str(project.hero_description or "").strip():
+            project.hero_description = hero_text
+        updated_keys.append("hero_description")
 
     if "items_consistent" in data:
         briefing["items_consistent"] = bool(data["items_consistent"])
@@ -2521,8 +2536,26 @@ def _clean_orchestrator_human_reply(text: str | None) -> str:
         cleaned,
     )
     cleaned = re.sub(r"^[\s\],}:)]+", "", cleaned)
+    cleaned = _drop_cjk(cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
+
+
+# Модель иногда вставляет иероглифы посреди русского слова («визуальную一致ность»).
+_CJK_WORDS = {"一致": "согласован", "一致性": "согласованность"}
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]+")
+
+
+def _drop_cjk(text: str) -> str:
+    if not _CJK_RE.search(text):
+        return text
+    def repl(m: re.Match[str]) -> str:
+        word = _CJK_WORDS.get(m.group(0), "")
+        if word and m.start() > 0 and text[m.start() - 1].isalpha():
+            word = " " + word
+        return word
+
+    return _CJK_RE.sub(repl, text)
 
 
 async def _execute_orchestrator_reply(
