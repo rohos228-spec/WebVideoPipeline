@@ -13,7 +13,7 @@ import type React from "react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, Copy, Download, ExternalLink, ImageOff, Plus, Search, Upload, Wand2, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Download, ExternalLink, ImageOff, Plus, Search, Upload, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -654,12 +654,28 @@ export function NodeCatalogPanel({
                     className="group relative aspect-video overflow-hidden bg-[#0c0c0e] text-left"
                   >
                     <PosterCover id={it.id} label={it.label} nodeKey={nodeKey} />
-                    {active || it.id === detail ? (
-                      <span className={cn("pointer-events-none absolute inset-0 z-[2] outline -outline-offset-2", active ? "outline-2 outline-white" : "outline-1 outline-white/50")} />
+                    {active ? (
+                      <>
+                        <span className="pointer-events-none absolute inset-0 z-[2] outline -outline-offset-2 outline-2 outline-emerald-400 shadow-[inset_0_0_18px_rgba(16,185,129,0.3)]" />
+                        <span className="pointer-events-none absolute inset-0 z-[2] bg-emerald-500/[0.08]" />
+                      </>
+                    ) : it.id === detail ? (
+                      <span className="pointer-events-none absolute inset-0 z-[2] outline -outline-offset-2 outline-1 outline-white/60" />
                     ) : (
                       <span className="pointer-events-none absolute inset-0 z-[2] bg-black/0 transition-colors group-hover:bg-white/[0.06]" />
                     )}
-                    <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-start justify-start p-3 pr-4 text-left">
+
+                    {/* Маленькая зелёная галочка в правом верхнем углу для активного промта */}
+                    {active && (
+                      <div
+                        className="absolute top-2 right-2 z-[4] flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400 text-black shadow-[0_0_10px_rgba(52,211,153,0.7)]"
+                        title="Активный промт"
+                      >
+                        <Check className="h-3 w-3 stroke-[3.5]" />
+                      </div>
+                    )}
+
+                    <div className="pointer-events-none absolute inset-0 z-[1] flex flex-col items-start justify-start p-3 pr-8 text-left">
                     <div className="w-full break-words text-[15px] font-medium leading-[1.2] tracking-[0.01em] text-white [text-shadow:0_1px_6px_rgba(0,0,0,0.6)]">
                       <span className="vp-hl">{it.label.replace(/\.(md|txt)$/i, "")}</span>
                     </div>
@@ -686,11 +702,20 @@ export function NodeCatalogPanel({
               disabled={detailItem.id === activeId}
               onClick={() => onActivate(detailItem.id)}
               className={cn(
-                "flex h-9 items-center justify-center text-[13px] tracking-[0.08em] uppercase",
-                detailItem.id === activeId ? "bg-white font-medium text-black" : "bg-[#141417] text-zinc-200 hover:bg-[#1b1b1f] hover:text-white",
+                "flex h-9 items-center justify-center gap-1.5 text-[13px] tracking-[0.08em] uppercase transition-colors",
+                detailItem.id === activeId
+                  ? "bg-emerald-500 font-bold text-black shadow-[0_0_12px_rgba(16,185,129,0.4)]"
+                  : "bg-[#141417] text-zinc-200 hover:bg-[#1b1b1f] hover:text-white",
               )}
             >
-              {detailItem.id === activeId ? "Активен" : "Сделать активным"}
+              {detailItem.id === activeId ? (
+                <>
+                  <Check className="h-4 w-4 stroke-[3]" />
+                  <span>Активен</span>
+                </>
+              ) : (
+                "Сделать активным"
+              )}
             </button>
             <a
               href={downloadUrl ? downloadUrl(detailItem.id) : undefined}
