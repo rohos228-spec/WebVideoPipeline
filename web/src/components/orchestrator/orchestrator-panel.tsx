@@ -83,26 +83,15 @@ interface ChatMsg {
 function cleanOrchestratorText(text: string | null | undefined): string {
   if (!text) return "";
   let t = text;
+  // 1. Убираем markdown-блоки ```json ... ``` с actions/ops
+  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops)"[\s\S]*?\}\s*```/gi, "");
 
-  // 1. Убираем полностью закрытые markdown-блоки ```json ... ``` с actions/ops/read_file
-  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops|read_file|run_step)"[\s\S]*?\}\s*```/gi, "");
-
-  // 2. Если в хвосте висит незакрытый markdown-блок (идёт стриминг), обрезаем его
-  t = t.replace(/```(?:json)?\s*\{[\s\S]*?"(?:actions|ops|read_file|run_step)"[\s\S]*$/gi, "");
-  t = t.replace(/```(?:json)?\s*$/gi, "");
-
-  // 3. Вырезаем JSON-объекты {"actions":[...]} или {"ops":[...]} любой вложенности
+  // 2. Убираем сырые JSON-объекты {"actions":[...]} или {"ops":[...]} любой вложенности
   let out = "";
   let i = 0;
   const n = t.length;
   while (i < n) {
-    if (
-      t[i] === "{" &&
-      (t.slice(i, i + 80).includes('"actions"') ||
-        t.slice(i, i + 80).includes('"ops"') ||
-        t.slice(i, i + 80).includes('"read_file"') ||
-        t.slice(i, i + 80).includes('"run_step"'))
-    ) {
+    if (t[i] === "{" && (t.slice(i, i + 60).includes('"actions"') || t.slice(i, i + 60).includes('"ops"'))) {
       let depth = 0;
       let inString = false;
       let escape = false;
@@ -130,11 +119,23 @@ function cleanOrchestratorText(text: string | null | undefined): string {
         j++;
       }
       if (foundEnd) {
-        i = j;
-        continue;
+        const block = t.slice(i, j);
+        try {
+          const parsed = JSON.parse(block);
+          if (parsed && typeof parsed === "object" && ("actions" in parsed || "ops" in parsed)) {
+            i = j;
+            continue;
+          }
+        } catch {
+          // Если парсинг не прошел, но это явно блок с actions/ops, вырезаем до закрывающей скобки
+          i = j;
+          continue;
+        }
       } else {
-        // Незакрытый JSON-блок во время стриминга — обрезаем всё с этого места
-        break;
+        // Если блок ещё не закрыт (например, во время стриминга в самом начале)
+        if (i === 0) {
+          return "";
+        }
       }
     }
     out += t[i];
@@ -385,7 +386,6 @@ export function OrchestratorPanel({ projectId }: Props) {
   const userCancelRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const userScrolledUpRef = useRef<boolean>(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const currentRectRef = useRef<WindowRect>(rect);
@@ -660,12 +660,10 @@ export function OrchestratorPanel({ projectId }: Props) {
     };
   }, [open, chatLog.length, projectId, scrollToBottom]);
 
-  // Автоскролл во время стриминга ответа ИИ-агента (только если юзер не прокрутил наверх)
+  // Автоскролл во время стриминга ответа ИИ-агента
   useEffect(() => {
     if (isStreaming || streamingText) {
-      if (!userScrolledUpRef.current) {
-        scrollToBottom(false);
-      }
+      scrollToBottom(false);
     }
   }, [isStreaming, streamingText, scrollToBottom]);
 
@@ -941,7 +939,6 @@ export function OrchestratorPanel({ projectId }: Props) {
         );
       }
 
-      userScrolledUpRef.current = false;
       setIsStreaming(true);
       setStreamingText("");
       setStreamingPhase("Анализирую граф проекта…");
@@ -959,7 +956,7 @@ export function OrchestratorPanel({ projectId }: Props) {
               setStreamingText((prev) => (prev ?? "") + delta);
             },
             onPhase: (_phase, detail) => {
-              setStreamingPhase(detail || "Печатает ответ…");
+              setStreamingPhase(detail || "Я думаю, пожалуйста, подождите…");
             },
             onDone: (result) => {
               streamFinished = true;
@@ -1859,11 +1856,6 @@ export function OrchestratorPanel({ projectId }: Props) {
       <div className="flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollContainerRef}
-            onScroll={(e) => {
-              const el = e.currentTarget;
-              const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-              userScrolledUpRef.current = distanceToBottom > 80;
-            }}
             className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3.5 space-y-3.5"
           >
             {chatLog.length === 0 && !isStreaming ? (
@@ -2163,27 +2155,21 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                     <div className="flex items-center gap-2 text-xs font-medium text-emerald-300">
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                      <span>{streamingPhase || "Печатает ответ…"}</span>
+                      <span>{streamingPhase || "Я думаю, пожалуйста, подождите…"}</span>
                     </div>
                     <span className="text-[10px] text-white/40 font-mono">{elapsedSec}с</span>
                   </div>
-                  {cleanOrchestratorText(streamingText) ? (
-                    <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
-                      <MarkdownRenderer content={cleanOrchestratorText(streamingText)} />
-                      <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-2 py-1 text-white/50 text-xs italic animate-pulse">
-                      <Loader2 className="h-3 w-3 animate-spin text-emerald-400" />
-                      <span>Печатает ответ…</span>
-                    </div>
-                  )}
-                  {streamingPhase === "Применение действий и проверка…" && (
-                    <div className="flex items-center gap-1.5 pt-2 text-[11px] text-emerald-300 font-medium border-t border-white/[0.06] mt-2.5">
-                      <Loader2 className="h-3 w-3 animate-spin text-emerald-400 shrink-0" />
-                      <span>Применяю действия к проекту…</span>
-                    </div>
-                  )}
+                    {cleanOrchestratorText(streamingText) ? (
+                      <div className="text-xs leading-relaxed text-white/90 space-y-2 break-words [overflow-wrap:anywhere] min-w-0">
+                        <MarkdownRenderer content={cleanOrchestratorText(streamingText)} />
+                        <span className="inline-block w-1.5 h-3.5 ml-1 bg-emerald-400 animate-pulse align-middle" />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 py-1 text-white/45 text-xs italic">
+                        <span className="inline-block h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+                        <span>ИИ-агент формулирует ответ…</span>
+                      </div>
+                    )}
                 </div>
               </div>
             )}
@@ -2236,7 +2222,7 @@ export function OrchestratorPanel({ projectId }: Props) {
                     ? "Сначала открой проект"
                     : isStreaming || busy
                       ? streamingSessionId === activeSessionId
-                        ? "Печатает ответ… (нажмите кнопку стоп для отмены)"
+                        ? "Я думаю, пожалуйста, подождите… (нажмите кнопку стоп для отмены)"
                         : "ИИ-агент занят в другом диалоге… (нажмите кнопку стоп для отмены)"
                       : "Введите сообщение или задачу..."
                 }
