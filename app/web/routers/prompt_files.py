@@ -190,26 +190,27 @@ async def _apply_save(
     """
     from app.services.tenant import current_tenant
 
+    clean_name = name[:-3] if name.lower().endswith(".md") else name
     tenant = current_tenant()
-    await prompt_store.save(session, step_code, name, content)
-    file_path = _library_prompt_path(step_code, name)
+    await prompt_store.save(session, step_code, clean_name, content)
+    file_path = _library_prompt_path(step_code, clean_name)
     await lib.create_or_update_item(
         session,
         kind="prompt",
         key=file_path,
-        title=name,
+        title=clean_name,
         file_path=file_path,
         content=content,
         message=message,
         author="tenant" if tenant else "studio",
         source=source,
-        meta={"step_code": step_code, "name": name},
+        meta={"step_code": step_code, "name": clean_name},
         force_version=True,
     )
     if tenant is None:
         if prompts_writable():
             try:
-                write_prompt_with_history(step_code, name, content)
+                write_prompt_with_history(step_code, clean_name, content)
             except OSError:
                 # `prompts_writable` смотрит на корень; отдельная папка может
                 # оказаться чужой по правам. Диск здесь вторичен.
@@ -218,7 +219,7 @@ async def _apply_save(
 
         await sync_step_prompt_to_db(session, step_code, content)
     await session.commit()
-    return _info(step_code, name, content)
+    return _info(step_code, clean_name, content)
 
 
 async def _library_item(session: AsyncSession, step_code: str, name: str):
@@ -374,9 +375,10 @@ async def list_prompt_files(step_code: str) -> list[PromptFileInfo]:
 
 @router.get("/{step_code}/{name}/content", response_model=PromptFileContent)
 async def get_prompt_file(step_code: str, name: str) -> PromptFileContent:
+    clean_name = name[:-3] if name.lower().endswith(".md") else name
     _ensure_step(step_code)
-    _ensure_name(name)
-    return _info(step_code, name, _content_of(step_code, name))
+    _ensure_name(clean_name)
+    return _info(step_code, clean_name, _content_of(step_code, clean_name))
 
 
 @router.get("/{step_code}/{name}/download")
@@ -410,14 +412,15 @@ async def save_prompt_file(
     payload: PromptFileSavePayload,
     session: AsyncSession = Depends(get_session),
 ) -> PromptFileContent:
+    clean_name = name[:-3] if name.lower().endswith(".md") else name
     _ensure_step(step_code)
-    _ensure_name(name)
+    _ensure_name(clean_name)
     return await _apply_save(
         session,
         step_code,
-        name,
+        clean_name,
         payload.content,
-        message=f"save prompt file {step_code}/{name}",
+        message=f"save prompt file {step_code}/{clean_name}",
         source="prompt_files",
     )
 
@@ -428,18 +431,19 @@ async def delete_prompt_file(
     name: str,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, bool]:
+    clean_name = name[:-3] if name.lower().endswith(".md") else name
     _ensure_step(step_code)
-    _ensure_name(name)
-    if name == DEFAULT_NAME:
+    _ensure_name(clean_name)
+    if clean_name == DEFAULT_NAME:
         raise HTTPException(status_code=400, detail="default удалять нельзя")
     from app.services.tenant import current_tenant
 
     tenant = current_tenant()
-    item = await _library_item(session, step_code, name)
+    item = await _library_item(session, step_code, clean_name)
     # Снимается свой уровень в базе и файл на диске, если он есть и диск
     # записываем. Системный промт из области арендатора не удаляется по
     # построению — `drop` видит только свою строку.
-    removed = await prompt_store.drop(session, step_code, name)
+    removed = await prompt_store.drop(session, step_code, clean_name)
     if tenant is None and prompts_writable():
         try:
             removed = delete_prompt(step_code, name) or removed
