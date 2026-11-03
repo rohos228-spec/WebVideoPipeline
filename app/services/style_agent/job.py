@@ -431,6 +431,32 @@ def shots_signature(shots: list[dict[str, Any]]) -> str:
 _SHOT_BOUND_ROLES = ("shots", "patterns")
 
 
+def shots_batch_cap(
+    need_batches: int,
+    *,
+    alloc: dict[str, Any],
+    agents_order: tuple[str, ...],
+    role: str,
+    videos_left: int,
+    n_global: int,
+    remaining: int,
+) -> int:
+    """Сколько пачек листов может взять shots, не съев вызовы, обещанные планом другим.
+
+    Раньше shots брал столько пачек, сколько нужно на ВСЕ листы: на рилсе 91 с
+    это 6 вызовов из 12 на первый ролик, и второму ролику и сборке почти
+    ничего не осталось. Теперь сверх своей доли — только из остатка после
+    остальных агентов этого ролика, следующих роликов и synth/blueprint.
+    """
+    own = int(alloc.get(role) or 1)
+    after = list(agents_order[agents_order.index(role) + 1 :]) if role in agents_order else []
+    owed = sum(int(alloc.get(a) or 1) for a in after)
+    owed += videos_left * sum(int(alloc.get(a) or 1) for a in agents_order)
+    owed += n_global
+    spare = max(0, int(remaining) - owed)
+    return max(1, min(int(need_batches), max(own, spare)))
+
+
 def with_final_shots(
     profile: dict[str, Any],
     shots_final: list[dict[str, Any]],
@@ -734,10 +760,17 @@ async def run_style_extract(
                 if files
                 else 1
             )
-            max_b = max(
-                int(per_video_alloc.get(role) or 1),
-                need_batches if role == "shots" else int(per_video_alloc.get(role) or 1),
-            )
+            max_b = int(per_video_alloc.get(role) or 1)
+            if role == "shots":
+                max_b = shots_batch_cap(
+                    need_batches,
+                    alloc=per_video_alloc,
+                    agents_order=enabled_agents,
+                    role=role,
+                    videos_left=max(0, videos_covered - idx - 1),
+                    n_global=len(plan.get("global_agents") or []),
+                    remaining=budget.remaining,
+                )
             _p(stage="agent", video=video.name, agent=role, llm=budget.snapshot())
             try:
                 # patterns идёт после shots: ему — планы без ложных склеек, иначе он

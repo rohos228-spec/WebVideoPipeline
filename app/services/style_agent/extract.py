@@ -27,6 +27,7 @@ from typing import Any
 from loguru import logger
 
 from app.services.style_agent import ocr as ocr_mod
+from app.services.style_agent import transcript_pick
 
 # ── параметры ──────────────────────────────────────────────────────────────
 SCENE_THRESHOLD = 0.30  # старый порог (оставлен для совместимости/справки)
@@ -1052,12 +1053,15 @@ def analyze_video(
     if not skip_ocr:
         fn = ocr_fn or ocr_mod.default_ocr()
         if fn is None:
-            sub_info["error"] = ocr_mod.backend_error() or "OCR-бэкенд не найден (pip install rapidocr-onnxruntime)"
+            sub_info["error"] = (
+                ocr_mod.backend_error() or "OCR-бэкенд не найден (pip install rapidocr-onnxruntime)"
+            )
         else:
             _p("ocr")
             frames_sorted = sorted(list(timeline["base"]) + list(timeline["hook"]), key=lambda x: x[0])
             raw = ocr_mod.read_frames(frames_sorted, fn)
             (out_dir / "ocr_raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+            raw, overlays = ocr_mod.drop_static_overlays(raw)
             band = ocr_mod.subtitle_band(raw)
             lines = ocr_mod.build_lines(raw, band=band, frame_step_s=1.0 / float(timeline["rate"]))
             subs = [ln.as_dict() for ln in lines]
@@ -1065,6 +1069,7 @@ def analyze_video(
                 "backend": "injected" if ocr_fn else ocr_mod.backend_name(),
                 "lines": len(subs),
                 "band": band,
+                "overlays": overlays[:20],
             }
     (out_dir / "subtitles.json").write_text(json.dumps(subs, ensure_ascii=False, indent=1), encoding="utf-8")
 
@@ -1117,6 +1122,7 @@ def analyze_video(
     speech: dict[str, Any] = {}
     music: dict[str, Any] = {"present": False}
     words: list[Any] = []
+    subs_ocr: list[dict[str, Any]] = []
     transcript_source = "none"
     if fmt.get("has_audio"):
         _p("audio")
@@ -1148,22 +1154,41 @@ def analyze_video(
                 if music_lufs is not None and voice_lufs is not None
                 else None,
             }
-            if len(subs) >= 3:
-                transcript_source = "subtitles"
+            # ASR всегда (если не выключен): OCR-субтитры на рилсах бывают с водяными
+            # знаками и интерфейсом или теряют половину слов — сверяем с речью.
+            asr_words: list[Any] = []
+            if not skip_asr:
+                _p("asr")
+                try:
+                    asr_words = list((asr_fn or _default_asr)(stems.get("voice") or audio, language) or [])
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("style_extract: ASR не удался ({}): {}", video.name, exc)
+                    audio_info["asr_error"] = str(exc)[:300]
+            pick = transcript_pick.choose(subs, asr_words)
+            transcript_source = pick["source"]
+            if subs:
+                sub_info["vs_asr"] = pick["agreement"]
+                sub_info["transcript_reason"] = pick["reason"]
+            if transcript_source == "subtitles":
                 words = ocr_mod.lines_to_words(
                     [
                         ocr_mod.SubtitleLine(**{k: s[k] for k in ("start", "end", "text", "conf")})
                         for s in subs
                     ]
                 )
-            elif not skip_asr:
-                _p("asr")
-                try:
-                    words = (asr_fn or _default_asr)(stems.get("voice") or audio, language)
-                    transcript_source = "asr" if words else "none"
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("style_extract: ASR не удался ({}): {}", video.name, exc)
-                    audio_info["asr_error"] = str(exc)[:300]
+            elif transcript_source == "asr":
+                words = asr_words
+                if subs:
+                    # фразы для связки с планами и сценария — из речи; OCR-строки отдельно
+                    subs_ocr = subs
+                    (out_dir / "subtitles_ocr.json").write_text(
+                        json.dumps(subs_ocr, ensure_ascii=False, indent=1), encoding="utf-8"
+                    )
+                subs = transcript_pick.phrases_from_words(asr_words)
+                sub_info["phrases_from"] = "asr"
+                (out_dir / "subtitles.json").write_text(
+                    json.dumps(subs, ensure_ascii=False, indent=1), encoding="utf-8"
+                )
             _dump_words(words, out_dir / "words.json")
             speech = speech_metrics(words, duration, sil)
     elif len(subs) >= 3:
@@ -1192,6 +1217,7 @@ def analyze_video(
         "speech": speech,
         "music": music,
         "subtitles": subs,
+        "subtitles_ocr": subs_ocr,
         "subtitles_info": sub_info,
         "linkage": link,
         "script": script,

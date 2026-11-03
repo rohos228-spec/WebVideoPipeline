@@ -136,7 +136,7 @@ def render_video(v: dict[str, Any]) -> list[str]:
     mo = v.get("motion") or {}
     L.append(
         f"Планов: **{mo.get('shots', len(v.get('shots') or []))}**, склеек/мин {mo.get('cuts_per_min', '—')}, медиана плана {mo.get('shot_len_s', '—')} с "
-        f"(min {mo.get('shot_len_min_s', '—')}, max {mo.get('shot_len_max_s', '—')}); строк субтитров {link.get('lines', '—')}; "
+        f"(min {mo.get('shot_len_min_s', '—')}, max {mo.get('shot_len_max_s', '—')}); {'фраз речи' if v.get('transcript_source') == 'asr' else 'строк субтитров'} {link.get('lines', '—')}; "
         f"фраз, начинающихся новой склейкой: {link.get('phrase_starts_new_shot_ratio', '—')}; склеек на старте фразы: {link.get('cut_on_phrase_ratio', '—')}; "
         f"смещение склейки к фразе: медиана {link.get('cut_offset_ms_median', '—')} мс; паттерн: `{link.get('pattern', '—')}`."
     )

@@ -232,6 +232,62 @@ def read_frames(
     return raw
 
 
+OVERLAY_ALWAYS_SHARE = 0.7  # висит почти весь ролик — водяной знак/логотип
+OVERLAY_SHARE = 0.35  # …или часто и кусками (надпись на футболке в кадрах с человеком)
+OVERLAY_MIN_RUNS = 2
+OVERLAY_RUN_GAP = 3  # пропуск больше 3 кадров — новый кусок
+OVERLAY_MIN_FRAMES = 8
+_OVERLAY_SIMILAR = 0.85
+_OVERLAY_FUZZY_MIN_LEN = 6  # короткие слова только точно: «это»/«эти» — разные субтитры
+
+
+def _runs(idx: list[int]) -> int:
+    return 1 + sum(1 for a, b in zip(idx, idx[1:], strict=False) if b - a > OVERLAY_RUN_GAP) if idx else 0
+
+
+def _similar(a: str, b: str) -> bool:
+    if a == b:
+        return True
+    if min(len(a), len(b)) < _OVERLAY_FUZZY_MIN_LEN:
+        return False
+    return difflib.SequenceMatcher(None, a, b).ratio() >= _OVERLAY_SIMILAR
+
+
+def drop_static_overlays(raw: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    """Убрать боксы с текстом, который не ведёт себя как субтитр.
+
+    Строка субтитра видна одним куском и исчезает. Водяной знак («@adgerce»,
+    «TikTok») висит почти весь ролик, надпись на футболке пропадает и
+    возвращается вместе с человеком. OCR читает их с ошибками
+    («Aronatine»/«Aronotine»), поэтому похожие длинные варианты — один текст.
+    """
+    n = len(raw)
+    if n < OVERLAY_MIN_FRAMES:
+        return raw, []
+    where: dict[str, set[int]] = {}
+    for i, fr in enumerate(raw):
+        for t in {normalize_text(str(b[0])).lower() for b in fr.get("boxes") or []}:
+            if t:
+                where.setdefault(t, set()).add(i)
+    keys = list(where)
+    static: set[str] = set()
+    for t in keys:
+        idx = sorted(set().union(*(where[u] for u in keys if _similar(t, u))))
+        share = len(idx) / n
+        if share >= OVERLAY_ALWAYS_SHARE or (share >= OVERLAY_SHARE and _runs(idx) >= OVERLAY_MIN_RUNS):
+            static.add(t)
+    if not static:
+        return raw, []
+    out = [
+        {
+            **fr,
+            "boxes": [b for b in fr.get("boxes") or [] if normalize_text(str(b[0])).lower() not in static],
+        }
+        for fr in raw
+    ]
+    return out, sorted(static)
+
+
 def subtitle_band(raw: list[dict[str, Any]]) -> tuple[float, float] | None:
     """Полоса y, где текст встречается чаще всего (субтитры), ±7 %."""
     ys = [

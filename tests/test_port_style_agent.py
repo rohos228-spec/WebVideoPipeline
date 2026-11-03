@@ -620,10 +620,13 @@ def test_analyze_video_synthetic(tmp_path: Path) -> None:
     assert len(list(tl_dir.glob("cut_*_before.jpg"))) == 1 and len(list(tl_dir.glob("cut_*_after.jpg"))) == 1
     assert profile["palette"]["palette_hex"]
     assert profile["speech"]["words"] == 9 and profile["speech"]["pace_wpm"] > 0
-    assert profile["speech"]["transcript_source"] == "asr" and profile["subtitles"] == []
-    assert (
-        profile["linkage"]["stats"]["shots"] == 2 and profile["script"]["beats_per_sec"] is None
-    )  # субтитров нет
+    assert profile["speech"]["transcript_source"] == "asr" and profile["subtitles_ocr"] == []
+    # субтитров на экране нет — фразы для связки с планами собраны из речи (пауза 0.65 с делит на две)
+    assert [ph["text"] for ph in profile["subtitles"]] == [
+        "это короткий тестовый ролик про",
+        "стиль а теперь вывод",
+    ]
+    assert profile["linkage"]["stats"]["shots"] == 2 and profile["script"]["beats_per_sec"] is not None
     for name in (
         "metrics.json",
         "words.json",
@@ -644,8 +647,10 @@ def test_analyze_video_with_injected_ocr(tmp_path: Path) -> None:
     asr_calls: list[str] = []
 
     def _asr(audio: Path, language: str):
+        # речь совпадает с субтитрами → транскрипт остаётся из субтитров
         asr_calls.append(language)
-        return _fake_words(audio, language)
+        text = ["the", "first", "line", "second", "line", "here", "and", "the", "end"]
+        return [_Word(w, round(0.2 + i * 0.4, 2), round(0.5 + i * 0.4, 2)) for i, w in enumerate(text)]
 
     def _ocr(frame: Path):
         # Красная половина (0–2 с) → фраза 1, синяя → фраза 2, ещё одна в конце
@@ -659,7 +664,8 @@ def test_analyze_video_with_injected_ocr(tmp_path: Path) -> None:
         return [("and the end", 0.99, 0.9, 0.5)]
 
     profile = extract.analyze_video(video, tmp_path / "an", max_sheets=1, asr_fn=_asr, ocr_fn=_ocr)
-    assert asr_calls == []  # субтитров ≥ 3 строк → ASR не нужен
+    assert asr_calls == ["ru"]  # ASR идёт всегда: субтитры сверяются с речью
+    assert profile["subtitles_info"]["vs_asr"]["precision"] == 1.0
     assert profile["speech"]["transcript_source"] == "subtitles"
     texts = [s["text"] for s in profile["subtitles"]]
     assert texts == ["the first line", "second line here", "and the end"]
