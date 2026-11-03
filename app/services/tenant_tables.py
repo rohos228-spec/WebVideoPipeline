@@ -144,6 +144,10 @@ INFRA_TABLES: frozenset[str] = frozenset(
         "email_verifications",
         "coupons",
         "coupon_redemptions",
+        "supervisor_kill_switch",
+        "supervisor_kill_switch_history",
+        "spend_ledger",
+        "provider_task_ledger",
     }
 )
 

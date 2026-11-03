@@ -495,7 +495,8 @@ def test_engine_tables_are_classified_for_the_rls_startup_check() -> None:
 
     stale = sorted(ENGINE_TABLES - set(Base.metadata.tables))
     assert stale == [], f"в ENGINE_TABLES таблицы, которых нет в моделях: {stale}"
-    assert not ENGINE_TABLES & (set(all_isolated()) | INFRA_TABLES)
+    assert not ENGINE_TABLES & set(all_isolated())
+    assert ENGINE_TABLES <= INFRA_TABLES
     with_tenant = sorted(t for t in ENGINE_TABLES if "tenant_id" in Base.metadata.tables[t].c)
     assert with_tenant == [], f"у таблицы движка есть tenant_id, её место в TENANT_TABLES: {with_tenant}"
     assert not set(TENANT_TABLES) & ENGINE_TABLES
