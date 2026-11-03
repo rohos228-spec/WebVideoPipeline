@@ -431,6 +431,22 @@ def shots_signature(shots: list[dict[str, Any]]) -> str:
 _SHOT_BOUND_ROLES = ("shots", "patterns")
 
 
+def patch_cap(need: int, *, steps: list[dict[str, Any]], video: str, remaining: int) -> int:
+    """Дозапрос описаний планов при дозапуске: не больше, чем останется после прочих шагов.
+
+    Иначе дозапуск рилса с 60 планами тратил 4 вызова из 12 на описания одного
+    ролика раньше, чем второй ролик и сборка получали свои.
+    """
+    pos = next(
+        (i for i, st in enumerate(steps) if st.get("video") == video and st.get("role") == "shots:patch"),
+        None,
+    )
+    after = steps[pos + 1 :] if pos is not None else []
+    # шаг shots другого ролика сам ограничен shots_batch_cap — резервируем ему 1
+    owed = sum(1 if st.get("role") == "shots" else int(st.get("calls") or 1) for st in after)
+    return max(1, min(int(need), int(remaining) - owed))
+
+
 def shots_batch_cap(
     need_batches: int,
     *,
@@ -648,6 +664,11 @@ async def run_style_extract(
         # дозапуск: кэш закрывает успешные шаги, недостающие — по всем роликам (лимит вызовов жёсткий)
         videos_covered = len(videos)
     fresh = {"v": False}  # появились новые ответы по роликам → кэш synth/blueprint устарел
+    resume_steps: list[dict[str, Any]] = (
+        list(resume_plan(out_root, [v.name for v in videos], enabled_agents).get("steps") or [])
+        if resume and not skip_llm
+        else []
+    )
     per_video_alloc = plan.get("per_video") or {}
 
     per_video: list[dict[str, Any]] = []
@@ -708,12 +729,14 @@ async def run_style_extract(
                             project_id=project_id,
                             log_path=log_path,
                             prompts_dir=prompts_dir,
-                            max_calls=max(
-                                1,
+                            max_calls=patch_cap(
                                 -(
                                     -len(agents.sheets_for_shot_ids(profile, miss))
                                     // agents.SHOTS_IMAGES_PER_CALL
                                 ),
+                                steps=resume_steps,
+                                video=video.name,
+                                remaining=budget.remaining,
                             ),
                         )
                     except BudgetExceeded as exc:

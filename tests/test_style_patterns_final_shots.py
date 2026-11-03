@@ -67,3 +67,21 @@ def test_shots_takes_spare_calls_when_limit_allows() -> None:
         3, alloc=ALLOC, agents_order=AGENTS, role="shots", videos_left=0, n_global=2, remaining=30
     )
     assert cap == 3  # больше, чем нужно листам, не берёт
+
+
+STEPS = [
+    {"video": "a.mp4", "role": "shots:patch", "calls": 4},
+    {"video": "b.mp4", "role": "shots", "calls": 5},
+    *({"video": "b.mp4", "role": r, "calls": 1} for r in ("visual", "voice", "narrative", "patterns")),
+    {"video": "*", "role": "synth", "calls": 1},
+    {"video": "*", "role": "blueprint", "calls": 1},
+]
+
+
+def test_resume_patch_leaves_calls_for_rest() -> None:
+    from app.services.style_agent.job import patch_cap
+
+    # после дозапроса обещано 1 (shots b) + 4 агента + synth + blueprint = 7
+    assert patch_cap(4, steps=STEPS, video="a.mp4", remaining=12) == 4
+    assert patch_cap(4, steps=STEPS, video="a.mp4", remaining=9) == 2
+    assert patch_cap(4, steps=STEPS, video="a.mp4", remaining=5) == 1
