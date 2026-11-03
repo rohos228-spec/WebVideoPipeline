@@ -12,18 +12,18 @@ const N = (t: string) => `/prompt-bg/node/${t}.webp`;
  * Пустой src = заготовка-плейсхолдер. Индексы 1..12 используются по всей странице.
  */
 export const HOME_IMAGES: Record<number, { src: string; label: string }> = {
-  1: { src: "", label: "Hero · концепт контент-завода" },
-  2: { src: "", label: "Витрина · главный кадр" },
-  3: { src: "", label: "Hero · кадр 2" },
-  4: { src: "", label: "Витрина · кадр" },
-  5: { src: "", label: "Hero · кадр 3" },
-  6: { src: "", label: "Витрина · кадр" },
-  7: { src: "", label: "Лента · кадр" },
-  8: { src: "", label: "Витрина · кадр" },
-  9: { src: "", label: "Лента · кадр" },
-  10: { src: "", label: "Витрина · кадр" },
-  11: { src: "", label: "Лента · кадр" },
-  12: { src: "", label: "Лента · кадр" },
+  1: { src: "/home/hero-1.webp", label: "Hero · Мультфильмы" },
+  2: { src: "/home/g2.jpg", label: "Витрина · главный кадр" },
+  3: { src: "/home/hero-2.webp", label: "Hero · Сериалы" },
+  4: { src: "/home/g4.jpg", label: "Витрина · кадр" },
+  5: { src: "/home/hero-3.webp", label: "Hero · Кинематограф" },
+  6: { src: "/home/g6.jpg", label: "Витрина · кадр" },
+  7: { src: "/home/g7.jpg", label: "Лента · кадр" },
+  8: { src: "/home/g8.jpg", label: "Витрина · кадр" },
+  9: { src: "/home/g9.jpg", label: "Лента · кадр" },
+  10: { src: "/home/g10.jpg", label: "Витрина · кадр" },
+  11: { src: "/home/g11.jpg", label: "Лента · кадр" },
+  12: { src: "/home/g12.jpg", label: "Лента · кадр" },
 };
 
 function Slot({ i, className = "", style }: { i: number; className?: string; style?: React.CSSProperties }) {

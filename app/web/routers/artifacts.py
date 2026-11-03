@@ -84,7 +84,11 @@ async def serve_data_file(
         from app.services.storage import get_storage
 
         url = get_storage().url(storage_key, download_name=download_name if download else "")
-        return RedirectResponse(url, status_code=307)
+        return RedirectResponse(
+            url,
+            status_code=307,
+            headers={"Cache-Control": "public, max-age=86400"} if not download else None,
+        )
 
     if thumb and not download and candidate.is_file():
         from app.services.thumbnails import thumbnail_path
@@ -100,12 +104,18 @@ async def serve_data_file(
     if not candidate.is_file():
         raise HTTPException(status_code=404, detail="file not found on disk")
 
+    is_generation = "generations" in candidate.parts
+    cache_header = (
+        "public, max-age=31536000, immutable"
+        if is_generation
+        else "private, max-age=60, must-revalidate"
+    )
     kwargs: dict = {
         "media_type": mime or "application/octet-stream",
         "headers": {
-            # v=mtime в URL — ключ кэша. immutable ломал превью монтажа:
-            # после regen браузер держал старый PNG.
-            "Cache-Control": "private, max-age=60, must-revalidate",
+            # Для data/generations файлы неизменяемы (UUID в имени) — кэшируем на год;
+            # для артефактов монтажа оставляем 60с must-revalidate
+            "Cache-Control": cache_header,
         },
     }
     if download:
