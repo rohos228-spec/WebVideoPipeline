@@ -12,7 +12,7 @@ const N = (t: string) => `/prompt-bg/node/${t}.webp`;
  * Пустой src = заготовка-плейсхолдер. Индексы 1..12 используются по всей странице.
  */
 export const HOME_IMAGES: Record<number, { src: string; label: string }> = {
-  1: { src: "", label: "Hero · концепт контент-завода" },
+  1: { src: "/home/hero-1.webp", label: "Hero · Мультфильмы" },
   2: { src: "", label: "Витрина · главный кадр" },
   3: { src: "", label: "Hero · кадр 2" },
   4: { src: "", label: "Витрина · кадр" },

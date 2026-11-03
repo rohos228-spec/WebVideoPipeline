@@ -751,6 +751,10 @@ function AudioStudioPlayer({
   );
 }
 
+// Глобальный in-memory кэш предзагруженных URL: исключает повторные задержки
+// и спиннеры при переключении между уже просмотренными кадрами (0 мс)
+const globalLoadedImageUrls = new Set<string>();
+
 function CreateImageViewer({
   item,
   onInspect,
@@ -758,32 +762,49 @@ function CreateImageViewer({
   item: HistoryItem;
   onInspect: () => void;
 }) {
-  const [loaded, setLoaded] = useState(false);
-  const [hasError, setHasError] = useState(false);
   const fullUrl = item.preview_url || "";
   const thumb = thumbUrl(item.preview_url);
+  const isAlreadyCached = Boolean(fullUrl && globalLoadedImageUrls.has(fullUrl));
+
+  const [loaded, setLoaded] = useState(isAlreadyCached);
+  const [hasError, setHasError] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   useEffect(() => {
-    setLoaded(false);
-    setHasError(false);
+    if (fullUrl && globalLoadedImageUrls.has(fullUrl)) {
+      setLoaded(true);
+      setHasError(false);
+    } else {
+      setLoaded(false);
+      setHasError(false);
+    }
   }, [item.id, fullUrl]);
+
+  // Если браузер уже сохранил кадр в дисковом/памятном кэше
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      if (fullUrl) globalLoadedImageUrls.add(fullUrl);
+      setLoaded(true);
+    }
+  }, [fullUrl]);
 
   return (
     <div className="relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center">
-      {/* 1. Мгновенный WebP-тамбнейл (~30 КБ), пока грузится полный файл */}
+      {/* 1. Мгновенный тамбнейл из памяти, пока качается оригинальный 2K файл */}
       {thumb && !loaded && !hasError && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={thumb}
           alt=""
-          className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 object-contain filter blur-sm transition-opacity"
+          className="max-h-[calc(100vh-360px)] max-w-full rounded-2xl border border-white/15 bg-black/80 object-contain filter blur-[1px] transition-opacity"
         />
       )}
 
-      {/* 2. Спиннер загрузки полного кадра */}
+      {/* 2. Деликатный индикатор загрузки оригинального качества — в углу, не блокируя просмотр */}
       {!loaded && !hasError && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[2px] rounded-2xl pointer-events-none">
-          <Loader2 className="h-8 w-8 animate-spin text-[#22d3ee]" />
+        <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 rounded-full border border-white/20 bg-black/60 px-3 py-1.5 text-xs text-white/90 backdrop-blur-md pointer-events-none shadow-lg">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-[#22d3ee]" />
+          <span className="font-medium">Загрузка оригинала...</span>
         </div>
       )}
 
@@ -791,14 +812,18 @@ function CreateImageViewer({
       {!hasError ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
+          ref={imgRef}
           key={item.id}
           src={fullUrl}
           alt=""
-          onLoad={() => setLoaded(true)}
+          onLoad={() => {
+            if (fullUrl) globalLoadedImageUrls.add(fullUrl);
+            setLoaded(true);
+          }}
           onError={() => setHasError(true)}
           onClick={onInspect}
           className={cn(
-            "max-h-[calc(100vh-360px)] max-w-full cursor-zoom-in rounded-2xl border border-white/15 bg-black/80 object-contain shadow-[0_20px_50px_rgba(0,0,0,0.8)] transition hover:brightness-105",
+            "max-h-[calc(100vh-360px)] max-w-full cursor-zoom-in rounded-2xl border border-white/15 bg-black/80 object-contain shadow-[0_20px_50px_rgba(0,0,0,0.8)] transition duration-200 hover:brightness-105",
             !loaded && "absolute inset-0 opacity-0 pointer-events-none",
           )}
         />
@@ -2229,6 +2254,28 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     }
     return item;
   }, [historyItems, selectedId, runningJobs, waitingJobs]);
+
+  // Фоновый предзагрузчик соседних кадров: когда открыто модальное окно и выбран кадр,
+  // подгружаем i-1, i+1, i+2 в кэш браузера для мгновенного переключения (0 мс)
+  useEffect(() => {
+    if (!open || !selectedId || !historyItems.length) return;
+    const idx = historyItems.findIndex((h) => h.id === selectedId);
+    if (idx === -1) return;
+    const candidates = [
+      historyItems[idx + 1]?.preview_url,
+      historyItems[idx + 2]?.preview_url,
+      historyItems[idx - 1]?.preview_url,
+    ].filter(Boolean) as string[];
+
+    candidates.forEach((url) => {
+      if (globalLoadedImageUrls.has(url)) return;
+      const preloadImg = new Image();
+      preloadImg.src = url;
+      preloadImg.onload = () => {
+        globalLoadedImageUrls.add(url);
+      };
+    });
+  }, [open, selectedId, historyItems]);
 
   if (!open) return null;
 
