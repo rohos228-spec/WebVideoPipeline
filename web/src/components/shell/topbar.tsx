@@ -94,7 +94,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
         <RailBtn icon={<FolderOpen className="h-[18px] w-[18px]" />} label="Проекты" title="Показать / скрыть панель проектов" onClick={() => window.dispatchEvent(new CustomEvent("studio-toggle-projects-sidebar"))} />
         <RailBtn icon={<Bot className="h-[18px] w-[18px]" />} label="Чат" title="Чат GPT" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-gpt"))} />
-        <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
         <BugReportButton />
         {isAdmin ? (
           <RailBtn
@@ -105,7 +104,10 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
           />
         ) : null}
         {isAdmin ? <AdminRailLink /> : null}
-        <div className="flex-1" />
+        <div className="min-h-2" style={{ flexGrow: 0.45 }} />
+        {/* ИИ-агент размещён чуть выше центра навигационного меню */}
+        <OrchestratorRailBtn active={orchestratorOpen} onClick={handleToggleOrchestrator} />
+        <div className="min-h-2" style={{ flexGrow: 1.55 }} />
         <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
         <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
         {railPanel === "Хранилище" ? <StoragePanel onClose={() => setRailPanel(null)} /> : null}
