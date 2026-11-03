@@ -3337,7 +3337,7 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       },
-      120_000,
+      240_000,
     ),
   saveAndActivateMetaPrompt: (body: {
     step_code: string;

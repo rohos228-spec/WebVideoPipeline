@@ -631,12 +631,22 @@ def read_prompt(
     from_db = prompt_store.resolve(step_code, name)
     if from_db is not None:
         return from_db
+    clean = _clean_variant_name(name) if name else ""
+    if clean and clean != name:
+        from_db = prompt_store.resolve(step_code, clean)
+        if from_db is not None:
+            return from_db
+    alt_name = f"{clean}.md" if clean else ""
+    if alt_name and alt_name != name:
+        from_db = prompt_store.resolve(step_code, alt_name)
+        if from_db is not None:
+            return from_db
     if is_excel_gpt_prompt_step(step_code):
-        p = resolve_excel_gpt_prompt_path(name, group_id=group_id, project=project, node_key=node_key)
+        p = resolve_excel_gpt_prompt_path(clean or name, group_id=group_id, project=project, node_key=node_key)
         if not p.is_file():
             raise FileNotFoundError(f"prompt file not found: {p}")
         return p.read_text(encoding="utf-8")
-    p = prompt_path(step_code, name)
+    p = prompt_path(step_code, clean or name)
     if not p.exists():
         if name == DEFAULT_NAME:
             available = _list_prompts_in_dir(step_code)

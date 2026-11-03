@@ -46,18 +46,30 @@ class PromptScope:
     project_id: int | None = None
 
 
+def _name_candidates(name: str) -> list[str]:
+    raw = (name or "").strip()
+    if not raw:
+        return []
+    if raw.lower().endswith(".md"):
+        stripped = raw[:-3].rstrip()
+        return [raw, stripped] if stripped else [raw]
+    return [raw, f"{raw}.md"]
+
+
 def resolve(step_code: str, name: str, scope: PromptScope | None = None) -> str | None:
     """Текст промта по цепочке переопределений. `None` — в базе ничего нет.
 
     Порядок фиксирован и идёт от частного к общему. Первый найденный
     побеждает: иначе «переопределение» означало бы «иногда переопределение»,
     а это худший вид настройки — тот, который работает через раз.
+    Проверяет как исходное имя, так и с/без суффикса .md.
     """
     sc = scope or _scope_from_context()
-    for key in _lookup_order(step_code, name, sc):
-        text = _CACHE.get(key)
-        if text is not None:
-            return text
+    for cand in _name_candidates(name):
+        for key in _lookup_order(step_code, cand, sc):
+            text = _CACHE.get(key)
+            if text is not None:
+                return text
     return None
 
 
@@ -84,14 +96,16 @@ def list_names(step_code: str, scope: PromptScope | None = None) -> list[str]:
     только для чтения, и промт нового шага живёт лишь в базе. Без этого
     списка редактор отвечал бы «не заведено» про промт, который прямо сейчас
     работает.
+    Имена нормализуются без суффикса .md.
     """
     sc = scope or _scope_from_context()
     wanted = {key[:3] for key in _lookup_order(step_code, "", sc)}
-    names = {
-        name
-        for (tenant, brand, project_id, step, name) in _CACHE
-        if step == step_code and (tenant, brand, project_id) in wanted
-    }
+    names = set()
+    for (tenant, brand, project_id, step, name) in _CACHE:
+        if step == step_code and (tenant, brand, project_id) in wanted:
+            clean = name[:-3] if name.lower().endswith(".md") else name
+            if clean:
+                names.add(clean)
     out = sorted(names)
     if "default" in out:
         out.remove("default")
@@ -109,10 +123,11 @@ def resolve_with_source(
     Показать текст, не сказав чей он, значит гарантировать этот вопрос.
     """
     sc = scope or _scope_from_context()
-    for level, key in zip(_level_names(sc), _lookup_order(step_code, name, sc), strict=True):
-        text = _CACHE.get(key)
-        if text is not None:
-            return text, level
+    for cand in _name_candidates(name):
+        for level, key in zip(_level_names(sc), _lookup_order(step_code, cand, sc), strict=True):
+            text = _CACHE.get(key)
+            if text is not None:
+                return text, level
     return None, "disk"
 
 
@@ -165,6 +180,10 @@ async def refresh(session: Any) -> int:
     _CACHE.clear()
     for row in rows:
         _CACHE[(row.tenant_id, row.brand or "", row.project_id, row.step_code, row.name)] = row.text
+        clean = row.name[:-3] if row.name.lower().endswith(".md") else row.name
+        if clean:
+            _CACHE[(row.tenant_id, row.brand or "", row.project_id, row.step_code, clean)] = row.text
+            _CACHE[(row.tenant_id, row.brand or "", row.project_id, row.step_code, f"{clean}.md")] = row.text
     _LOADED = True
     return len(rows)
 
@@ -198,6 +217,7 @@ async def save(
     brand = "" if tenant else sc.brand
     project_id = sc.project_id if tenant else None
 
+    clean_name = name[:-3] if name.lower().endswith(".md") else name
     row = (
         await session.execute(
             select(PromptLibraryEntry).where(
@@ -209,10 +229,11 @@ async def save(
                 if project_id is None
                 else PromptLibraryEntry.project_id == project_id,
                 PromptLibraryEntry.step_code == step_code,
-                PromptLibraryEntry.name == name,
+                (PromptLibraryEntry.name == clean_name)
+                | (PromptLibraryEntry.name == f"{clean_name}.md"),
             )
         )
-    ).scalar_one_or_none()
+    ).scalars().first()
 
     if row is None:
         row = PromptLibraryEntry(
@@ -220,13 +241,16 @@ async def save(
             brand=brand,
             project_id=project_id,
             step_code=step_code,
-            name=name,
+            name=clean_name,
             text=text,
         )
         session.add(row)
     else:
+        row.name = clean_name
         row.text = text
     await session.flush()
+    _CACHE[(tenant, brand, project_id, step_code, clean_name)] = text
+    _CACHE[(tenant, brand, project_id, step_code, f"{clean_name}.md")] = text
     _CACHE[(tenant, brand, project_id, step_code, name)] = text
 
 
@@ -403,7 +427,8 @@ async def drop(session: Any, step_code: str, name: str, *, scope: PromptScope | 
     brand = "" if tenant else sc.brand
     project_id = sc.project_id if tenant else None
 
-    row = (
+    clean_name = name[:-3] if name.lower().endswith(".md") else name
+    rows = (
         await session.execute(
             select(PromptLibraryEntry).where(
                 PromptLibraryEntry.tenant_id.is_(None)
@@ -414,14 +439,18 @@ async def drop(session: Any, step_code: str, name: str, *, scope: PromptScope | 
                 if project_id is None
                 else PromptLibraryEntry.project_id == project_id,
                 PromptLibraryEntry.step_code == step_code,
-                PromptLibraryEntry.name == name,
+                (PromptLibraryEntry.name == clean_name)
+                | (PromptLibraryEntry.name == f"{clean_name}.md"),
             )
         )
-    ).scalar_one_or_none()
-    if row is None:
+    ).scalars().all()
+    if not rows:
         return False
-    await session.delete(row)
+    for r in rows:
+        await session.delete(r)
     await session.flush()
+    _CACHE.pop((tenant, brand, project_id, step_code, clean_name), None)
+    _CACHE.pop((tenant, brand, project_id, step_code, f"{clean_name}.md"), None)
     _CACHE.pop((tenant, brand, project_id, step_code, name), None)
     return True
 

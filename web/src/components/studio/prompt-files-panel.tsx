@@ -128,13 +128,13 @@ export function PromptFilesPanel({
       if (userPickedRef.current && prev && list.some((f) => f.name === prev)) {
         return prev;
       }
-      if (prev && list.some((f) => f.name === prev)) return prev;
-      if (preferredFile && list.some((f) => f.name === preferredFile)) {
-        return preferredFile;
-      }
       if (activeVariant && list.some((f) => f.name === activeVariant)) {
         return activeVariant;
       }
+      if (preferredFile && list.some((f) => f.name === preferredFile)) {
+        return preferredFile;
+      }
+      if (prev && list.some((f) => f.name === prev)) return prev;
       return list[0].name;
     });
   }, [
