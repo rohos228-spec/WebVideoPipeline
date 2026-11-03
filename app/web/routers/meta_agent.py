@@ -113,7 +113,10 @@ async def save_and_activate_endpoint(
     if clean_code not in STEP_FOLDERS:
         raise HTTPException(status_code=400, detail=f"Неизвестный step_code: {clean_code}")
 
-    clean_name = _sanitize_name(req.name or "custom_agent_prompt")
+    raw_name = (req.name or "custom_agent_prompt").strip()
+    if raw_name.lower().endswith(".md"):
+        raw_name = raw_name[:-3].rstrip()
+    clean_name = _sanitize_name(raw_name or "custom_agent_prompt")
     if not clean_name:
         clean_name = "custom_agent_prompt"
 

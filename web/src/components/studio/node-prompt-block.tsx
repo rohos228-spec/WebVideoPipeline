@@ -30,10 +30,26 @@ export function NodePromptBlock({
   });
   const list = files.data ?? [];
   const [sel, setSel] = useState<string | null>(null);
+  const userPickedRef = useRef(false);
+  const lastKeyRef = useRef<string>("");
+
   useEffect(() => {
-    if (sel && list.some((f) => f.name === sel)) return;
+    const key = `${nodeKey}:${stepCode}`;
+    if (lastKeyRef.current !== key) {
+      lastKeyRef.current = key;
+      userPickedRef.current = false;
+    }
+  }, [nodeKey, stepCode]);
+
+  useEffect(() => {
+    if (userPickedRef.current && sel && list.some((f) => f.name === sel)) return;
     const act = list.find((f) => f.name === activeVariant);
-    setSel(act?.name ?? list[0]?.name ?? null);
+    if (act) {
+      setSel(act.name);
+      return;
+    }
+    if (sel && list.some((f) => f.name === sel)) return;
+    setSel(list[0]?.name ?? null);
   }, [list, activeVariant, sel]);
   const content = useQuery({
     queryKey: ["prompt-file", stepCode, sel, nodeKey],
@@ -92,7 +108,10 @@ export function NodePromptBlock({
         <select
           className="h-9 min-w-0 flex-1 rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white"
           value={sel ?? ""}
-          onChange={(e) => setSel(e.target.value)}
+          onChange={(e) => {
+            userPickedRef.current = true;
+            setSel(e.target.value);
+          }}
         >
           {list.map((f) => (
             <option key={f.name} value={f.name}>
@@ -102,7 +121,14 @@ export function NodePromptBlock({
           ))}
         </select>
         {sel && sel !== activeVariant && onActivate ? (
-          <button type="button" className="h-9 shrink-0 rounded-md border border-white/25 px-3 text-[13px] text-white hover:border-white/60" onClick={() => onActivate(sel)}>
+          <button
+            type="button"
+            className="h-9 shrink-0 rounded-md border border-white/25 px-3 text-[13px] text-white hover:border-white/60"
+            onClick={() => {
+              userPickedRef.current = false;
+              onActivate(sel);
+            }}
+          >
             Сделать активным
           </button>
         ) : null}
