@@ -713,6 +713,27 @@ def slot_for_excel_gpt_node_key(project: Project, node_key: str) -> int | None:
     return None
 
 
+def active_key_belongs_to_other_slot(
+    project: Project,
+    node_key: str | None,
+    slot_idx: int,
+) -> bool:
+    """Проверяет, привязан ли active node_key к другому слоту excel_gpt (не slot_idx)."""
+    key = str(node_key or "").strip()
+    if not key or not (1 <= int(slot_idx) <= MAX_EXCEL_GPT_SLOTS):
+        return False
+
+    resolved_for_slot = resolve_excel_gpt_node_key_for_slot(project, slot_idx)
+    if resolved_for_slot and resolved_for_slot == key:
+        return False
+
+    key_slot = slot_for_excel_gpt_node_key(project, key)
+    if key_slot is not None:
+        return key_slot != int(slot_idx)
+
+    return True
+
+
 def clear_excel_gpt_tail_completion(
     project: Project,
     from_slot: int,
