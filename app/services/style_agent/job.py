@@ -431,6 +431,35 @@ def shots_signature(shots: list[dict[str, Any]]) -> str:
 _SHOT_BOUND_ROLES = ("shots", "patterns")
 
 
+def with_final_shots(
+    profile: dict[str, Any],
+    shots_final: list[dict[str, Any]],
+    shots_reply: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Профиль и ответ shots, пересобранные под планы после ``apply_false_cuts``.
+
+    Детектор принимает слабую склейку рядом со сменой субтитра, а сама смена
+    текста даёт такой всплеск: на ролике с 3 настоящими склейками детектор
+    видел 10. Агент shots их отбрасывает (``false_cuts``), но patterns получал
+    сырую таблицу «таймкоды авторитетны» и писал «87,5 % фраз начинаются
+    новой склейкой» про ролик, где план держится 8 с через все фразы.
+    """
+    if shots_final == profile.get("shots"):
+        return profile, shots_reply
+    from app.services.style_agent import linkage as linkage_mod
+
+    duration = float((profile.get("format") or {}).get("duration_s") or 0)
+    fixed = {
+        **profile,
+        "shots": shots_final,
+        "linkage": linkage_mod.link_subtitles_to_shots(profile.get("subtitles") or [], shots_final),
+        "motion": {**(profile.get("motion") or {}), **extract.shot_metrics(shots_final, duration)},
+    }
+    # описания агента shots уже слиты в shots_final (merge_shot_descriptions), с новыми номерами i
+    reply = {**shots_reply, "shots": shots_final} if shots_reply else None
+    return fixed, reply
+
+
 def load_cached_reply(vdir: Path, role: str, sig: str | None) -> dict[str, Any] | None:
     fp = vdir / f"q_{role}.json"
     meta_fp = vdir / f"q_{role}.meta.json"
@@ -711,9 +740,16 @@ async def run_style_extract(
             )
             _p(stage="agent", video=video.name, agent=role, llm=budget.snapshot())
             try:
+                # patterns идёт после shots: ему — планы без ложных склеек, иначе он
+                # выводит ритм из склеек-призраков на сменах субтитров
+                role_profile, role_reply = (
+                    with_final_shots(profile, shots_final, shots_reply)
+                    if role == "patterns"
+                    else (profile, shots_reply)
+                )
                 res = await agents.run_specialist(
                     role,
-                    profile,
+                    role_profile,
                     sheets=files,
                     budget=budget,
                     video_label=video.name,
@@ -721,7 +757,7 @@ async def run_style_extract(
                     log_path=log_path,
                     prompts_dir=prompts_dir,
                     max_batches=max_b,
-                    shots_reply=shots_reply,
+                    shots_reply=role_reply,
                 )
             except BudgetExceeded as exc:
                 entry["problems"][role] = [str(exc)]
@@ -761,13 +797,9 @@ async def run_style_extract(
             s["vo_text"] = ls.get("text") or ""
             s["line_ids"] = ls.get("line_ids") or []
         if shots_final != profile.get("shots"):
-            profile["linkage"] = link2
-            profile["motion"] = {
-                **(profile.get("motion") or {}),
-                **extract.shot_metrics(
-                    shots_final, float((profile.get("format") or {}).get("duration_s") or 0)
-                ),
-            }
+            fixed = with_final_shots(profile, shots_final, None)[0]
+            profile["linkage"] = fixed["linkage"]
+            profile["motion"] = fixed["motion"]
         entry["shots_final"] = shots_final
         (vdir / "shots_final.json").write_text(
             json.dumps(shots_final, ensure_ascii=False, indent=1), encoding="utf-8"
@@ -991,7 +1023,7 @@ def _pipeline_text_override(model: dict[str, Any] | None) -> Any:
 async def _run_job(project_id: int, *, node_key: str | None, overrides: dict[str, Any]) -> None:
     from app.db import session_scope
     from app.models import Project
-    from app.services.llm_override import use_override
+    from app.services.llm_override import LlmAccountingContext, use_accounting, use_override
     from app.services.step_cancel import is_stop_requested
 
     async with session_scope() as session:
@@ -1067,7 +1099,10 @@ async def _run_job(project_id: int, *, node_key: str | None, overrides: dict[str
             raise RuntimeError(NO_PAY52_ROUTE)
         if not videos:
             raise RuntimeError("нет роликов: загрузите mp4 в ноду или подключите «Файлы»")
-        with use_override(ov):
+        # без контекста учёта llm_calls писались с project_id=NULL / node_key=adhoc:
+        # траты разбора (12 вызовов ≈ $0.15) не попадали в расходы и бюджет проекта
+        acct = LlmAccountingContext(project_id=project_id, node_key=node_key or STYLE_EXTRACT_NODE_TYPE)
+        with use_accounting(acct), use_override(ov):
             result = await run_style_extract(
                 videos,
                 root,
