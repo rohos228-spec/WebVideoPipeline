@@ -73,6 +73,7 @@ import { cn } from "@/lib/utils";
 import { ActionResultCard } from "./action-result-card";
 import { ChatMarkdown } from "./chat-markdown";
 import { ChatNoticeCard } from "./chat-notice-card";
+import { noticeSlotByTime } from "@/lib/notice-slot";
 import { killBannerText, statusBadgeVariant } from "./orchestrator-workspace";
 import { useChatNotices } from "./use-chat-notices";
 import { useOrchestratorChat } from "./use-orchestrator-chat";
@@ -248,9 +249,13 @@ function ChatPane({
     });
   };
 
+  // Карточка встаёт перед первой репликой позже неё. Раньше место бралось по моменту, когда
+  // браузер увидел карточку: если уведомления грузились раньше истории, все разборы сбоев
+  // оказывались над перепиской, и свежий разбор было не найти.
+  const noticeSlot = (n: ChatNotice): number => noticeSlotByTime(n, chat.state.messages) ?? anchors[n.id] ?? 0;
   const noticesAt = (index: number, last: boolean): ChatNotice[] =>
     notices.notices.filter((n) => {
-      const a = anchors[n.id] ?? 0;
+      const a = noticeSlot(n);
       return last ? a >= index : a === index;
     });
 

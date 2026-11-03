@@ -179,6 +179,8 @@ export interface OrchEvent {
   payload?: Record<string, unknown>;
   seq: number;
   session_id?: string;
+  /** ISO UTC: время записи события на сервере. */
+  created_at?: string;
 }
 
 /**

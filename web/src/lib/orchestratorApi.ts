@@ -654,7 +654,7 @@ function readTaskId(value: unknown): number | null {
   return null;
 }
 
-/** data — JSON OrchEvent: type, task_id (int|null), payload, seq, session_id. id кадра = seq. */
+/** data — JSON OrchEvent: type, task_id (int|null), payload, seq, session_id, created_at. id кадра = seq. */
 export function eventFromSse(parsed: ParsedSse): OrchEvent | null {
   try {
     const json = JSON.parse(parsed.data) as Partial<OrchEvent> & { seq?: number };
@@ -670,6 +670,7 @@ export function eventFromSse(parsed: ParsedSse): OrchEvent | null {
       payload,
       seq,
       session_id: typeof json.session_id === "string" ? json.session_id : "",
+      created_at: typeof json.created_at === "string" && json.created_at ? json.created_at : undefined,
     };
   } catch {
     return null;

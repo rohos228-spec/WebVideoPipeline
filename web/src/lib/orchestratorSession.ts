@@ -62,6 +62,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   taskId: string | null;
+  /** ISO UTC события, из которого пришла реплика. По нему карточки сбоев встают между репликами. */
+  at?: string | null;
 }
 
 export interface AgentView {
@@ -874,6 +876,30 @@ function askedSinceLastAnswer(messages: ChatMessage[], text: string): boolean {
 }
 
 export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenAction): OrchScreenState {
+  const next = reduceOrchScreenRaw(state, action);
+  if (action.type !== "event" || next === state || !action.event.created_at) return next;
+  return stampMessages(next, state.messages.length, action.event.created_at, action.event.type === "ack");
+}
+
+/**
+ * Время события на новые реплики. Живой вопрос человека ставится до ack без времени (часы
+ * браузера могут врать) — время ему даёт ack сервера.
+ */
+function stampMessages(next: OrchScreenState, before: number, at: string, ack: boolean): OrchScreenState {
+  const messages = next.messages;
+  let changed = false;
+  const stamped = messages.map((message, index) => {
+    if (message.at) return message;
+    const fresh = index >= before;
+    const asked = ack && message.role === "user" && index === messages.length - 1;
+    if (!fresh && !asked) return message;
+    changed = true;
+    return { ...message, at };
+  });
+  return changed ? { ...next, messages: stamped } : next;
+}
+
+function reduceOrchScreenRaw(state: OrchScreenState, action: OrchScreenAction): OrchScreenState {
   if (action.type === "reset") return initialOrchScreen(state.ownSession);
   if (action.type === "task-status") {
     const status = asTaskStatus(action.status);

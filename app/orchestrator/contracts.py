@@ -589,6 +589,8 @@ class OrchEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     seq: int
     session_id: str = ""
+    # Время записи события (ISO UTC). По нему чат ставит карточки сбоев между репликами.
+    created_at: str = ""
 
 
 class ClassifyResult(BaseModel):
