@@ -42,6 +42,13 @@ async def block_pipeline_autorun_on_startup(session: AsyncSession) -> dict[str, 
     except Exception:  # noqa: BLE001
         logger.debug("STARTUP GUARD: expire_dead_local_leases failed", exc_info=True)
 
+    try:
+        from app.services.step_global_lock import force_unlock_split_lock
+
+        force_unlock_split_lock()
+    except Exception:  # noqa: BLE001
+        logger.debug("STARTUP GUARD: force_unlock_split_lock failed", exc_info=True)
+
     projects = (await session.execute(select(Project))).scalars().all()
     ready_statuses = set(TRANSITIONS.keys())
 

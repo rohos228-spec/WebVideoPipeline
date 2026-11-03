@@ -124,6 +124,11 @@ def cancel_advance_task(project_id: int) -> bool:
     _interrupt_browser_for_project(project_id)
     task = _advance_tasks.get(project_id)
     if task is not None and not task.done():
+        # Защита от повторной отмены: если задача уже в процессе отмены (cancelling),
+        # повторный task.cancel() с интервалом в миллисекунды прерывает саму процедуру
+        # очистки (cleanup / release lock / rollback), оставляя замок зависшим в памяти.
+        if hasattr(task, "cancelling") and task.cancelling() > 0:
+            return True
         task.cancel()
         return True
     return False
