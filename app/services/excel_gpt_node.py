@@ -574,19 +574,29 @@ def active_node_key(project: Project) -> str | None:
 
 
 def active_key_belongs_to_other_slot(project: Project, node_key: str | None, slot: int) -> bool:
-    """True — active key указывает на ноду ДРУГОГО линейного слота.
+    """True — active key указывает на ноду ДРУГОГО линейного слота или на ноду, которой нет.
 
     Пример (#10/#12/#14, 2026-10-21): в enriching_2 остался ключ
     n_excel_gpt_1 (slotIndex=1, уже в completed_keys) — шаг «пропускал GPT
     как leftover tick» и ставил enrich_2_ready, второе обогащение не шло.
-    Overflow/sd-ноды (slot 0) и ключи вне канваса не трогаем.
+    Overflow/sd-ноды (slot 0) не трогаем, ключ удалённой ноды резолвим заново.
     """
-    if not node_key:
+    from app.services.canvas_graph import canvas_graph_from_meta
+
+    key = str(node_key or "").strip()
+    if not key or not (1 <= int(slot) <= MAX_EXCEL_GPT_SLOTS):
         return False
-    key_slot = slot_for_excel_gpt_node_key(project, node_key)
-    if not key_slot:
+    if resolve_excel_gpt_node_key_for_slot(project, slot) == key:
         return False
-    return int(key_slot) != int(slot)
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    nodes = [n for n in (canvas_graph_from_meta(meta) or {}).get("nodes") or [] if isinstance(n, dict)]
+    if not nodes:
+        return False
+    for n in nodes:
+        if str(n.get("id") or "").strip() == key:
+            key_slot = slot_index_from_node(n)
+            return bool(key_slot) and int(key_slot) != int(slot)
+    return True
 
 
 def node_config(project: Project, node_key: str) -> dict[str, Any]:

@@ -43,7 +43,7 @@ def test_helper_flags_key_of_other_linear_slot_only() -> None:
     assert active_key_belongs_to_other_slot(p, "n_excel_gpt_2", 2) is False
     # overflow (slot 0) живёт в enriching_1 — не трогаем
     assert active_key_belongs_to_other_slot(p, "n_excel_gpt_fw", 1) is False
-    assert active_key_belongs_to_other_slot(p, "unknown", 2) is False
+    assert active_key_belongs_to_other_slot(p, "unknown", 2) is True
     assert active_key_belongs_to_other_slot(p, None, 2) is False
 
 

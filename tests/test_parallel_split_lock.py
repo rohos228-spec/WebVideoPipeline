@@ -159,3 +159,37 @@ async def test_video_fail_counter_reset(env, monkeypatch) -> None:
             assert not (fr.attrs or {}).get(gv.VIDEO_SKIP_ATTR)
     finally:
         await engine.dispose()
+
+@pytest.mark.asyncio
+async def test_split_lock_released_on_cancel_during_acquire(monkeypatch) -> None:
+    """Если при ожидании lease случилась отмена/сбой, _SPLIT_LOCK не зависает."""
+    from app.services.step_global_lock import _SPLIT_LOCK, acquire_step_lock, force_unlock_split_lock
+
+    force_unlock_split_lock()
+    assert not _SPLIT_LOCK.locked()
+
+    async def fail_acquire(*a, **kw):
+        raise asyncio.CancelledError("test timeout")
+
+    monkeypatch.setattr("app.services.work_lease.acquire", fail_acquire)
+
+    lock = acquire_step_lock("split")
+    with pytest.raises(asyncio.CancelledError):
+        await lock.__aenter__()
+
+    # КРИТИЧЕСКАЯ ПРОВЕРКА: _SPLIT_LOCK обязан быть отпущен!
+    assert not _SPLIT_LOCK.locked(), "_SPLIT_LOCK остался заблокирован после CancelledError!"
+
+
+@pytest.mark.asyncio
+async def test_force_unlock_split_lock() -> None:
+    """force_unlock_split_lock успешно сбрасывает зависший замок."""
+    from app.services.step_global_lock import _SPLIT_LOCK, force_unlock_split_lock
+
+    force_unlock_split_lock()
+    await _SPLIT_LOCK.acquire()
+    assert _SPLIT_LOCK.locked()
+
+    released = force_unlock_split_lock()
+    assert released is True
+    assert not _SPLIT_LOCK.locked()

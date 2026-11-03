@@ -2307,9 +2307,6 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           </div>
         </div>
         <div className="flex items-center gap-2.5">
-          <span className="hidden text-[11px] text-white/40 sm:inline">
-            настройки и история общие для Studio
-          </span>
           {projectId != null && (
             <span className="rounded-full border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
               проект #{projectId}
@@ -2321,25 +2318,15 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               onClick={() => setAssistantOpen((v) => !v)}
               title="Помощник промпта: стиль → запрос → собранный промпт"
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition",
+                "inline-flex items-center rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition",
                 assistantOpen
                   ? "border-[#22d3ee]/50 bg-[#22d3ee]/15 text-[#22d3ee]"
                   : "border-white/10 bg-white/[0.03] text-white/60 hover:border-[#22d3ee]/40 hover:bg-[#22d3ee]/10 hover:text-white",
               )}
             >
-              <Sparkles className="h-3 w-3" />
               Помощник
             </button>
           )}
-          <a
-            href={outseeCreateUrl(mediaType, activeSlug)}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-white/60 transition hover:border-white/25 hover:bg-white/[0.07] hover:text-white"
-          >
-            outsee.io
-            <ExternalLink className="h-3 w-3" />
-          </a>
         </div>
       </header>
 
@@ -2591,7 +2578,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       )}
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent px-2 py-1.5">
                         <div className="truncate font-mono text-[9px] font-semibold text-white/80">{item.label}</div>
-                        {item.project_slug && (
+                        {item.project_slug && !["outsee", "local", "kie", "via"].includes(item.project_slug.toLowerCase()) && (
                           <div className="truncate text-[8px] text-white/45">{item.project_slug}</div>
                         )}
                       </div>
@@ -2696,7 +2683,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           >
             {selected?.preview_url &&
             selected.status !== "queued" &&
-            selected.status !== "processing" ? (
+            selected.status !== "processing" &&
+            selected.status !== "failed" ? (
               <div className="flex flex-col items-center w-full my-auto">
                 <div className="group relative flex max-h-[calc(100vh-360px)] max-w-full items-center justify-center w-full">
                   {selected.kind === "video" ? (

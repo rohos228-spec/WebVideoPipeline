@@ -304,8 +304,9 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
                 )
         if _step_lock_cm is not None:
             try:
-                await _step_lock_cm.release(session=None if _step_failed else session)
-            except Exception:  # noqa: BLE001
+                # shield гарантирует, что release() не прервётся второй отменой при STOP
+                await asyncio.shield(_step_lock_cm.release(session=None if _step_failed else session))
+            except BaseException:  # noqa: BLE001 — перехватываем в том числе CancelledError
                 pass
         unregister_advance_task(pid)
         clear_stop(pid)
