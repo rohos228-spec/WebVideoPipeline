@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Calculator, Loader2, Play, Square, Trash2, Upload } from "lucide-react";
+import { Bot, Calculator, Download, FileText, Loader2, Play, Square, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api, type StyleAgentEstimate, type StyleAgentSettings } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { MarkdownRenderer } from "@/components/gpt/markdown-renderer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +55,7 @@ export function StyleExtractPanel({ projectId, nodeKey }: { projectId: number; n
   const [open, setOpen] = useState(true);
   const [estimate, setEstimate] = useState<StyleAgentEstimate | null>(null);
   const [draft, setDraft] = useState<Partial<StyleAgentSettings>>({});
+  const [reportOpen, setReportOpen] = useState(false);
 
   const snap = useQuery({
     queryKey: [STYLE_AGENT_QUERY_KEY, projectId, nodeKey],
@@ -66,6 +68,14 @@ export function StyleExtractPanel({ projectId, nodeKey }: { projectId: number; n
   const job = data?.job;
   const running = job?.status === "running";
   const videos = data?.videos ?? [];
+  // Отчёт открывался только в ноде «Проверка стиля». Нет её на холсте — отчёт было не увидеть.
+  const report = useQuery({
+    queryKey: [STYLE_AGENT_QUERY_KEY, projectId, "report", job?.finishedAt ?? job?.status ?? ""],
+    queryFn: () => api.getStyleAgentReport(projectId),
+    enabled: reportOpen && !running,
+    staleTime: 5000,
+  });
+  const hasReport = !running && (job?.status === "done" || job?.status === "stopped" || !!data?.passport?.hasDraft);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: [STYLE_AGENT_QUERY_KEY, projectId] });
 
@@ -422,7 +432,7 @@ export function StyleExtractPanel({ projectId, nodeKey }: { projectId: number; n
                   {job.status === "running"
                     ? STAGE_LABELS[String(job.stage ?? "")] ?? job.stage
                     : job.status === "done"
-                      ? "Паспорт v2 и отчёт готовы → нода «Проверка стиля» (вкладка «Отчёт»)"
+                      ? "Паспорт v2 и отчёт готовы. Утвердить паспорт — в ноде «Проверка стиля»"
                       : job.status === "failed"
                         ? "Ошибка"
                         : job.status === "stopped"
@@ -443,6 +453,48 @@ export function StyleExtractPanel({ projectId, nodeKey }: { projectId: number; n
                 </div>
               ) : null}
               {job.error ? <div className="mt-0.5 text-red-300">{job.error}</div> : null}
+            </div>
+          ) : null}
+
+          {hasReport ? (
+            <div className="space-y-1.5 text-[9.5px]">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 font-semibold text-fuchsia-100 hover:text-white"
+                  onClick={() => setReportOpen((v) => !v)}
+                  data-testid="style-extract-report-toggle"
+                >
+                  <FileText className="h-3 w-3" />
+                  {reportOpen ? "Скрыть отчёт" : "Показать отчёт"}
+                </button>
+                <a
+                  className="inline-flex items-center gap-1 text-fuchsia-200 underline-offset-2 hover:underline"
+                  href={api.styleReportMdUrl(projectId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="style_report.md: планы с таймкодами, связка закадра, сценарий, приёмы, blueprint"
+                >
+                  <Download className="h-3 w-3" />
+                  .md
+                </a>
+              </div>
+              {reportOpen ? (
+                report.isLoading ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : report.isError ? (
+                  <div className="text-red-300">{errorMessageFromUnknown(report.error)}</div>
+                ) : report.data?.report ? (
+                  <div
+                    className="nowheel max-h-[420px] overflow-auto rounded-md border border-white/10 bg-black/30 p-2 [&_table]:text-[9px] [&_td]:px-1.5 [&_td]:py-1 [&_th]:px-1.5 [&_th]:py-1"
+                    data-testid="style-extract-report"
+                  >
+                    <MarkdownRenderer content={report.data.report} />
+                  </div>
+                ) : (
+                  <div className="text-muted-foreground">Отчёт пуст — запустите разбор ещё раз.</div>
+                )
+              ) : null}
             </div>
           ) : null}
         </div>
