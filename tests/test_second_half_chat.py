@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ["tests.action_layer_support"]
+
 import json
 import re
 
@@ -10,13 +12,11 @@ from app.services import media_spend
 from app.services.action_layer import builtin_launch as bl
 from app.services.action_layer import publish_action as pa
 from app.services.action_layer import sound_cost as sc
-from app.services.action_layer.context import ActionCallError
 from app.services.action_layer.spec import ensure_builtin_actions
 from app.services.elevenlabs_api import MAX_POSTS_PER_SEGMENT
 from app.services.kie_catalog import CREDIT_USD, get_model
 from app.services.sfx_gen import SFX_MAX_POSTS
 from app.settings import settings
-from tests.action_layer_support import env
 
 BASE = "/api/action-layer"
 VO = "Это закадровый текст ролика про кофе, его хватит, чтобы озвучка имела смысл и цену."
@@ -31,6 +31,7 @@ def _builtin():
 def not_managed(monkeypatch):
     async def _no(pid):
         return False
+
     monkeypatch.setattr("app.services.actions_v1.managed_project_enabled", _no)
 
 
@@ -76,14 +77,20 @@ async def _files(env, pid, files: dict[str, str | bytes], **fields) -> Project:
 
 
 def _plan(*durations: float) -> str:
-    return json.dumps({"events": [
-        {"frame_number": 1, "t_start": float(i), "duration": d, "kind": "whoosh", "prompt": "whoosh"}
-        for i, d in enumerate(durations)]})
+    return json.dumps(
+        {
+            "events": [
+                {"frame_number": 1, "t_start": float(i), "duration": d, "kind": "whoosh", "prompt": "whoosh"}
+                for i, d in enumerate(durations)
+            ]
+        }
+    )
 
 
 async def _preview(env, params):
-    return await env.client.post(f"{BASE}/plans/preview",
-                                 json={"steps": [{"action_id": "step.run_step", "params": params}]})
+    return await env.client.post(
+        f"{BASE}/plans/preview", json={"steps": [{"action_id": "step.run_step", "params": params}]}
+    )
 
 
 def test_every_sound_step_is_launchable_and_priced_by_the_layer() -> None:
@@ -95,12 +102,15 @@ def test_every_sound_step_is_launchable_and_priced_by_the_layer() -> None:
     assert est.known and est.high == 12.5 and "по данным проекта" in est.basis
     assert bl.estimate_any_step({"step_code": "sfx_gen", "sound_credits": 0}).high == 0.0
     # Потолок ниже заявленной цены не подтверждается.
-    assert bl.estimate_any_step({"step_code": "audio", "sound_credits": 10,
-                                 "ceiling_credits": 5}).known is False
+    assert (
+        bl.estimate_any_step({"step_code": "audio", "sound_credits": 10, "ceiling_credits": 5}).known is False
+    )
     # Звукам не подставляется дефолтный потолок текстовых шагов.
     assert "ceiling_credits" not in bl.with_default_ceiling({"step_code": "sfx_gen"})
-    assert bl.with_default_ceiling({"step_code": "sfx_plan"})["ceiling_credits"] == \
-        bl.DEFAULT_TEXT_CEILING_CREDITS
+    assert (
+        bl.with_default_ceiling({"step_code": "sfx_plan"})["ceiling_credits"]
+        == bl.DEFAULT_TEXT_CEILING_CREDITS
+    )
 
 
 async def test_audio_is_priced_by_characters_of_elevenlabs(env, eleven) -> None:
@@ -131,7 +141,8 @@ async def test_audio_from_disk_is_free_and_without_text_or_key_is_refused(env, n
 
 
 async def test_audio_preview_refuses_missing_inputs_and_takes_declared_price(
-        env, not_managed, steps_open, no_eleven, monkeypatch) -> None:
+    env, not_managed, steps_open, no_eleven, monkeypatch
+) -> None:
     pid = await env.add_project(frames=1)
     await _files(env, pid, {"voiceover.txt": VO})
     refused = await _preview(env, {"project_id": pid, "step_code": "audio", "sound_credits": 50})
@@ -207,8 +218,9 @@ async def test_sfx_without_plan_is_refused_and_with_key_is_priced_by_seconds(env
     assert basis.notice is None and "3 звуков" in basis.basis
 
 
-async def test_sfx_without_key_is_local_synth_said_before_the_run(env, not_managed, steps_open,
-                                                                   no_eleven) -> None:
+async def test_sfx_without_key_is_local_synth_said_before_the_run(
+    env, not_managed, steps_open, no_eleven
+) -> None:
     pid = await env.add_project(frames=1)
     await _files(env, pid, {"sfx_plan.json": _plan(1.0)})
     basis = sc.basis_for("sfx_gen", await _project(env, pid))
@@ -236,8 +248,9 @@ async def test_sfx_switched_off_is_free_and_said(env, monkeypatch) -> None:
 
 
 def test_sfx_outcome_text_names_local_synth() -> None:
-    whole = sc.sfx_outcome_text({"sfx_degraded": True, "sfx_provider": "local_synth",
-                                 "sfx_degraded_reason": "нет ключа ElevenLabs"})
+    whole = sc.sfx_outcome_text(
+        {"sfx_degraded": True, "sfx_provider": "local_synth", "sfx_degraded_reason": "нет ключа ElevenLabs"}
+    )
     assert whole == "Звуки сделаны локальным синтезом (простые шумы), а не ElevenLabs: нет ключа ElevenLabs."
     part = sc.sfx_outcome_text({"sfx_degraded": True, "sfx_provider": "mixed", "sfx_synthetic_count": 2})
     assert "2 звуков заменены локальным синтезом" in part
@@ -261,7 +274,11 @@ class _Ctx:
 
 @pytest.mark.parametrize("code", ["sfx_gen", "assemble"])
 async def test_finished_sound_step_says_the_sounds_are_local(code) -> None:
-    meta = {"sfx_degraded": True, "sfx_provider": "local_synth", "sfx_degraded_reason": "нет ключа ElevenLabs"}
+    meta = {
+        "sfx_degraded": True,
+        "sfx_provider": "local_synth",
+        "sfx_degraded_reason": "нет ключа ElevenLabs",
+    }
     ctx = _Ctx({r"/projects/7": {"id": 7, "title": "Кофе", "status": "sfx_ready", "meta": meta}})
     state = await bl._poll_any_step(ctx, {"project_id": 7, "step_code": code}, {})
     assert state.done and state.ok
@@ -276,8 +293,12 @@ async def test_assemble_keeps_quiet_about_normal_elevenlabs_sounds() -> None:
 
 
 def _pub(approved=(), published=None, status="assembled", **meta):
-    project = {"id": 7, "status": status, "topic": "кофе",
-               "meta": {"published_platforms": published or {}, **meta}}
+    project = {
+        "id": 7,
+        "status": status,
+        "topic": "кофе",
+        "meta": {"published_platforms": published or {}, **meta},
+    }
     facts = {"platforms": [{"platform": p, "approved": p in approved} for p in pa.registry_platforms()]}
     return _Ctx({r"/projects/7": project, r"/projects/7/publications": facts})
 
@@ -291,7 +312,9 @@ async def test_publish_card_must_name_every_platform_the_step_will_post_to() -> 
     assert "на все площадки без публикации" in extra
     assert pa.PLATFORM_TITLES.get(plats[1], plats[1]) in extra
     rest = plats[1:]
-    assert await pa._platforms_expected(_pub(published={one: "u"}), {"project_id": 7, "platforms": rest}) is None
+    assert (
+        await pa._platforms_expected(_pub(published={one: "u"}), {"project_id": 7, "platforms": rest}) is None
+    )
     done = await pa._platforms_expected(_pub(published={one: "u"}), {"project_id": 7, "platforms": [one]})
     assert "уже опубликован" in done
 
@@ -330,8 +353,15 @@ async def test_finish_rule_and_next_step_reach_the_planner() -> None:
     async def empty(_pid):
         return []
 
-    nodes = ProjectNodes(meta_of=meta, frames_of=frames, project_of=lambda _t: 7, status_of=status,
-                         proposals_of=empty, blocked_of=empty, snapshots_of=empty)
+    nodes = ProjectNodes(
+        meta_of=meta,
+        frames_of=frames,
+        project_of=lambda _t: 7,
+        status_of=status,
+        proposals_of=empty,
+        blocked_of=empty,
+        snapshots_of=empty,
+    )
     block = await nodes.block("доведи ролик до готового mp4", task_id=1)
     assert FINISH_RULE in block and "step_code=music" in block
     plain = await nodes.block("покажи ноды", task_id=1)

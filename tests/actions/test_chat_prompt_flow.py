@@ -70,8 +70,13 @@ async def ccenv(env, prompts_root):  # noqa: F811
 async def _project(env, meta: dict | None = None) -> int:
     async with env.factory() as s:
         n = len((await s.execute(Project.__table__.select())).all())
-        p = Project(topic="tema", slug=f"pf-{env.tmp_path.name[-6:]}-{n}", status=ProjectStatus.new,
-                    meta=meta or _meta(), prompt_overrides={})
+        p = Project(
+            topic="tema",
+            slug=f"pf-{env.tmp_path.name[-6:]}-{n}",
+            status=ProjectStatus.new,
+            meta=meta or _meta(),
+            prompt_overrides={},
+        )
         s.add(p)
         await s.commit()
         return int(p.id)
@@ -143,8 +148,12 @@ async def test_full_flow_propose_apply_tail_rollback_tail(ccenv) -> None:
     assert nothing.steps == [] and "нечего" in nothing.reason
 
     # Откат словами живого прогона: нода «первая работа с гпт», проект назван.
-    for text in (f"откати правку промта первой работы с гпт в проекте {pid}", "верни промт как было",
-                 "откати последнее изменение", "откати правку промта"):
+    for text in (
+        f"откати правку промта первой работы с гпт в проекте {pid}",
+        "верни промт как было",
+        "откати последнее изменение",
+        "откати правку промта",
+    ):
         step = _only(await chat_undo.resolve(text, operators=[CHAT]), "change.rollback")
         assert step["params"] == {"target": applied["target"], "expected_version": applied["version"]}, text
         assert step["expected"].startswith("Откатить правку промта ноды «Работа с GPT»"), text
@@ -188,7 +197,10 @@ async def test_cards_name_node_project_and_change_not_ids(ccenv) -> None:
     assert "станет таким, каким был до правки" in effect and "уберётся «Пиши коротко.»" in effect
     assert "этот откат тоже можно отменить" in effect
     assert "project:" not in card["title"] + effect and "верси" not in card["title"]
-    assert card.get("cost_text") in (None, "бесплатно: платных шагов нет") or card["cost_estimate"] in (None, 0)
+    assert card.get("cost_text") in (None, "бесплатно: платных шагов нет") or card["cost_estimate"] in (
+        None,
+        0,
+    )
 
 
 async def test_several_pending_asks_which_with_node_and_project(ccenv) -> None:
@@ -204,8 +216,10 @@ async def test_several_pending_asks_which_with_node_and_project(ccenv) -> None:
     assert "например «примени правку промта в проекте" in plan.reason
     assert not _HEX.search(plan.reason)
     # Проект назван — его правка.
-    step = _only(await chat_proposals.resolve(f"примени правку промта в проекте {second}",
-                                              operators=[CHAT]), "change.apply")
+    step = _only(
+        await chat_proposals.resolve(f"примени правку промта в проекте {second}", operators=[CHAT]),
+        "change.apply",
+    )
     view = await chat_proposals.describe_proposal(step["params"]["proposal_id"])
     assert view.project_id == second
 
@@ -279,7 +293,12 @@ def test_phrases() -> None:
     for text in ("отмени предложение правки", "не применяй правку", "отклони неприменённую правку"):
         assert chat_proposals.reject_phrase(text) and not chat_proposals.apply_phrase(text), text
     # Новая правка или вопрос — это решает планёр, а не готовый план.
-    for text in ("примени правку: допиши строку «Пиши коротко»", "как применить правку?",
-                 "допиши в конец промта строку", "откати правку промта", "отмени последнее"):
+    for text in (
+        "примени правку: допиши строку «Пиши коротко»",
+        "как применить правку?",
+        "допиши в конец промта строку",
+        "откати правку промта",
+        "отмени последнее",
+    ):
         assert not chat_proposals.apply_phrase(text) and not chat_proposals.reject_phrase(text), text
     assert chat_undo.kinds_of("откати правку промта") >= {"prompt_version"}

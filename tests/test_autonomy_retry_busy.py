@@ -12,7 +12,9 @@ from app.services.action_layer import node_failure as nf
 
 
 def test_connect_error_is_provider_failure() -> None:
-    err = "GPT: пустой ответ: GPT(chat/stream) пустой output после ConnectError: All connection attempts failed"
+    err = (
+        "GPT: пустой ответ: GPT(chat/stream) пустой output после ConnectError: All connection attempts failed"
+    )
     assert nf.classify(errors=[err], rejects=[], frames=3, is_check=False)["code"] == "provider_error"
 
 

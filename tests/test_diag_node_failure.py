@@ -302,7 +302,10 @@ def test_failure_goal_adds_node_failure_read():
     out = failure_reads(plan, "проект 26: найди саму причину ошибки в ИИ-редакторе сцен", None)
     assert [s.action for s in out] == ["diag.node_failure", "montage.get_board"]
     assert out[0].params == {"project_id": 26}
-    assert failure_reads([], "в 26 проекте найди причину, почему нода падала", None)[0].params["project_id"] == 26
+    assert (
+        failure_reads([], "в 26 проекте найди причину, почему нода падала", None)[0].params["project_id"]
+        == 26
+    )
     fix = [PlanStep(action="node.set_model", params={"project_id": 26}, expected="м", mutating=True)]
     assert failure_reads(fix, "найди причину ошибки в проекте 26", None) == fix
 
@@ -320,7 +323,10 @@ def test_bare_fix_after_diag_names_project():
     for goal in ("почини", "исправь это", "а можешь исправить", "сделай как предложил", "почини сам!"):
         assert "проекте 30" in fix_after_diag_goal(goal, 30), goal
     assert fix_after_diag_goal("почини", None) == "почини"
-    assert fix_after_diag_goal("почини картинку кадра 3 в проекте 4", 30) == "почини картинку кадра 3 в проекте 4"
+    assert (
+        fix_after_diag_goal("почини картинку кадра 3 в проекте 4", 30)
+        == "почини картинку кадра 3 в проекте 4"
+    )
 
 
 def test_plan_fix_from_diag_takes_first_action(monkeypatch):
@@ -330,10 +336,16 @@ def test_plan_fix_from_diag_takes_first_action(monkeypatch):
     from app.services import orchestrator_autonomy_run as run
 
     async def fake(app, pid, op):
-        return {"fix_options": [
-            {"action": "node.output", "params": {"project_id": pid}, "title_ru": "проверить"},
-            {"action": "step.run_step", "params": {"project_id": pid, "step_code": "split"}, "title_ru": "довести"},
-        ]}
+        return {
+            "fix_options": [
+                {"action": "node.output", "params": {"project_id": pid}, "title_ru": "проверить"},
+                {
+                    "action": "step.run_step",
+                    "params": {"project_id": pid, "step_code": "split"},
+                    "title_ru": "довести",
+                },
+            ]
+        }
 
     monkeypatch.setattr(run, "diagnose", fake)
     plan = asyncio.run(failure_scope.plan_fix_from_diag(30))
@@ -355,14 +367,18 @@ def test_fix_with_diag_replaces_planner_guess(monkeypatch):
     from app.orchestrator.agents import failure_scope as fs
     from app.orchestrator.contracts import PlanStep
 
-    split = PlanStep(action="step.run_step", params={"project_id": 30, "step": "split"}, expected="x", mutating=True)
+    split = PlanStep(
+        action="step.run_step", params={"project_id": 30, "step": "split"}, expected="x", mutating=True
+    )
 
     async def fake(pid):
         return [split]
 
     monkeypatch.setattr(fs, "plan_fix_from_diag", fake)
     diag = PlanStep(action="diag.node_failure", params={"project_id": 30}, expected="x")
-    rerun = PlanStep(action="step.run_step", params={"project_id": 30, "step": "excel_gpt"}, expected="x", mutating=True)
+    rerun = PlanStep(
+        action="step.run_step", params={"project_id": 30, "step": "excel_gpt"}, expected="x", mutating=True
+    )
     out = asyncio.run(fs.fix_with_diag([diag, rerun], "в проекте 30 нода GPT упала, найди причину и исправь"))
     assert [s.params.get("step") for s in out] == [None, "split"]
     assert asyncio.run(fs.fix_with_diag([diag, rerun], "найди причину сбоя в проекте 30")) == [diag, rerun]
@@ -377,7 +393,11 @@ def test_content_fix_takes_exact_cell_edits(monkeypatch):
     async def fake(ctx, params):
         return {
             "fix_options": [
-                {"action": "step.run_step", "params": {"project_id": 26, "step": "split"}, "title_ru": "заново"},
+                {
+                    "action": "step.run_step",
+                    "params": {"project_id": 26, "step": "split"},
+                    "title_ru": "заново",
+                },
                 {
                     "action": "shot.edit_cell_voiceover",
                     "params": {"project_id": 26, "parent_uuid": "u3", "voiceover": "Убегать поздно"},
@@ -406,9 +426,13 @@ def test_check_prompts_is_content_check_not_listing():
     from app.orchestrator.agents.failure_scope import content_check_scope
     from app.orchestrator.contracts import PlanStep
 
-    listing = [PlanStep(action="report.gpt_data", params={"project_id": 26, "preset": "image_prompts"}, expected="x")]
+    listing = [
+        PlanStep(action="report.gpt_data", params={"project_id": 26, "preset": "image_prompts"}, expected="x")
+    ]
     out = content_check_scope(listing, "проверь промты картинок в проекте 26")
-    assert [(s.action, s.params) for s in out] == [("diag.content_checks", {"project_id": 26, "step": "img_pr"})]
+    assert [(s.action, s.params) for s in out] == [
+        ("diag.content_checks", {"project_id": 26, "step": "img_pr"})
+    ]
     assert content_check_scope(listing, "покажи промты картинок в проекте 26") == listing
 
 
@@ -426,7 +450,9 @@ def test_summary_drops_quoted_request():
 
     goal = "проверь промты картинок в проекте 26"
     text = "Проверка промтов картинок в проекте #26 завершилась: расхождений нет.  «проверь промты картинок в проекте 26»"
-    assert drop_goal_quote(text, goal) == "Проверка промтов картинок в проекте #26 завершилась: расхождений нет."
+    assert (
+        drop_goal_quote(text, goal) == "Проверка промтов картинок в проекте #26 завершилась: расхождений нет."
+    )
     advice = "Расхождений нет. Чтобы проверить снова, напишите «проверь промты картинок в проекте 7»."
     assert drop_goal_quote(advice, goal) == advice
 
@@ -434,7 +460,9 @@ def test_summary_drops_quoted_request():
 def test_budget_stop_is_its_own_cause_and_never_auto_retried() -> None:
     from app.services import orchestrator_autonomy as oa
 
-    cause = nf.classify(errors=["потолок запуска исчерпан: $0.31 из $0.30 (проект #10)"], rejects=[], frames=3, is_check=False)
+    cause = nf.classify(
+        errors=["потолок запуска исчерпан: $0.31 из $0.30 (проект #10)"], rejects=[], frames=3, is_check=False
+    )
     assert cause["code"] == "budget_cap"
     opts = nf.fix_options(cause, project_id=10, node_key="n_image_prompts", step_code="img_pr")
     assert [o["action"] for o in opts] == ["step.run_step"]
@@ -447,7 +475,9 @@ def test_project_text_budget_suggests_raising_it_not_retry() -> None:
     """Кончился бюджет текстов проекта: первая подсказка — поднять его, автоматически не делается."""
     from app.services import orchestrator_autonomy as oa
 
-    cause = nf.classify(errors=["бюджет исчерпан: $0.15 из $0.10 (проект #26)"], rejects=[], frames=3, is_check=False)
+    cause = nf.classify(
+        errors=["бюджет исчерпан: $0.15 из $0.10 (проект #26)"], rejects=[], frames=3, is_check=False
+    )
     assert cause["code"] == "budget_cap"
     assert cause["project_budget"] == {"spent_usd": 0.15, "budget_usd": 0.1}
     opts = nf.fix_options(cause, project_id=26, node_key="n_script", step_code="script")
@@ -466,7 +496,9 @@ def test_suggested_budget_is_round_and_above_current() -> None:
 
 def test_budget_already_raised_says_so_and_offers_only_retry() -> None:
     """Ошибка ноды помнит старый лимит $0.10, а владелец уже поставил $10: не просить поднять снова."""
-    cause = nf.classify(errors=["бюджет исчерпан: $0.15 из $0.10 (проект #26)"], rejects=[], frames=3, is_check=False)
+    cause = nf.classify(
+        errors=["бюджет исчерпан: $0.15 из $0.10 (проект #26)"], rejects=[], frames=3, is_check=False
+    )
     raised = nf.note_current_budget(cause, 10.0)
     assert raised["project_budget"]["raised"] is True
     assert "сейчас бюджет $10" in raised["explain_ru"] and "повторить" in raised["explain_ru"]

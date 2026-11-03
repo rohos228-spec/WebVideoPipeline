@@ -6,6 +6,7 @@ Checked statically via AST, so heavy modules are not imported. Imports inside
 code that keeps importing a name from the module it lived in before (live stand crash:
 ``lints.new_secret_hits`` imported ``_CREDENTIAL_TEXT`` from ``observation`` instead of ``redact``).
 """
+
 from __future__ import annotations
 
 import ast
@@ -36,7 +37,9 @@ def _collect_targets(t, out: set[str]) -> None:
         _collect_targets(t.value, out)
 
 
-def _walk_module_level(body, mod: str, names: set[str], stars: list[str], flags: dict, is_pkg: bool = False) -> None:
+def _walk_module_level(
+    body, mod: str, names: set[str], stars: list[str], flags: dict, is_pkg: bool = False
+) -> None:
     for node in body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             names.add(node.name)
@@ -194,9 +197,10 @@ def sweep(root: Path | None = None) -> tuple[int, list[str], list[str]]:
             if isinstance(node, ast.Import):
                 for a in node.names:
                     if a.name.startswith("app.") and mod_path(a.name) is None:
-                        broken.append(f"{f.relative_to(ROOT).as_posix()}:{node.lineno}: module {a.name} not found")
+                        broken.append(
+                            f"{f.relative_to(ROOT).as_posix()}:{node.lineno}: module {a.name} not found"
+                        )
     return checked, guarded_hits, broken
-
 
 
 def test_every_app_from_import_resolves() -> None:

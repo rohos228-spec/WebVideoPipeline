@@ -47,17 +47,30 @@ def _queue_plan(ids: list[int]) -> list[PlanStep]:
     reads = [PlanStep(action="project.status", params={"project_id": pid}) for pid in ids]
     return reads + [
         PlanStep(action="queue.set_parallel", params={"workers": len(ids)}, mutating=True, risk="medium"),
-        PlanStep(action="queue.enqueue_many", params={"project_ids": ids, "enable_auto_mode": True,
-                                                      "mode": "until_node", "target_node_type": "images"},
-                 mutating=True, risk="high"),
+        PlanStep(
+            action="queue.enqueue_many",
+            params={
+                "project_ids": ids,
+                "enable_auto_mode": True,
+                "mode": "until_node",
+                "target_node_type": "images",
+            },
+            mutating=True,
+            risk="high",
+        ),
     ]
 
 
-_META = {"project.status": READ_META, "queue.enqueue_many": QUEUE_META, "queue.set_parallel": PARALLEL_META,
-         "step.run_step": {"risk": "high", "read_only": False, "destructive": False, "paid": True}}
+_META = {
+    "project.status": READ_META,
+    "queue.enqueue_many": QUEUE_META,
+    "queue.set_parallel": PARALLEL_META,
+    "step.run_step": {"risk": "high", "read_only": False, "destructive": False, "paid": True},
+}
 
 
 # --- #207: карточка запуска нескольких проектов без круга «критик → планировщик» ---
+
 
 @pytest.mark.asyncio
 async def test_multi_project_launch_card_skips_critic(token: str) -> None:
@@ -65,11 +78,18 @@ async def test_multi_project_launch_card_skips_critic(token: str) -> None:
     del token
     actions = MetaActions(_META)
     critic = ScriptedCritic([])  # вызов критика упал бы: список вердиктов пуст
-    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(_queue_plan([5, 6, 7, 8, 9])), critic=critic)
+    rt = build_runtime(
+        actions=actions,
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(_queue_plan([5, 6, 7, 8, 9])),
+        critic=critic,
+    )
     set_runtime(rt)
     try:
-        task_id = await rt.supervisor.start_task("ph6-queue", "запусти 5 проектов параллельно до картинок: 5 6 7 8 9")
+        task_id = await rt.supervisor.start_task(
+            "ph6-queue", "запусти 5 проектов параллельно до картинок: 5 6 7 8 9"
+        )
         await rt.supervisor.wait(task_id, timeout=5)
         assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
         cards = [e for e in rt.bus.replay("ph6-queue", 0) if e.type == "approval_required"]
@@ -82,18 +102,29 @@ async def test_multi_project_launch_card_skips_critic(token: str) -> None:
 def test_queue_launch_plan_only_queue_and_free_reads() -> None:
     actions = MetaActions(_META)
     assert sup._queue_launch_plan(_queue_plan([3, 4]), actions)
-    paid = PlanStep(action="step.run_step", params={"project_id": 3, "step_code": "img"}, paid=True,
-                    mutating=True, risk="high")
+    paid = PlanStep(
+        action="step.run_step",
+        params={"project_id": 3, "step_code": "img"},
+        paid=True,
+        mutating=True,
+        risk="high",
+    )
     assert not sup._queue_launch_plan(_queue_plan([3]) + [paid], actions)
     assert not sup._queue_launch_plan([PlanStep(action="project.status", params={"project_id": 3})], actions)
     # Шаг очереди без карточки (риск none и в реестре, и в плане) — критик остаётся.
-    low = MetaActions({**_META, "queue.enqueue_many": {**QUEUE_META, "risk": "none"},
-                       "queue.set_parallel": {**PARALLEL_META, "risk": "none"}})
+    low = MetaActions(
+        {
+            **_META,
+            "queue.enqueue_many": {**QUEUE_META, "risk": "none"},
+            "queue.set_parallel": {**PARALLEL_META, "risk": "none"},
+        }
+    )
     quiet = [step.model_copy(update={"risk": "none"}) for step in _queue_plan([3])]
     assert not sup._queue_launch_plan(quiet, low)
 
 
 # --- #208: на карточке все названные проекты ---
+
 
 def test_card_lists_all_ten_projects() -> None:
     """#208: в шаге были 3..12, карточка показывала «проекты 3, 4, 5, 6, 7, 8»."""
@@ -114,6 +145,7 @@ def test_card_compresses_long_project_lists_and_says_how_many_left() -> None:
 
 # --- #209: предел параллельных в фактах вопроса ---
 
+
 @pytest.mark.asyncio
 async def test_question_about_parallel_limit_has_the_number() -> None:
     """#209: «Сколько максимум может идти, в данных не указано» — число известно студии."""
@@ -123,8 +155,10 @@ async def test_question_about_parallel_limit_has_the_number() -> None:
         seen.append(action)
         return {"text_ru": "Проектов: 14; показано 14, идут сейчас 0."}
 
-    context = QuestionContext(runner=runner, queue_of=lambda: "Сколько проектов очереди генерации может идти "
-                                                              "одновременно (настройка студии): 10.")
+    context = QuestionContext(
+        runner=runner,
+        queue_of=lambda: "Сколько проектов очереди генерации может идти одновременно (настройка студии): 10.",
+    )
     facts = await context.gather("сколько проектов может идти одновременно", None)
     queue = [fact for fact in facts if fact.title == QUEUE_TITLE]
     assert queue and "одновременно (настройка студии): 10" in queue[0].text
@@ -153,29 +187,63 @@ def test_queue_capacity_text_reads_worker_setting(monkeypatch: pytest.MonkeyPatc
 
 # --- #213: правка только названной настройки ---
 
-_FULL = {"aspect_ratio": "9:16", "hero_mode": "auto", "image_generator": "gpt_image_2_vip",
-         "image_resolution": "1k", "title": "2 факта о лисах", "topic": "2 факта о лисах",
-         "video_generator": "veo_3_1_lite", "video_resolution": "720p"}
+_FULL = {
+    "aspect_ratio": "9:16",
+    "hero_mode": "auto",
+    "image_generator": "gpt_image_2_vip",
+    "image_resolution": "1k",
+    "title": "2 факта о лисах",
+    "topic": "2 факта о лисах",
+    "video_generator": "veo_3_1_lite",
+    "video_resolution": "720p",
+}
 
 
 def test_mass_image_model_patch_keeps_only_image_generator() -> None:
     """#213: в каждом проекте менялись название, тема, формат, герой, разрешение и модель видео."""
     goal = "во всех проектах поменяй модель картинок на дефолтную"
-    plan = [PlanStep(action="project.patch_settings_costly", params={"project_id": pid, **_FULL},
-                     mutating=True, risk="high") for pid in (1, 2, 3)]
+    plan = [
+        PlanStep(
+            action="project.patch_settings_costly",
+            params={"project_id": pid, **_FULL},
+            mutating=True,
+            risk="high",
+        )
+        for pid in (1, 2, 3)
+    ]
     scoped = scope_settings(plan, goal)
-    assert [step.params for step in scoped] == [{"project_id": pid, "image_generator": "gpt_image_2_vip"}
-                                                for pid in (1, 2, 3)]
+    assert [step.params for step in scoped] == [
+        {"project_id": pid, "image_generator": "gpt_image_2_vip"} for pid in (1, 2, 3)
+    ]
 
 
-@pytest.mark.parametrize(("goal", "params", "kept"), [
-    ("поставь в проекте 5 разрешение картинок 2k", {"image_resolution": "2k", "title": "x"}, {"image_resolution"}),
-    ("сделай проект 5 вертикальным", {"aspect_ratio": "9:16", "image_resolution": "1k"}, {"aspect_ratio"}),
-    ("поставь kling в проекте 5", {"video_generator": "kling_3_0", "image_resolution": "1k"}, {"video_generator"}),
-    ("переименуй проект 5 в «Лисы»", {"title": "Лисы", "topic": "Лисы"}, {"title"}),
-    # Ни одного названного ключа у одного проекта: шаг как был, решает карточка.
-    ("сделай как в проекте 3", {"hero_mode": "hero", "image_resolution": "2k"}, {"hero_mode", "image_resolution"}),
-])
+@pytest.mark.parametrize(
+    ("goal", "params", "kept"),
+    [
+        (
+            "поставь в проекте 5 разрешение картинок 2k",
+            {"image_resolution": "2k", "title": "x"},
+            {"image_resolution"},
+        ),
+        (
+            "сделай проект 5 вертикальным",
+            {"aspect_ratio": "9:16", "image_resolution": "1k"},
+            {"aspect_ratio"},
+        ),
+        (
+            "поставь kling в проекте 5",
+            {"video_generator": "kling_3_0", "image_resolution": "1k"},
+            {"video_generator"},
+        ),
+        ("переименуй проект 5 в «Лисы»", {"title": "Лисы", "topic": "Лисы"}, {"title"}),
+        # Ни одного названного ключа у одного проекта: шаг как был, решает карточка.
+        (
+            "сделай как в проекте 3",
+            {"hero_mode": "hero", "image_resolution": "2k"},
+            {"hero_mode", "image_resolution"},
+        ),
+    ],
+)
 def test_single_patch_keeps_named_keys(goal: str, params: dict[str, Any], kept: set[str]) -> None:
     step = PlanStep(action="project.patch_settings", params={"project_id": 5, **params}, mutating=True)
     out = scope_settings([step], goal)[0].params
@@ -183,12 +251,18 @@ def test_single_patch_keeps_named_keys(goal: str, params: dict[str, Any], kept: 
 
 
 def test_mass_patch_never_rewrites_titles_without_words() -> None:
-    plan = [PlanStep(action="project.patch_settings", params={"project_id": pid, "title": f"t{pid}",
-                                                              "topic": f"t{pid}", "hero_mode": "hero"})
-            for pid in (1, 2)]
+    plan = [
+        PlanStep(
+            action="project.patch_settings",
+            params={"project_id": pid, "title": f"t{pid}", "topic": f"t{pid}", "hero_mode": "hero"},
+        )
+        for pid in (1, 2)
+    ]
     out = scope_settings(plan, "во всех проектах сделай как надо")
-    assert [step.params for step in out] == [{"project_id": 1, "hero_mode": "hero"},
-                                             {"project_id": 2, "hero_mode": "hero"}]
+    assert [step.params for step in out] == [
+        {"project_id": 1, "hero_mode": "hero"},
+        {"project_id": 2, "hero_mode": "hero"},
+    ]
 
 
 def test_model_word_without_kind_allows_both_generators() -> None:
@@ -200,8 +274,13 @@ def test_unchanged_settings_are_found() -> None:
     from app.services.action_layer.builtin_wave5 import unchanged_settings
 
     project = {"image_generator": "gpt_image_2_vip", "aspect_ratio": "9_16", "title": "Лисы"}
-    params = {"project_id": 5, "image_generator": "gpt_image_2_vip", "aspect_ratio": "9:16",
-              "image_resolution": "1k", "title": "Лисы "}
+    params = {
+        "project_id": 5,
+        "image_generator": "gpt_image_2_vip",
+        "aspect_ratio": "9:16",
+        "image_resolution": "1k",
+        "title": "Лисы ",
+    }
     assert set(unchanged_settings(project, params)) == {"image_generator", "aspect_ratio", "title"}
 
 
@@ -213,8 +292,9 @@ async def test_changed_settings_only_drops_equal_keys(monkeypatch: pytest.Monkey
         return {"image_generator": "gpt_image_2_vip", "image_resolution": "2k"}
 
     monkeypatch.setattr(w5, "_get_project", project)
-    out = await w5.changed_settings_only({"project_id": 5, "image_generator": "gpt_image_2_vip",
-                                          "image_resolution": "1k"})
+    out = await w5.changed_settings_only(
+        {"project_id": 5, "image_generator": "gpt_image_2_vip", "image_resolution": "1k"}
+    )
     assert out == {"project_id": 5, "image_resolution": "1k"}
     same = await w5.changed_settings_only({"project_id": 5, "image_generator": "gpt_image_2_vip"})
     assert same == {"project_id": 5, "image_generator": "gpt_image_2_vip"}
@@ -223,26 +303,51 @@ async def test_changed_settings_only_drops_equal_keys(monkeypatch: pytest.Monkey
 @pytest.mark.asyncio
 async def test_supervisor_plan_has_only_the_image_model(token: str) -> None:
     del token
-    plan = [PlanStep(action="project.patch_settings_costly", params={"project_id": pid, **_FULL},
-                     mutating=True, risk="high") for pid in (1, 2)]
+    plan = [
+        PlanStep(
+            action="project.patch_settings_costly",
+            params={"project_id": pid, **_FULL},
+            mutating=True,
+            risk="high",
+        )
+        for pid in (1, 2)
+    ]
     actions = MockActions(risks={"project.patch_settings_costly": "high"})
-    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(plan), critic=ScriptedCritic(["approve"] * 3))
+    rt = build_runtime(
+        actions=actions,
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(plan),
+        critic=ScriptedCritic(["approve"] * 3),
+    )
     set_runtime(rt)
     try:
-        task_id = await rt.supervisor.start_task("ph6-mass", "во всех проектах поменяй модель картинок на дефолтную")
+        task_id = await rt.supervisor.start_task(
+            "ph6-mass", "во всех проектах поменяй модель картинок на дефолтную"
+        )
         await rt.supervisor.wait(task_id, timeout=5)
         saved = json.loads(rt.tasks.get(task_id)["plan_json"])
-        assert [step["params"] for step in saved] == [{"project_id": 1, "image_generator": "gpt_image_2_vip"},
-                                                      {"project_id": 2, "image_generator": "gpt_image_2_vip"}]
+        assert [step["params"] for step in saved] == [
+            {"project_id": 1, "image_generator": "gpt_image_2_vip"},
+            {"project_id": 2, "image_generator": "gpt_image_2_vip"},
+        ]
     finally:
         set_runtime(None)
 
 
 # --- #227: «спасибо, все» — вежливое завершение ---
 
-@pytest.mark.parametrize("text", ["спасибо, все", "Спасибо, всё!", "на этом все, спасибо", "все, спасибо большое",
-                                  "спасибо, больше ничего не надо"])
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "спасибо, все",
+        "Спасибо, всё!",
+        "на этом все, спасибо",
+        "все, спасибо большое",
+        "спасибо, больше ничего не надо",
+    ],
+)
 def test_thanks_with_closing_words_is_thanks(text: str) -> None:
     assert small_talk_reply(text) == THANKS_TEXT
 
@@ -260,10 +365,19 @@ def test_plain_thanks_is_not_a_decline(text: str) -> None:
 @pytest.mark.asyncio
 async def test_thanks_no_while_card_waits_reminds_about_buttons(token: str) -> None:
     del token
-    paid = PlanStep(action="paid_mock", params={"_wait": True, "_change_id": "chg-paid", "_cost": 1},
-                    expected="paid", paid=True, mutating=True)
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner([paid]))
+    paid = PlanStep(
+        action="paid_mock",
+        params={"_wait": True, "_change_id": "chg-paid", "_cost": 1},
+        expected="paid",
+        paid=True,
+        mutating=True,
+    )
+    rt = build_runtime(
+        actions=MockActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner([paid]),
+    )
     set_runtime(rt)
     session = "talk-no-card"
     try:
@@ -287,19 +401,30 @@ def test_stop_all_is_not_small_talk(text: str) -> None:
 
 # --- #202, #204: ссылки с пробелом после скобки ---
 
+
 def test_links_with_space_are_normalized() -> None:
     text = "[Скачать отчёт в HTML]( /api/projects/reports/projects_report_1.html) · [XLSX]( /api/projects/5/reports/a.xlsx )"
-    assert normalize_links(text) == ("[Скачать отчёт в HTML](/api/projects/reports/projects_report_1.html) · "
-                                     "[XLSX](/api/projects/5/reports/a.xlsx)")
+    assert normalize_links(text) == (
+        "[Скачать отчёт в HTML](/api/projects/reports/projects_report_1.html) · "
+        "[XLSX](/api/projects/5/reports/a.xlsx)"
+    )
     assert normalize_links("без ссылок (и скобки)") == "без ссылок (и скобки)"
 
 
 @pytest.mark.asyncio
 async def test_summary_from_model_has_clean_links() -> None:
     router = ScriptedRouter()
-    router.script = ["Отчёт готов: 14 проектов.\n[Скачать отчёт в HTML]( /api/projects/reports/projects_report_1.html)"]
-    note = StepNote("report.projects", "Отчёт", ok=True, text="14 проектов", readonly=True,
-                    links=["[Скачать отчёт (html)](/api/projects/reports/projects_report_1.html)"])
+    router.script = [
+        "Отчёт готов: 14 проектов.\n[Скачать отчёт в HTML]( /api/projects/reports/projects_report_1.html)"
+    ]
+    note = StepNote(
+        "report.projects",
+        "Отчёт",
+        ok=True,
+        text="14 проектов",
+        readonly=True,
+        links=["[Скачать отчёт (html)](/api/projects/reports/projects_report_1.html)"],
+    )
     facts = TaskFacts(goal="отчет по всем проектам", status="done", steps=[note])
     text = await TaskSummarizer(router).summarize(facts, run_id=_RUN)
     assert "]( " not in text
@@ -309,6 +434,7 @@ async def test_summary_from_model_has_clean_links() -> None:
 
 
 # --- #215: текст промта ноды в её описании ---
+
 
 class _Ctx:
     def __init__(self, base: Any) -> None:
@@ -333,7 +459,9 @@ async def test_node_describe_includes_prompt_text() -> None:
     ctx = _Ctx({"variant": "default", "text": long_text, "text_chars": len(long_text), "source": "default"})
     out = await ne._describe(ctx, {"project_id": 7, "node_key": "n_excel_gpt_1"})
     assert "/change-control/prompt-base" in ctx.calls
-    assert out["text_ru"].startswith("Нода «Работа с GPT». Промт: default.\nТекст промта «default»:\nТы редактор листа.")
+    assert out["text_ru"].startswith(
+        "Нода «Работа с GPT». Промт: default.\nТекст промта «default»:\nТы редактор листа."
+    )
     body = out["prompt_text"].split(":\n", 1)[1]
     assert len(body.split("\n(показаны")[0]) <= ne.PROMPT_SHOWN_CHARS
     assert f"из {len(long_text)} знаков)" in out["prompt_text"]
@@ -357,18 +485,30 @@ def test_node_describe_fact_fits_prompt() -> None:
 
 # --- #212: «смени модель на gpt» — картинки или ноды GPT? ---
 
-@pytest.mark.parametrize("goal", ["смени модель на gpt в проекте 5 и запусти его", "поставь модель гпт в проекте 5"])
+
+@pytest.mark.parametrize(
+    "goal", ["смени модель на gpt в проекте 5 и запусти его", "поставь модель гпт в проекте 5"]
+)
 def test_ambiguous_gpt_model_asks(goal: str) -> None:
     text = gpt_model_clarify_text(goal)
     assert "картинок проекта (GPT Image)" in text and "нод «Работа с GPT»" in text
     assert "в проекте 5" in text
 
 
-@pytest.mark.parametrize("goal", ["смени модель картинок на gpt в проекте 5", "поменяй модель у работы с gpt на дешевле",
-                                  "смени модель на flux в проекте 5", "какие модели у нод gpt в проекте 5",
-                                  "смени модель на gpt 5.6 sol в проекте 5", "смени модель на GPT 5.6 Sol",
-                                  "поставь gpt-5.6-luna модель в проекте 3", "смени модель на гпт имидж в проекте 5",
-                                  "смени модель на gpt terra"])
+@pytest.mark.parametrize(
+    "goal",
+    [
+        "смени модель картинок на gpt в проекте 5",
+        "поменяй модель у работы с gpt на дешевле",
+        "смени модель на flux в проекте 5",
+        "какие модели у нод gpt в проекте 5",
+        "смени модель на gpt 5.6 sol в проекте 5",
+        "смени модель на GPT 5.6 Sol",
+        "поставь gpt-5.6-luna модель в проекте 3",
+        "смени модель на гпт имидж в проекте 5",
+        "смени модель на gpt terra",
+    ],
+)
 def test_clear_model_requests_do_not_ask(goal: str) -> None:
     assert gpt_model_clarify_text(goal) == ""
 
@@ -389,8 +529,13 @@ async def test_planner_asks_instead_of_guessing_image_model() -> None:
 async def test_ambiguous_gpt_model_answers_question_without_card(token: str) -> None:
     del token
     router = ScriptedRouter()
-    rt = build_runtime(actions=MockActions(risks={"project.patch_settings": "medium"}), validators=MockValidators(),
-                       router=router, planner=RouterPlanner(router), critic=ScriptedCritic([]))
+    rt = build_runtime(
+        actions=MockActions(risks={"project.patch_settings": "medium"}),
+        validators=MockValidators(),
+        router=router,
+        planner=RouterPlanner(router),
+        critic=ScriptedCritic([]),
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("ph6-gpt", "смени модель на gpt в проекте 5 и запусти его")
@@ -407,8 +552,16 @@ def test_create_project_keeps_only_named_settings() -> None:
     from app.orchestrator.agents.settings_scope import scope_settings
     from app.orchestrator.contracts import PlanStep
 
-    step = PlanStep(action="project.create", params={"title": "тест", "topic": "тест", "aspect_ratio": "9:16",
-                                                     "hero_mode": "auto", "image_resolution": "2k"})
+    step = PlanStep(
+        action="project.create",
+        params={
+            "title": "тест",
+            "topic": "тест",
+            "aspect_ratio": "9:16",
+            "hero_mode": "auto",
+            "image_resolution": "2k",
+        },
+    )
     plain = scope_settings([step], "создай новый проект с темой «тест»")[0].params
     assert plain == {"title": "тест", "topic": "тест"}
     named = scope_settings([step], "создай вертикальный проект «тест» с героем в 2k")[0].params

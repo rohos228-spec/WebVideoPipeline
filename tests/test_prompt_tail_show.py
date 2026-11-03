@@ -45,15 +45,17 @@ async def test_prompt_start_is_still_the_default() -> None:
     text = await ne._prompt_excerpt(_Ctx(_base()), {"project_id": 7, "node_key": "n_excel_gpt_1"})
     assert "\nСтрока 1: правило" in text and "Пиши коротко." not in text
     assert "(показаны первые 1500 из" in text
-    short = await ne._prompt_excerpt(_Ctx(_base("Короткий промт без хвоста.")),
-                                     {"project_id": 7, "node_key": "n", "prompt_part": "end"})
+    short = await ne._prompt_excerpt(
+        _Ctx(_base("Короткий промт без хвоста.")), {"project_id": 7, "node_key": "n", "prompt_part": "end"}
+    )
     assert short == "Текст промта «cinematic»:\nКороткий промт без хвоста."
 
 
 @pytest.mark.asyncio
 async def test_truncated_base_never_claims_to_show_the_end() -> None:
-    text = await ne._prompt_excerpt(_Ctx(_base(truncated=True)),
-                                    {"project_id": 7, "node_key": "n", "prompt_part": "end"})
+    text = await ne._prompt_excerpt(
+        _Ctx(_base(truncated=True)), {"project_id": 7, "node_key": "n", "prompt_part": "end"}
+    )
     assert "последние" not in text and "(показаны первые" in text
 
 
@@ -73,8 +75,9 @@ def test_summarizer_quotes_the_tail_and_keeps_its_note() -> None:
         f"Текст промта «cinematic»:\n{body}\n(показаны последние {len(body)} из 9000 знаков)"
     )
     note = sm.StepNote("node.describe", "Показать настройки ноды", ok=True, text=note_text)
-    facts = sm.TaskFacts(goal="покажи конец промта первой работы с гпт в проекте 7", status="done",
-                         steps=[note])
+    facts = sm.TaskFacts(
+        goal="покажи конец промта первой работы с гпт в проекте 7", status="done", steps=[note]
+    )
     (item,) = sm.prompt_excerpts(facts)
     assert item.body == body
     assert item.tail == f"(показаны последние {len(body)} из 9000 знаков)"

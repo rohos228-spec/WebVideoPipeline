@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.models import Base
+
 # На этой линии полей SPEND_*_CAP_USD в Settings нет: spend_guard читает их через getattr.
 from app.services import actions_v1 as _actions_v1  # noqa: F401 - action_execution_controls в Base.metadata
 from app.services import kill_switch, spend_guard
@@ -51,7 +52,9 @@ async def db(tmp_path, monkeypatch):
 
 async def _gate(project_id: int, usd: float, run_id: str = "") -> object:
     try:
-        return await spend_guard.paid_gate(provider="kie", estimate_usd=usd, project_id=project_id, run_id=run_id)
+        return await spend_guard.paid_gate(
+            provider="kie", estimate_usd=usd, project_id=project_id, run_id=run_id
+        )
     except spend_guard.PaidCallBlocked as blocked:
         return blocked
 
@@ -79,7 +82,9 @@ async def test_project_cap_blocks_only_its_project(db, monkeypatch):
     monkeypatch.setitem(settings.__dict__, "spend_project_cap_usd", 0.5)
     first = await spend_guard.paid_gate(provider="kie", estimate_usd=0.4, project_id=7)
     results = await asyncio.gather(*(_gate(p, 0.3) for p in _PROJECTS))
-    blocked_projects = [p for p, item in zip(_PROJECTS, results) if isinstance(item, spend_guard.PaidCallBlocked)]
+    blocked_projects = [
+        p for p, item in zip(_PROJECTS, results, strict=True) if isinstance(item, spend_guard.PaidCallBlocked)
+    ]
     assert blocked_projects == [7]
     assert results[_PROJECTS.index(7)].code == "spend_cap_project"
     first.release()

@@ -254,8 +254,36 @@ def canon_project_refs(text: str) -> str:
 # «Да, запускай» в ответ на подсказку «запусти закадровый текст в проекте 26»: согласие без
 # названия шага. Без этого чат отвечал «не указан шаг» на собственную подсказку.
 _GO_WORDS = frozenset(
-    "да ага угу ок окей ok давай давайте го поехали запускай запусти делай сделай жми можно "
-    "конечно вперед вперёд хорошо ладно применяй примени включай дальше продолжай продолжи погнали".split()
+    [
+        "да",
+        "ага",
+        "угу",
+        "ок",
+        "окей",
+        "ok",
+        "давай",
+        "давайте",
+        "го",
+        "поехали",
+        "запускай",
+        "запусти",
+        "делай",
+        "сделай",
+        "жми",
+        "можно",
+        "конечно",
+        "вперед",
+        "вперёд",
+        "хорошо",
+        "ладно",
+        "применяй",
+        "примени",
+        "включай",
+        "дальше",
+        "продолжай",
+        "продолжи",
+        "погнали",
+    ]
 )
 _QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
 
@@ -420,10 +448,12 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     media_file = bool(_MEDIA_PATH_RE.search(norm)) and not (tokens and tokens[0] in _QUESTION_STARTS)
     sets_field = bool(
         _FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value or media_file
-    ) and not (
-        norm.rstrip().endswith("?")
-    )
-    if has_imperative(norm) or sets_field or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?")):
+    ) and not (norm.rstrip().endswith("?"))
+    if (
+        has_imperative(norm)
+        or sets_field
+        or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?"))
+    ):
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.task,
@@ -670,7 +700,9 @@ class MessageQueue:
                         # «нечего останавливать». Без стоп-слова это вопрос или просьба.
                         question = is_status_question(text) or is_plain_question(text)
                         decided = decided.model_copy(
-                            update={"mode": MessageMode.append} if question else {"mode": MessageMode.task, "tier": "strong"}
+                            update={"mode": MessageMode.append}
+                            if question
+                            else {"mode": MessageMode.task, "tier": "strong"}
                         )
                     if (
                         decided.mode is MessageMode.interrupt

@@ -336,7 +336,9 @@ def test_refit_parallel_follows_route_rule() -> None:
 
     plan = route_multi_launch(_queue_plan(list(range(3, 13))), _GOAL, 2)
     # Окно не шире потолка схемы queue.set_parallel (runtime_streams.WORKER_MAX).
-    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [min(10, WORKER_MAX)]
+    assert [s.params.get("workers") for s in plan if s.action == "queue.set_parallel"] == [
+        min(10, WORKER_MAX)
+    ]
     assert [
         s.params["workers"] for s in refit_parallel(plan, _GOAL, 2, 9) if s.action == "queue.set_parallel"
     ] == [min(9, WORKER_MAX)]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,9 +61,9 @@ def is_passthrough_node_type(node_type: str) -> bool:
 def _style_agent_node_state(project: Project, node_type: str) -> NodeRunStatus:
     """Статус нод агента стиля из meta.style_agent (ProjectStatus не участвует)."""
     meta = project.meta if isinstance(project.meta, dict) else {}
-    sa = meta.get("style_agent") if isinstance(meta.get("style_agent"), dict) else {}
-    job = sa.get("job") if isinstance(sa.get("job"), dict) else {}
-    passport = sa.get("passport") if isinstance(sa.get("passport"), dict) else {}
+    sa = cast(dict[str, Any], meta.get("style_agent") if isinstance(meta.get("style_agent"), dict) else {})
+    job = cast(dict[str, Any], sa.get("job") if isinstance(sa.get("job"), dict) else {})
+    passport = cast(dict[str, Any], sa.get("passport") if isinstance(sa.get("passport"), dict) else {})
     job_status = str(job.get("status") or "idle")
     if node_type == "style_extract":
         if job_status == "running":

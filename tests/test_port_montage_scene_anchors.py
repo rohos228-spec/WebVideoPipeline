@@ -61,10 +61,7 @@ def _bit(n: int, anchor: str, change: str = "") -> dict:
 
 async def _anchors(session: AsyncSession, project: Project) -> dict[int, list[str]]:
     board = await build_montage_board(session, project)
-    return {
-        fr["number"]: [r["якорь"] for r in fr.get("scene_anchor_rows") or []]
-        for fr in board["frames"]
-    }
+    return {fr["number"]: [r["якорь"] for r in fr.get("scene_anchor_rows") or []] for fr in board["frames"]}
 
 
 async def _frames(session: AsyncSession, project: Project) -> dict[int, Frame]:
@@ -87,9 +84,7 @@ async def test_scene_shows_anchors_held_by_its_shots(session: AsyncSession, proj
 
 
 @pytest.mark.asyncio
-async def test_merge_moves_right_anchors_into_merged_scene(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_merge_moves_right_anchors_into_merged_scene(session: AsyncSession, project: Project) -> None:
     session.add(project)
     a = _frame(project, 1, "aa" * 12, A_TEXT, bits=[_bit(1, "Тед Банди родился")])
     b = _frame(project, 2, "bb" * 12, B_TEXT, bits=[_bit(1, "Позже он переехал")])
@@ -168,9 +163,7 @@ async def test_saved_anchor_list_is_final_deleted_anchor_does_not_return(
     await session.flush()
 
     frames = list((await _frames(session, project)).values())
-    await apply_coverage_anchors(
-        session, project, head, frames, [{"якорь": "Тед Банди родился"}]
-    )
+    await apply_coverage_anchors(session, project, head, frames, [{"якорь": "Тед Банди родился"}])
     await session.flush()
 
     anchors = await _anchors(session, project)

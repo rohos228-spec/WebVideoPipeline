@@ -97,9 +97,6 @@ from app.web.routers import (
     nii67 as nii67_router,
 )
 from app.web.routers import (
-    publications as publications_router,
-)
-from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
@@ -131,6 +128,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     prompts as prompts_router,
+)
+from app.web.routers import (
+    publications as publications_router,
 )
 from app.web.routers import (
     ratings as ratings_router,
@@ -718,7 +718,7 @@ def create_app() -> FastAPI:
                         t.cancel()
                     if get_event_task in done:
                         try:
-                            evt = get_event_task.result()
+                            evt: dict | None = get_event_task.result()
                         except Exception:  # noqa: BLE001
                             break
                         # Уведомления чата: только своему арендатору, участнику — без сумм.

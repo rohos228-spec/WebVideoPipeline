@@ -352,7 +352,6 @@ except Exception:
 PUBLICATION_CODE_RU: dict[str, str] = {**_PUBLICATION_CODE_EXTRA_RU, **_REFUSALS}
 
 
-
 def _node_ru(key: object) -> str:
     """Название ноды для журнала («Работа с GPT 2»), а не ключ n_excel_gpt_2."""
     try:
@@ -361,6 +360,7 @@ def _node_ru(key: object) -> str:
         return node_key_ru(str(key or ""))
     except Exception:  # noqa: BLE001
         return str(key or "")
+
 
 def publication_code_text(code: Any) -> str:
     c = str(code or "").strip()

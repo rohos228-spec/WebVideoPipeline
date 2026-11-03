@@ -34,13 +34,20 @@ async def _project(meta: dict, video: bytes | None, tmp_path) -> int:
     import app.db as app_db
 
     async with app_db.SessionLocal() as s:
-        p = Project(slug=f"pub-{uuid.uuid4().hex[:8]}", topic="кофе на рассвете", status=ProjectStatus.assembled, meta=meta)
+        p = Project(
+            slug=f"pub-{uuid.uuid4().hex[:8]}",
+            topic="кофе на рассвете",
+            status=ProjectStatus.assembled,
+            meta=meta,
+        )
         s.add(p)
         await s.flush()
         if video is not None:
             f = tmp_path / "final.mp4"
             f.write_bytes(video)
-            s.add(Artifact(project_id=p.id, kind=ArtifactKind.final_video, uuid=uuid.uuid4().hex, path=str(f)))
+            s.add(
+                Artifact(project_id=p.id, kind=ArtifactKind.final_video, uuid=uuid.uuid4().hex, path=str(f))
+            )
         await s.commit()
         return int(p.id)
 

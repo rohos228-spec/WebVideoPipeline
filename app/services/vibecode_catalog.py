@@ -430,17 +430,6 @@ def read_node_model_fields(node: dict[str, Any] | None) -> tuple[str | None, str
     return model_id_of(node), "stable"
 
 
-def read_node_reasoning_effort(node: dict[str, Any] | None) -> str | None:
-    """Уровень рассуждений ноды: config.reasoningEffort или data.reasoningEffort."""
-    if not isinstance(node, dict):
-        return None
-    if not isinstance(node.get("data"), dict):
-        node = {"data": node}
-    from app.services.node_config import reasoning_effort_of
-
-    return reasoning_effort_of(node)
-
-
 def _node_data_dict(node: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(node, dict):
         return {}

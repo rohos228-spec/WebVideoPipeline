@@ -3,11 +3,12 @@
 
 from __future__ import annotations
 
+pytest_plugins = ["tests.action_layer_support"]
+
 from app.models import Project, ProjectStatus
 from app.services.action_layer import report_gpt as rg
 from app.services.action_layer.context import ActionCallError
 from app.settings import settings
-from tests.action_layer_support import env  # noqa: F401
 
 
 class FakeCtx:
@@ -23,14 +24,24 @@ class FakeCtx:
 
 async def _project(env) -> tuple[int, FakeCtx]:
     async with env.factory() as s:
-        p = Project(topic="совы", title="Совы", slug="sovy-member", status=ProjectStatus("images_ready"), meta={})
+        p = Project(
+            topic="совы", title="Совы", slug="sovy-member", status=ProjectStatus("images_ready"), meta={}
+        )
         s.add(p)
         await s.commit()
         pid = p.id
-    detail = {"id": pid, "slug": "sovy-member", "title": "Совы", "topic": "совы", "status": "images_ready",
-              "meta": {}, "prompt_overrides": {}}
-    return pid, FakeCtx({("GET", f"/projects/{pid}"): detail,
-                         ("GET", f"/projects/{pid}/run"): {"id": 1, "node_runs": []}})
+    detail = {
+        "id": pid,
+        "slug": "sovy-member",
+        "title": "Совы",
+        "topic": "совы",
+        "status": "images_ready",
+        "meta": {},
+        "prompt_overrides": {},
+    }
+    return pid, FakeCtx(
+        {("GET", f"/projects/{pid}"): detail, ("GET", f"/projects/{pid}/run"): {"id": 1, "node_runs": []}}
+    )
 
 
 async def test_member_gets_no_links_to_admin_only_report_files(env, monkeypatch) -> None:

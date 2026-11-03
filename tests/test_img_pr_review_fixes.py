@@ -17,8 +17,10 @@ from app.generation_options import image_prompt_missing
 from app.services import img_pr_batches as ipb
 from app.settings import settings
 
-STYLE = (" STYLE: Archival Noir Watercolor Grunge Dossier Poster Illustration, dark watercolor wash, "
-         "distressed printmaking, halftone dots, charcoal shadow masses.") * 4
+STYLE = (
+    " STYLE: Archival Noir Watercolor Grunge Dossier Poster Illustration, dark watercolor wash, "
+    "distressed printmaking, halftone dots, charcoal shadow masses."
+) * 4
 
 HOLLOW_REAL = [
     # #12 кадры 14–20
@@ -79,8 +81,9 @@ class _Reached(Exception):
 
 
 def _frame(n: int, prompt: str) -> SimpleNamespace:
-    return SimpleNamespace(id=n, number=n, uuid=f"{n:024x}", voiceover_text=f"vo {n}",
-                           image_prompt=prompt, attrs={}, status=None)
+    return SimpleNamespace(
+        id=n, number=n, uuid=f"{n:024x}", voiceover_text=f"vo {n}", image_prompt=prompt, attrs={}, status=None
+    )
 
 
 async def _images_gate(monkeypatch, frames) -> None:
@@ -104,8 +107,9 @@ async def _images_gate(monkeypatch, frames) -> None:
     monkeypatch.setattr("app.services.anim_pr_sidecar.ensure_anim_pr_sidecar", lambda pid: None)
     monkeypatch.setattr("app.services.artifact_recovery.recover_scene_images_from_disk", _no_recover)
     monkeypatch.setattr(gi, "is_skippable_empty_prompt", _past_gate)
-    project = SimpleNamespace(id=14, status=ProjectStatus.generating_images, meta={},
-                              data_dir=Path(tempfile.gettempdir()))
+    project = SimpleNamespace(
+        id=14, status=ProjectStatus.generating_images, meta={}, data_dir=Path(tempfile.gettempdir())
+    )
     await gi.run(_Session(), project, None)
 
 
@@ -142,12 +146,17 @@ def _runner_env(monkeypatch, tmp_path, frames, answer):
             return None
 
         async def ask_with_files(self, msg, attach, **_kw):
-            uuids = [ln.split(" = ")[1].strip() for ln in msg.splitlines()
-                     if ln.startswith("кадр ") and " = " in ln]
+            uuids = [
+                ln.split(" = ")[1].strip()
+                for ln in msg.splitlines()
+                if ln.startswith("кадр ") and " = " in ln
+            ]
             nums = [by_uuid[u].number for u in uuids if u in by_uuid]
             calls.append(nums)
-            return json.dumps({"ops": [op for u in uuids if u in by_uuid
-                                       for op in answer(by_uuid[u], len(calls))]}, ensure_ascii=False)
+            return json.dumps(
+                {"ops": [op for u in uuids if u in by_uuid for op in answer(by_uuid[u], len(calls))]},
+                ensure_ascii=False,
+            )
 
     async def _ctx(_project, **_kw):
         return list(frames), [], "", list(frames)
@@ -192,8 +201,10 @@ def _real(fr):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("numbers,no_source", [((5, 6, 7), {5, 6}), ((1, 2), {1})])
 async def test_mixed_batch_reasks_omitted_frame(monkeypatch, tmp_path, numbers, no_source) -> None:
-    frames = [SimpleNamespace(number=n, uuid=f"{n:024x}", voiceover_text=f"vo {n}",
-                              image_prompt=None, attrs={}) for n in numbers]
+    frames = [
+        SimpleNamespace(number=n, uuid=f"{n:024x}", voiceover_text=f"vo {n}", image_prompt=None, attrs={})
+        for n in numbers
+    ]
     omitted = [n for n in numbers if n not in no_source]
 
     def answer(fr, call_no):
@@ -214,8 +225,10 @@ async def test_mixed_batch_reasks_omitted_frame(monkeypatch, tmp_path, numbers, 
 
 @pytest.mark.asyncio
 async def test_partial_success_does_not_note_terminal_unusable(monkeypatch, tmp_path) -> None:
-    frames = [SimpleNamespace(number=n, uuid=f"{n:024x}", voiceover_text=f"vo {n}",
-                              image_prompt=None, attrs={}) for n in (1, 2)]
+    frames = [
+        SimpleNamespace(number=n, uuid=f"{n:024x}", voiceover_text=f"vo {n}", image_prompt=None, attrs={})
+        for n in (1, 2)
+    ]
 
     def answer(fr, _call_no):
         return _no_data(fr) if fr.number == 1 else _real(fr)
@@ -235,8 +248,10 @@ def test_error_code_and_plain_text() -> None:
 
     code, text = describe_error(ipb.ImgPrNoSourceData([6, 5]))
     assert code == "img_pr_no_scene_data" and code in ERROR_CATALOG
-    assert text == ("У кадров 5, 6 нет данных сцены (место, фон, действие) — "
-                    "сначала нужна работа с GPT, потом промты картинок.")
+    assert text == (
+        "У кадров 5, 6 нет данных сцены (место, фон, действие) — "
+        "сначала нужна работа с GPT, потом промты картинок."
+    )
     for word in ("img_pr", "generate_image_prompts", "place", "shot01"):
         assert word not in text
 
@@ -244,8 +259,14 @@ def test_error_code_and_plain_text() -> None:
 # --- шаг: 2-я попытка только если есть пропущенные кадры --------------------------------------
 
 
-async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False,
-                    prerun_allow_hollow: bool = False, clear_and_rerun: int | None = None):
+async def _run_step(
+    monkeypatch,
+    answer,
+    *,
+    prerun_runner: bool = False,
+    prerun_allow_hollow: bool = False,
+    clear_and_rerun: int | None = None,
+):
     """Настоящий раннер img_pr + настоящий шаг; GPT подменён, база — SQLite.
 
     ``answer(frame_number, call_no)`` → текст промта или None (кадр пропущен).
@@ -289,8 +310,11 @@ async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False,
         async def ask_with_files(self, msg, attach, **_kw):
             # Адресация батча; справочная карта uuid всего шага — не батч.
             head = msg.split("# uuid map")[0]
-            uuids = [ln.split(" = ")[1].strip() for ln in head.splitlines()
-                     if ln.startswith("кадр ") and " = " in ln]
+            uuids = [
+                ln.split(" = ")[1].strip()
+                for ln in head.splitlines()
+                if ln.startswith("кадр ") and " = " in ln
+            ]
             calls.append([int(u, 16) for u in uuids])
             ops = []
             for u in uuids:
@@ -323,17 +347,29 @@ async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False,
     monkeypatch.setattr("app.services.gpt_client.ApiGptClient", FakeGpt)
     monkeypatch.setattr(xgf, "run_under_xlsx_lock", _under_lock)
     monkeypatch.setattr(db_v2, "backfill_project_v2", _noop)
-    monkeypatch.setattr(generate_image_prompts, "_sheet_for_project",
-                        lambda p: SimpleNamespace(ensure_initialized=lambda **k: None))
+    monkeypatch.setattr(
+        generate_image_prompts,
+        "_sheet_for_project",
+        lambda p: SimpleNamespace(ensure_initialized=lambda **k: None),
+    )
     try:
         async with sessions() as session:
-            project = Project(id=2, slug="s", title="s", topic="s",
-                              status=ProjectStatus.generating_image_prompts, meta={})
+            project = Project(
+                id=2, slug="s", title="s", topic="s", status=ProjectStatus.generating_image_prompts, meta={}
+            )
             session.add(project)
             for n in (5, 6, 7):
-                session.add(Frame(project_id=2, number=n, uuid=f"{n:024x}", sort_key=n,
-                                  # main: шаг не идёт к модели без постановки кадра (место/фон/…).
-                                  voiceover_text=f"vo {n}", attrs={"place": "лес"}))
+                session.add(
+                    Frame(
+                        project_id=2,
+                        number=n,
+                        uuid=f"{n:024x}",
+                        sort_key=n,
+                        # main: шаг не идёт к модели без постановки кадра (место/фон/…).
+                        voiceover_text=f"vo {n}",
+                        attrs={"place": "лес"},
+                    )
+                )
             await session.commit()
             with patch.object(Project, "data_dir", property(lambda _: data)):
                 if prerun_runner:
@@ -357,8 +393,10 @@ async def _run_step(monkeypatch, answer, *, prerun_runner: bool = False,
                     with pytest.raises(Exception) as err:
                         await generate_image_prompts.run(session, project, SimpleNamespace())
             async with sessions() as s:
-                filled = {fr.number: (fr.image_prompt or "").strip()
-                          for fr in (await s.scalars(select(Frame))).all()}
+                filled = {
+                    fr.number: (fr.image_prompt or "").strip()
+                    for fr in (await s.scalars(select(Frame))).all()
+                }
         return calls, err.value, filled
     finally:
         await engine.dispose()

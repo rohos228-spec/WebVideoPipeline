@@ -91,7 +91,9 @@ def _run(project: int, group: str | None = "launch", action: str = _RUN) -> Plan
 
 
 def _status(project: int) -> PlanStep:
-    return PlanStep(action="project.status", params={"project_id": project}, risk="none", parallel_group="reads")
+    return PlanStep(
+        action="project.status", params={"project_id": project}, risk="none", parallel_group="reads"
+    )
 
 
 def _runtime(actions: _Registry, validators: MockValidators, steps: list[PlanStep]):
@@ -178,7 +180,11 @@ async def test_same_project_twice_runs_one_after_another(token: str) -> None:
     del token
     actions = _Registry(expect=2)
     actions.wait_for_all = False
-    plan = [_status(4), _run(4), _run(4).model_copy(update={"params": {**_run(4).params, "step_code": "script"}})]
+    plan = [
+        _status(4),
+        _run(4),
+        _run(4).model_copy(update={"params": {**_run(4).params, "step_code": "script"}}),
+    ]
     runtime = _runtime(actions, MockValidators(), plan)
     set_runtime(runtime)
     session = "par-same"
@@ -253,11 +259,15 @@ async def test_one_failing_run_does_not_stop_the_others(token: str) -> None:
         assert actions.peak == 3
         task = runtime.tasks.get(task_id)
         assert task["status"] == TaskStatus.failed.value
-        rows = {int(json.loads(row["params_json"])["project_id"]): row for row in _step_rows(runtime, task_id)}
+        rows = {
+            int(json.loads(row["params_json"])["project_id"]): row for row in _step_rows(runtime, task_id)
+        }
         assert rows[1]["status"] == "done" and rows[3]["status"] == "done"
         assert rows[2]["status"] == "failed"
         assert float(task["spend_actions"] or 0) == pytest.approx(1.0)
-        finished = [event.payload for event in runtime.bus.replay(session, 0) if event.type == "step_finished"]
+        finished = [
+            event.payload for event in runtime.bus.replay(session, 0) if event.type == "step_finished"
+        ]
         assert sum(1 for item in finished if item.get("action") == _RUN and item.get("ok")) == 2
     finally:
         actions.all_in.set()

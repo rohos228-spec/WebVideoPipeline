@@ -113,8 +113,10 @@ def _run(project: int) -> PlanStep:
 
 
 def _plan(projects: list[int]) -> list[PlanStep]:
-    reads = [PlanStep(action="project.status", params={"project_id": p}, risk="none", parallel_group="reads")
-             for p in projects]
+    reads = [
+        PlanStep(action="project.status", params={"project_id": p}, risk="none", parallel_group="reads")
+        for p in projects
+    ]
     return reads + [_run(p) for p in projects]
 
 
@@ -387,8 +389,11 @@ async def test_stop_reply_for_the_only_project_and_for_a_project_outside_the_tas
         await runtime.queue.drain(timeout=5)
         await runtime.queue.accept(session, "останови проект 9")
         await runtime.queue.drain(timeout=5)
-        replies = [str(e.payload.get("text") or "") for e in runtime.bus.replay(session, 0)
-                   if e.type == "message" and e.payload.get("kind") == "stop"]
+        replies = [
+            str(e.payload.get("text") or "")
+            for e in runtime.bus.replay(session, 0)
+            if e.type == "message" and e.payload.get("kind") == "stop"
+        ]
         assert len(replies) == 2
         assert "Остальные проекты" not in replies[0]
         assert "Других проектов у задачи нет" in replies[0]
@@ -406,12 +411,21 @@ async def test_kill_key_of_a_single_step_project_is_cleared_on_resume(token: str
     ключ одному #7. Возобновление обязано его снять, иначе #7 остаётся остановленным навсегда."""
     del token
     actions = _Launch()
-    plan = [PlanStep(action="project.status", params={"project_id": p}, risk="none", parallel_group="reads")
-            for p in (7, 8)]
-    plan += [_run(7).model_copy(update={"parallel_group": None}),
-             _run(8).model_copy(update={"parallel_group": None})]
-    runtime = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                            planner=FixedPlanner(plan), critic=ScriptedCritic(["approve"] * 4))
+    plan = [
+        PlanStep(action="project.status", params={"project_id": p}, risk="none", parallel_group="reads")
+        for p in (7, 8)
+    ]
+    plan += [
+        _run(7).model_copy(update={"parallel_group": None}),
+        _run(8).model_copy(update={"parallel_group": None}),
+    ]
+    runtime = build_runtime(
+        actions=actions,
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(plan),
+        critic=ScriptedCritic(["approve"] * 4),
+    )
     set_runtime(runtime)
     session = "par-single-kill"
     try:

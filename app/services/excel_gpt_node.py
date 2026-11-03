@@ -584,7 +584,9 @@ def active_key_belongs_to_other_slot(project: Project, node_key: str | None, slo
     if not node_key:
         return False
     key_slot = slot_for_excel_gpt_node_key(project, node_key)
-    return bool(key_slot) and int(key_slot) != int(slot)
+    if not key_slot:
+        return False
+    return int(key_slot) != int(slot)
 
 
 def node_config(project: Project, node_key: str) -> dict[str, Any]:

@@ -183,9 +183,7 @@ def find_parent_still_image(scenes_dir: Path, frame_number: int) -> Path | None:
 
 def resolve_coverage_parent_png(scenes_dir: Path, frame_number: int) -> Path | None:
     """Still родителя для lock: ``frame_NNN_parent_*.png``, иначе shot1."""
-    return find_parent_still_image(scenes_dir, frame_number) or find_shot1_image(
-        scenes_dir, frame_number
-    )
+    return find_parent_still_image(scenes_dir, frame_number) or find_shot1_image(scenes_dir, frame_number)
 
 
 def find_shot2_reference_image(

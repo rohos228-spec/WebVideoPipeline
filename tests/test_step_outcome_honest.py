@@ -1,5 +1,8 @@
 """Итог шага в чате говорит правду: откат очередью, пауза, стоп и нода GPT без вызова."""
+
 from __future__ import annotations
+
+pytest_plugins = ["tests.action_layer_support"]
 
 import json
 import os
@@ -14,14 +17,19 @@ from app.services.action_layer import step_outcome as so
 from app.services.action_layer.builtin_launch import _poll_any_step, _run_any_step
 from app.services.action_layer.spec import JobState
 from app.settings import settings
-from tests.action_layer_support import env  # noqa: F401
 
 
 class _Ctx:
-    def __init__(self, status: str, meta: dict | None = None, *, auto_mode: bool = False,
-                 node_runs: list | None = None, launch_status: str = "generating_image_prompts"):
-        self.detail = {"id": 7, "title": "Кот", "status": status, "meta": meta or {},
-                       "auto_mode": auto_mode}
+    def __init__(
+        self,
+        status: str,
+        meta: dict | None = None,
+        *,
+        auto_mode: bool = False,
+        node_runs: list | None = None,
+        launch_status: str = "generating_image_prompts",
+    ):
+        self.detail = {"id": 7, "title": "Кот", "status": status, "meta": meta or {}, "auto_mode": auto_mode}
         self.node_runs = node_runs or []
         self.launch_status = launch_status
         self.calls: list[tuple[str, str]] = []
@@ -46,8 +54,14 @@ def studio(monkeypatch):
 
 
 def _started(running="generating_image_prompts", before="enrich_3_ready", **extra) -> dict:
-    return {"started": True, "step_code": "img_pr", "running_status": running,
-            "status_before": before, "launched_at": time.time() - 60, **extra}
+    return {
+        "started": True,
+        "step_code": "img_pr",
+        "running_status": running,
+        "status_before": before,
+        "launched_at": time.time() - 60,
+        **extra,
+    }
 
 
 _IMG_PR = {"project_id": 7, "step_code": "img_pr"}
@@ -81,8 +95,9 @@ async def test_user_stop_is_reported(studio) -> None:
 
 async def test_pause_with_reason_fails_the_step(studio) -> None:
     meta = {"auto_paused_reason": "frames_ready: GPT отметил как rejected"}
-    state = await _poll_any_step(_Ctx("paused", meta), {"project_id": 7, "step_code": "split"},
-                                 _started("splitting", "script_ready"))
+    state = await _poll_any_step(
+        _Ctx("paused", meta), {"project_id": 7, "step_code": "split"}, _started("splitting", "script_ready")
+    )
     assert not state.ok
     assert "не выполнен: проект на паузе. Причина: frames_ready: GPT отметил как rejected" in state.error
 
@@ -94,8 +109,7 @@ async def test_step_that_reached_its_result_is_done(studio) -> None:
 
 
 async def test_rerun_of_an_earlier_step_is_not_a_rollback(studio) -> None:
-    state = await _poll_any_step(_Ctx("image_prompts_ready"), _IMG_PR,
-                                 _started(before="videos_ready"))
+    state = await _poll_any_step(_Ctx("image_prompts_ready"), _IMG_PR, _started(before="videos_ready"))
     assert state.ok
 
 
@@ -150,8 +164,7 @@ async def test_launch_remembers_status_before_and_running_status(monkeypatch) ->
     out = await _run_any_step(ctx, {"project_id": 7, "step_code": "excel_gpt", "node_key": "n5"})
     assert out["status_before"] == "enrich_3_ready" and out["running_status"] == "enriching_2"
     assert out["node_key"] == "n5" and out["launched_at"] <= time.time()
-    marks = so.launch_marks("img_pr", {"status": "images_ready"}, {"status": "images_ready"},
-                             time.time())
+    marks = so.launch_marks("img_pr", {"status": "images_ready"}, {"status": "images_ready"}, time.time())
     assert marks["running_status"] == "generating_image_prompts"
 
 
@@ -177,8 +190,10 @@ def _iso(ts: float) -> str:
 
 def _node_meta(key: str, reply_at: float) -> dict:
     """Данные проекта, как их оставляет save_operator_result после ответа GPT."""
-    return {"gpt_operator_results": {key: {"at": _iso(reply_at), "gateStatus": None}},
-            "excel_gpt_nodes": {key: {"lastReplyAt": _iso(reply_at)}}}
+    return {
+        "gpt_operator_results": {key: {"at": _iso(reply_at), "gateStatus": None}},
+        "excel_gpt_nodes": {key: {"lastReplyAt": _iso(reply_at)}},
+    }
 
 
 async def _poll_gpt(key: str, meta: dict | None):
@@ -202,8 +217,9 @@ async def test_gpt_node_healed_without_a_call_is_not_done(studio, monkeypatch, t
     meta["excel_gpt_completed_keys"] = ["n_excel_gpt_1", "n_excel_gpt_2"]
     state = await _poll_gpt("n_excel_gpt_2", meta)
     assert state.done and not state.ok
-    assert state.error.endswith("не выполнена: GPT не вызывался, Студия сочла ноду уже выполненной "
-                                "и оставила прежний ответ")
+    assert state.error.endswith(
+        "не выполнена: GPT не вызывался, Студия сочла ноду уже выполненной и оставила прежний ответ"
+    )
     assert "похоже" not in state.error
 
 
@@ -225,16 +241,34 @@ async def test_code_nodes_are_never_reported_as_skipped(studio, monkeypatch, tmp
     _gpt_node(monkeypatch, tmp_path, fresh=False)
     state = await _poll_gpt(key, _node_meta(key, time.time() - 7200))
     assert state.done and state.ok
-    assert await so.gpt_skipped(_Ctx("enrich_2_ready", {"x": 1}), {"project_id": 7, "node_key": key},
-                                _started()) is None
+    assert (
+        await so.gpt_skipped(_Ctx("enrich_2_ready", {"x": 1}), {"project_id": 7, "node_key": key}, _started())
+        is None
+    )
 
 
 def _trace_run(tmp_path, key: str, *, started: datetime, calls: int) -> None:
-    run = (tmp_path / "data" / "videos" / "project-7" / "node_trace" / key
-           / started.strftime("%Y%m%d-%H%M%S-000000-1"))
+    run = (
+        tmp_path
+        / "data"
+        / "videos"
+        / "project-7"
+        / "node_trace"
+        / key
+        / started.strftime("%Y%m%d-%H%M%S-000000-1")
+    )
     run.mkdir(parents=True)
-    (run / "run.json").write_text(json.dumps({"node_key": key, "started": started.isoformat(timespec="seconds"),
-                                              "status": "ok", "calls": calls}), encoding="utf-8")
+    (run / "run.json").write_text(
+        json.dumps(
+            {
+                "node_key": key,
+                "started": started.isoformat(timespec="seconds"),
+                "status": "ok",
+                "calls": calls,
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 async def test_node_diary_with_calls_after_launch_counts_as_a_call(studio, monkeypatch, tmp_path) -> None:
@@ -244,8 +278,9 @@ async def test_node_diary_with_calls_after_launch_counts_as_a_call(studio, monke
     assert state.ok
 
 
-async def test_node_diary_without_calls_or_from_before_launch_is_not_a_call(studio, monkeypatch,
-                                                                             tmp_path) -> None:
+async def test_node_diary_without_calls_or_from_before_launch_is_not_a_call(
+    studio, monkeypatch, tmp_path
+) -> None:
     _gpt_node(monkeypatch, tmp_path, fresh=False)
     _trace_run(tmp_path, "n_excel_gpt_2", started=datetime.now() - timedelta(seconds=20), calls=0)
     _trace_run(tmp_path, "n_excel_gpt_2", started=datetime.now() - timedelta(hours=2), calls=4)
@@ -264,9 +299,18 @@ async def _master_project(env, meta: dict, slug: str) -> int:
 def _obs(pid: int, key: str, kind: str, at: datetime, n: int):
     from app.services.observation import ObservationEvent
 
-    return ObservationEvent(event_id=f"e-{n}", execution_id="x-1", project_id=pid, workflow_run_id=1,
-                            node_key=key, request_id=f"0000000{n}-uuid", db_scope="master", kind=kind,
-                            payload={}, created_at=at)
+    return ObservationEvent(
+        event_id=f"e-{n}",
+        execution_id="x-1",
+        project_id=pid,
+        workflow_run_id=1,
+        node_key=key,
+        request_id=f"0000000{n}-uuid",
+        db_scope="master",
+        kind=kind,
+        payload={},
+        created_at=at,
+    )
 
 
 async def test_model_call_of_the_node_in_the_observation_journal_counts(env, studio) -> None:
@@ -278,15 +322,31 @@ async def test_model_call_of_the_node_in_the_observation_journal_counts(env, stu
     async with env.factory() as s:
         # После запуска: вызов модели другой нодой и прочие события этой ноды без вызова модели;
         # вызов модели этой нодой был задолго до запуска.
-        s.add_all([_obs(pid, "n_excel_gpt_1", "model_start", now - timedelta(seconds=10), 1),
-                   _obs(pid, "n_excel_gpt_2", "node_start", now - timedelta(seconds=10), 2),
-                   _obs(pid, "n_excel_gpt_2", "node_end", now - timedelta(seconds=9), 3),
-                   _obs(pid, "n_excel_gpt_2", "model_end", now - timedelta(hours=2), 4)])
+        s.add_all(
+            [
+                _obs(pid, "n_excel_gpt_1", "model_start", now - timedelta(seconds=10), 1),
+                _obs(pid, "n_excel_gpt_2", "node_start", now - timedelta(seconds=10), 2),
+                _obs(pid, "n_excel_gpt_2", "node_end", now - timedelta(seconds=9), 3),
+                _obs(pid, "n_excel_gpt_2", "model_end", now - timedelta(hours=2), 4),
+            ]
+        )
         # Запись трат такта воркера после запуска: id такта, к ноде она не привязана.
-        s.add(spend_guard.SpendLedger(created_at=now - timedelta(seconds=5), day=now.date().isoformat(),
-                                      kind="estimated", provider="kie", project_id=pid, run_id=f"native:{pid}:a1",
-                                      source="native_call", usd=0.01, credits=0.0, note="",
-                                      request_id="tick-0123456789abcdef", ref=""))
+        s.add(
+            spend_guard.SpendLedger(
+                created_at=now - timedelta(seconds=5),
+                day=now.date().isoformat(),
+                kind="estimated",
+                provider="kie",
+                project_id=pid,
+                run_id=f"native:{pid}:a1",
+                source="native_call",
+                usd=0.01,
+                credits=0.0,
+                note="",
+                request_id="tick-0123456789abcdef",
+                ref="",
+            )
+        )
         await s.commit()
     started = _started("enriching_2", "enrich_1_ready")
     ctx = _Ctx("enrich_2_ready", meta)
@@ -328,6 +388,10 @@ async def test_without_project_data_a_fresh_file_keeps_the_node_done(studio, mon
 
 
 async def test_running_poll_passes_through(studio) -> None:
-    state = await so.honest_state(_Ctx("generating_images"), _IMG_PR, _started(),
-                                  JobState(done=False, note="статус проекта generating_images"))
+    state = await so.honest_state(
+        _Ctx("generating_images"),
+        _IMG_PR,
+        _started(),
+        JobState(done=False, note="статус проекта generating_images"),
+    )
     assert not state.done and state.ok

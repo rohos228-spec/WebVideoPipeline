@@ -39,7 +39,9 @@ def test_content_and_budget_errors_do_not_switch(kie: None) -> None:
 def test_no_switch_without_route_files_or_with_own_provider(kie: None, monkeypatch) -> None:
     assert provider_fallback(_infra(), {"model": "some-unknown-model"}) is None
     assert provider_fallback(_infra(), {"model": "gpt-5.6-sol", "input_paths": ["a.pdf"]}) is None
-    with use_override(NodeLlmOverride(model_id="m", channel="stable", kind="text", provider="vibecode", label="v")):
+    with use_override(
+        NodeLlmOverride(model_id="m", channel="stable", kind="text", provider="vibecode", label="v")
+    ):
         assert provider_fallback(_infra(), {"model": "gpt-5.6-sol"}) is None
     monkeypatch.setattr(settings, "pay52_gpt_key", "")
     assert provider_fallback(_infra(), {"model": "gpt-5.6-sol"}) is None

@@ -10,15 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_ui_has_generate_with_images_under_split() -> None:
-    cells = (ROOT / "web/src/components/canvas/montage-scene-cells.tsx").read_text(
-        encoding="utf-8"
-    )
+    cells = (ROOT / "web/src/components/canvas/montage-scene-cells.tsx").read_text(encoding="utf-8")
     assert "Разобрать на кадры" in cells
     assert "Генерация с картинками" not in cells
     assert "onApplyWithImages" not in cells
-    board = (ROOT / "web/src/components/canvas/assemble-montage-board.tsx").read_text(
-        encoding="utf-8"
-    )
+    board = (ROOT / "web/src/components/canvas/assemble-montage-board.tsx").read_text(encoding="utf-8")
     assert "applySceneActionWithImagesNow" not in board
     assert "generateSceneWithImages" not in board
     assert "generateSceneImagesNow" in board
@@ -75,12 +71,8 @@ def test_parent_slot_sorts_before_child_shot() -> None:
 
 
 def test_generate_scenes_queues_frames_not_images_and_has_vo_span() -> None:
-    cells = (ROOT / "web/src/components/canvas/montage-scene-cells.tsx").read_text(
-        encoding="utf-8"
-    )
-    board = (ROOT / "web/src/components/canvas/assemble-montage-board.tsx").read_text(
-        encoding="utf-8"
-    )
+    cells = (ROOT / "web/src/components/canvas/montage-scene-cells.tsx").read_text(encoding="utf-8")
+    board = (ROOT / "web/src/components/canvas/assemble-montage-board.tsx").read_text(encoding="utf-8")
     api = (ROOT / "web/src/lib/api.ts").read_text(encoding="utf-8")
     assert "закадр этой сцены" in cells
     assert "сохранить как закадр сцены" in cells
@@ -89,9 +81,7 @@ def test_generate_scenes_queues_frames_not_images_and_has_vo_span() -> None:
     assert "пропущен закадр" in cells
     assert "export function VoUnusedWarn" in cells
     assert "createPortal" in cells
-    warn = cells[
-        cells.index("export function VoUnusedWarn") : cells.index("function VoSpanEditor")
-    ]
+    warn = cells[cells.index("export function VoUnusedWarn") : cells.index("function VoSpanEditor")]
     assert "pointer-events-none" not in warn
     assert "select-text" in warn
     assert "overPanel" in warn
@@ -113,9 +103,7 @@ def test_generate_scenes_queues_frames_not_images_and_has_vo_span() -> None:
     assert "queueImages" not in board
     assert "frame_numbers" in api
     gen_block = cells[
-        cells.index("export function SceneGenerateBlock") : cells.index(
-            "export function SceneActionBlock"
-        )
+        cells.index("export function SceneGenerateBlock") : cells.index("export function SceneActionBlock")
     ]
     assert "Сгенерировать сцены" in gen_block
     assert "generateSceneAction" in gen_block

@@ -32,8 +32,16 @@ async def test_code_built_undo_plan_goes_to_risk_card_without_critic(token: str)
     del token
 
     async def undo(text, task_id):
-        return chat_undo.UndoPlan([{"action": "history.rollback", "params": {"snapshot_id": 4, "project_id": 6},
-                                    "mutating": True, "risk": "high"}])
+        return chat_undo.UndoPlan(
+            [
+                {
+                    "action": "history.rollback",
+                    "params": {"snapshot_id": 4, "project_id": 6},
+                    "mutating": True,
+                    "risk": "high",
+                }
+            ]
+        )
 
     critic = _CountingCritic()
     rt = build_runtime(
@@ -54,14 +62,16 @@ async def test_code_built_undo_plan_goes_to_risk_card_without_critic(token: str)
         set_runtime(None)
 
 
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize("reason", [
-    "Через этот чат ещё ничего не меняли или всё уже вернули — возвращать нечего",
-    "Последняя правка чата поменяла сразу несколько мест: прежнюю модель «GPT 5.5» на ноде «Сценарий» "
-    "в проекте #5; прежнюю модель «GPT 5.5» на ноде «Сценарий» в проекте #6. Напишите, что вернуть, "
-    "например «верни как было в проекте 5»",
-])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Через этот чат ещё ничего не меняли или всё уже вернули — возвращать нечего",
+        "Последняя правка чата поменяла сразу несколько мест: прежнюю модель «GPT 5.5» на ноде «Сценарий» "
+        "в проекте #5; прежнюю модель «GPT 5.5» на ноде «Сценарий» в проекте #6. Напишите, что вернуть, "
+        "например «верни как было в проекте 5»",
+    ],
+)
 async def test_undo_answer_from_code_is_not_not_understood(token: str, reason: str) -> None:
     """«Возвращать нечего» и «что вернуть?» — ответ на понятую просьбу, а не «Не понял, что сделать»."""
     del token

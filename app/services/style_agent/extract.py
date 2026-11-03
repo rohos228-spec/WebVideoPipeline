@@ -19,10 +19,10 @@ import re
 import shutil
 import statistics
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -107,7 +107,7 @@ def probe(video: Path) -> dict[str, Any]:
         data = json.loads(proc.stdout or "{}")
     except json.JSONDecodeError as exc:
         raise ExtractError(f"ffprobe: не JSON ({exc})") from exc
-    vstream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
+    vstream: dict[str, Any] = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
     astream = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
     fmt = data.get("format", {})
     duration = _to_float(fmt.get("duration")) or _to_float(vstream.get("duration")) or 0.0
@@ -699,9 +699,9 @@ def build_sheets(
     # cut pairs
     pairs = [c for c in (timeline or {}).get("cuts") or [] if c.get("before") and c.get("after")]
     for n, i in enumerate(range(0, len(pairs), CUT_PAIRS_PER_SHEET), start=1):
-        chunk = pairs[i : i + CUT_PAIRS_PER_SHEET]
+        pair_chunk = pairs[i : i + CUT_PAIRS_PER_SHEET]
         cells_c: list[tuple[Path, str]] = []
-        for c in chunk:
+        for c in pair_chunk:
             cells_c.append((Path(c["before"]), f"cut {_tc(float(c['t']))} −0.2s"))
             cells_c.append((Path(c["after"]), f"cut {_tc(float(c['t']))} +0.2s"))
         try:
@@ -763,7 +763,8 @@ def palette(frames: list[Path], *, n_colors: int = PALETTE_COLORS) -> dict[str, 
     counts = sorted(q.getcolors() or [], reverse=True)
     hexes: list[str] = []
     for _cnt, idx in counts[:n_colors]:
-        r, g, b = pal[idx * 3 : idx * 3 + 3]
+        pi = cast(int, idx) * 3
+        r, g, b = pal[pi : pi + 3]
         hexes.append(f"#{r:02X}{g:02X}{b:02X}")
     px = list(canvas.resize((64, 64)).getdata())
     sats = []
@@ -805,7 +806,7 @@ def hist_distance(a: Path, b: Path) -> float | None:
         im = Image.open(fp).convert("RGB")
         im = im.crop((0, 0, im.width, int(im.height * 0.7))).resize((64, 64))
         h = [0] * 64
-        for r, g, bb in im.getdata():
+        for r, g, bb in cast(Iterable[tuple[int, int, int]], im.getdata()):
             h[(r // 64) * 16 + (g // 64) * 4 + (bb // 64)] += 1
         n = float(sum(h)) or 1.0
         return [x / n for x in h]
@@ -1131,8 +1132,12 @@ def analyze_video(
             stems = separate_voice_music(audio, out_dir)
             audio_info["separation"] = stems.get("method")
             full_loud = loudness(audio)
-            voice_loud = loudness(stems["voice"]) if stems.get("voice") else {"lufs": None, "lra": None}
-            music_loud = loudness(stems["music"]) if stems.get("music") else {"lufs": None, "lra": None}
+            voice_loud = (
+                loudness(cast(Path, stems["voice"])) if stems.get("voice") else {"lufs": None, "lra": None}
+            )
+            music_loud = (
+                loudness(cast(Path, stems["music"])) if stems.get("music") else {"lufs": None, "lra": None}
+            )
             sil = silences(audio)
             (out_dir / "loudness.json").write_text(
                 json.dumps(

@@ -32,8 +32,15 @@ async def test_node_key_brings_its_type_into_queue_request() -> None:
 
 async def test_graph_type_beats_planner_guess() -> None:
     ctx = _Ctx()
-    await bl._enqueue_many(ctx, {"project_ids": [10], "mode": "until_node", "target_node_key": "n_videos",
-                                 "target_node_type": "video"})
+    await bl._enqueue_many(
+        ctx,
+        {
+            "project_ids": [10],
+            "mode": "until_node",
+            "target_node_key": "n_videos",
+            "target_node_type": "video",
+        },
+    )
     assert ctx.posts[0]["target_node_type"] == "videos"
 
 

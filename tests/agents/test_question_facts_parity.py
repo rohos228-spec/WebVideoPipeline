@@ -1,16 +1,24 @@
 """Ответы чата опираются на факты в обоих режимах: «Проект» и «Вся фабрика»."""
+
 from __future__ import annotations
 
 from app.orchestrator.agents.project_nodes import numbered_projects
-from app.orchestrator.agents.question_context import ANSWER_RULES, EXAMPLE_COMMAND, QuestionContext, plan_reads
+from app.orchestrator.agents.question_context import (
+    ANSWER_RULES,
+    EXAMPLE_COMMAND,
+    QuestionContext,
+    plan_reads,
+)
 from app.orchestrator.contracts import MessageMode
 from app.orchestrator.queue import classify_deterministic
 
 
 class _Nodes:
     async def project_items(self):
-        return [{"id": 10, "title": "2 факта о совах-неясытях", "status": "paused"},
-                {"id": 6, "title": "2 факта о дельфинах", "status": "enrich_2_ready"}]
+        return [
+            {"id": 10, "title": "2 факта о совах-неясытях", "status": "paused"},
+            {"id": 6, "title": "2 факта о дельфинах", "status": "enrich_2_ready"},
+        ]
 
     async def rows(self, _pid):
         return []
@@ -78,7 +86,6 @@ def test_answer_rules_suggest_a_phrase_that_the_chat_runs() -> None:
 
 def test_answer_rules_tell_how_to_open_a_project() -> None:
     assert "слева в списке" in " ".join(ANSWER_RULES)
-
 
 
 def test_open_project_request_is_answered_not_planned() -> None:

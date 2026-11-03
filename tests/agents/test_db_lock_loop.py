@@ -26,7 +26,9 @@ pytestmark = pytest.mark.skipif(ENGINE_TESTS_ON_POSTGRES, reason=SQLITE_ONLY_REA
 @pytest.fixture
 async def same_db(monkeypatch):
     path = ensure_migrated(resolve_db_path())
-    engine = create_async_engine(f"sqlite+aiosqlite:///{path}", poolclass=NullPool, connect_args={"timeout": 60})
+    engine = create_async_engine(
+        f"sqlite+aiosqlite:///{path}", poolclass=NullPool, connect_args={"timeout": 60}
+    )
 
     from sqlalchemy import event
 
@@ -51,12 +53,32 @@ async def same_db(monkeypatch):
 
 def _record(**over) -> LlmCallRecord:
     base = dict(
-        call_id="lock-call", task_id=None, run_id="orch-task-1", agent_role="planner", requested_tier="strong",
-        tier="strong", model="gpt-5.6-sol", provider="52pay", reasoning_effort="high", fallback_index=0,
-        attempt=1, status="ok", error=None, deterministic_flag=True, classifier_confidence=None,
-        latency_ms=12, prompt_tokens=1000, completion_tokens=200, reasoning_tokens=300, cost_usd=0.0125,
-        budget_scope="internal", router_impl="live", messages_sha256="abc", fixture_key=None,
-        usage_estimated=False, created_at="2026-10-19T10:00:00Z",
+        call_id="lock-call",
+        task_id=None,
+        run_id="orch-task-1",
+        agent_role="planner",
+        requested_tier="strong",
+        tier="strong",
+        model="gpt-5.6-sol",
+        provider="52pay",
+        reasoning_effort="high",
+        fallback_index=0,
+        attempt=1,
+        status="ok",
+        error=None,
+        deterministic_flag=True,
+        classifier_confidence=None,
+        latency_ms=12,
+        prompt_tokens=1000,
+        completion_tokens=200,
+        reasoning_tokens=300,
+        cost_usd=0.0125,
+        budget_scope="internal",
+        router_impl="live",
+        messages_sha256="abc",
+        fixture_key=None,
+        usage_estimated=False,
+        created_at="2026-10-19T10:00:00Z",
     )
     base.update(over)
     return LlmCallRecord(**base)
@@ -118,7 +140,9 @@ async def test_event_connection_recovers_after_lock_timeout() -> None:
     try:
         other.execute("BEGIN IMMEDIATE")
         with pytest.raises(OperationalError, match="locked"):
-            events._insert_event("lock-ev", "agent_status", {"n": 1}, task_id=None, created_at=None, persist=True)
+            events._insert_event(
+                "lock-ev", "agent_status", {"n": 1}, task_id=None, created_at=None, persist=True
+            )
         other.execute("INSERT INTO orch_event_seq (session_id, seq) VALUES ('lock-other', 1)")
         other.commit()
     finally:
@@ -164,10 +188,16 @@ def _task_events(session: str, task_id: int) -> list[tuple[str, str]]:
 
     conn = connect()
     try:
-        rows = conn.execute(
-            text("SELECT type, payload_json FROM orch_events WHERE session_id = :sid AND task_id = :task_id ORDER BY seq"),
-            {"sid": session, "task_id": task_id},
-        ).mappings().fetchall()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT type, payload_json FROM orch_events WHERE session_id = :sid AND task_id = :task_id ORDER BY seq"
+                ),
+                {"sid": session, "task_id": task_id},
+            )
+            .mappings()
+            .fetchall()
+        )
     finally:
         conn.close()
     return [(row["type"], row["payload_json"]) for row in rows]
@@ -207,7 +237,9 @@ async def test_locked_status_write_fails_task_with_message_and_frees_queue(token
         kinds = [kind for kind, _ in _task_events(session, first)]
         assert "task_failed" in kinds
         messages = [body for kind, body in _task_events(session, first) if kind == "message"]
-        assert messages and "Не получилось" in messages[-1] and "База данных Студии была занята" in messages[-1]
+        assert (
+            messages and "Не получилось" in messages[-1] and "База данных Студии была занята" in messages[-1]
+        )
         assert "OperationalError" not in messages[-1]
         await asyncio.sleep(0)
         await supervisor.wait(second, timeout=10)

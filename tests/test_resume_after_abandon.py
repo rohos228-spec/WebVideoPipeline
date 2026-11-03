@@ -48,10 +48,15 @@ async def session() -> AsyncSession:
     await engine.dispose()
 
 
-async def _project(session, *, status=ProjectStatus.paused, meta=None, auto_mode=False,
-                   slots=3) -> Project:
-    p = Project(slug=f"p{id(meta)}", topic="t", status=status, auto_mode=auto_mode,
-                enrich_slots_count=slots, meta=dict(meta or {}))
+async def _project(session, *, status=ProjectStatus.paused, meta=None, auto_mode=False, slots=3) -> Project:
+    p = Project(
+        slug=f"p{id(meta)}",
+        topic="t",
+        status=status,
+        auto_mode=auto_mode,
+        enrich_slots_count=slots,
+        meta=dict(meta or {}),
+    )
     session.add(p)
     await session.commit()
     return p
@@ -71,11 +76,15 @@ def test_ready_status_before_follows_project_enrich_slots() -> None:
 
 
 async def test_abandon_records_ready_status_before_failed_step(session) -> None:
-    p = await _project(session, status=ProjectStatus.generating_image_prompts, meta={
-        "step_failure": {"total_fails": {"generating_image_prompts": MAX_TOTAL_FAILS - 1}}})
-    with patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock), \
-            patch("app.services.step_failure_policy._soft_retry_without_wipe",
-                  new_callable=AsyncMock):
+    p = await _project(
+        session,
+        status=ProjectStatus.generating_image_prompts,
+        meta={"step_failure": {"total_fails": {"generating_image_prompts": MAX_TOTAL_FAILS - 1}}},
+    )
+    with (
+        patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock),
+        patch("app.services.step_failure_policy._soft_retry_without_wipe", new_callable=AsyncMock),
+    ):
         action = await record_step_failure(session, p, error=RuntimeError("промты не заполнены"))
     assert action == "abandon"
     assert p.status is ProjectStatus.paused
@@ -87,11 +96,15 @@ async def test_abandon_records_ready_status_before_failed_step(session) -> None:
 
 
 async def test_abandoned_project_resumes_to_ready_and_does_not_run(session) -> None:
-    p = await _project(session, status=ProjectStatus.generating_image_prompts, meta={
-        "step_failure": {"total_fails": {"generating_image_prompts": MAX_TOTAL_FAILS - 1}}})
-    with patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock), \
-            patch("app.services.step_failure_policy._soft_retry_without_wipe",
-                  new_callable=AsyncMock):
+    p = await _project(
+        session,
+        status=ProjectStatus.generating_image_prompts,
+        meta={"step_failure": {"total_fails": {"generating_image_prompts": MAX_TOTAL_FAILS - 1}}},
+    )
+    with (
+        patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock),
+        patch("app.services.step_failure_policy._soft_retry_without_wipe", new_callable=AsyncMock),
+    ):
         await record_step_failure(session, p, error=RuntimeError("промты не заполнены"))
     assert await resume_project(session, p) == "enrich_3_ready"
     assert "paused_from_status" not in p.meta
@@ -120,17 +133,24 @@ async def test_resume_without_any_trace_still_goes_to_new(session) -> None:
 
 def test_place_without_origin_ignores_stale_failure_trace() -> None:
     # Сбой давно прошёл (total_fails снят успехом), last_running остался - берём стоп запуска.
-    p = Project(slug="s", topic="t", enrich_slots_count=3, meta={
-        "startup_blocked_ready_status": "image_prompts_ready",
-        "step_failure": {"last_running": "generating_hero", "total_fails": {}}})
+    p = Project(
+        slug="s",
+        topic="t",
+        enrich_slots_count=3,
+        meta={
+            "startup_blocked_ready_status": "image_prompts_ready",
+            "step_failure": {"last_running": "generating_hero", "total_fails": {}},
+        },
+    )
     assert resume_place_without_origin(p) is ProjectStatus.image_prompts_ready
     # Без стопа запуска - готовность перед последним шагом лучше, чем new.
     p.meta = {"step_failure": {"last_running": "generating_hero"}}
     assert resume_place_without_origin(p) is ProjectStatus.frames_ready
     # Сон после ошибок / счётчик шага - след свежий.
-    p.meta = {"startup_blocked_ready_status": "frames_ready",
-              "step_failure": {"last_running": "generating_images",
-                               "total_fails": {"generating_images": 3}}}
+    p.meta = {
+        "startup_blocked_ready_status": "frames_ready",
+        "step_failure": {"last_running": "generating_images", "total_fails": {"generating_images": 3}},
+    }
     assert resume_place_without_origin(p) is ProjectStatus.image_prompts_ready
     # Running-статус в стопе запуска - не место.
     p.meta = {"startup_blocked_ready_status": "generating_images"}

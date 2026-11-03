@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+pytest_plugins = ["tests.action_layer_support"]
+
 import copy
 import re
 from pathlib import Path
@@ -21,7 +23,6 @@ from app.orchestrator.queue import classify_deterministic
 from app.services import orch_bridge
 from app.services.action_layer import builtin_wave3, chat_undo, executor, store
 from app.services.action_layer.spec import ensure_builtin_actions
-from tests.action_layer_support import env
 
 # Модели — из каталога WebVideoPipeline (main): gpt-5.5 / gpt-5.6-luna из int/chat-v1 здесь нет.
 BASE = "/api/action-layer"
@@ -30,14 +31,33 @@ NODES = [
     {"id": "n_script", "type": "script", "data": {"label": "Сценарий", "modelId": "gpt-5.6-sol"}},
     {"id": "n_review", "type": "excel_gpt", "data": {"label": "Проверка", "slotIndex": 1}},
 ]
-PLAIN_PHRASES = ("верни как было", "отмени последнее", "откати последнее действие", "отмени последнее действие",
-                 "откати последнюю правку", "откати", "верни прежнюю модель")
+PLAIN_PHRASES = (
+    "верни как было",
+    "отмени последнее",
+    "откати последнее действие",
+    "отмени последнее действие",
+    "откати последнюю правку",
+    "откати",
+    "верни прежнюю модель",
+)
 # Вопросы про откат: ответить словами, а не ставить карточку отката.
-QUESTIONS = ("как вернуть прежнюю модель?", "как отменить последнее действие?",
-             "что будет если откатить настройки?", "ты откатил модель?", "почему ты откатил модель?")
+QUESTIONS = (
+    "как вернуть прежнюю модель?",
+    "как отменить последнее действие?",
+    "что будет если откатить настройки?",
+    "ты откатил модель?",
+    "почему ты откатил модель?",
+)
 # «Отмени» про задачу: остановить работу, а не вернуть правку.
-CANCEL_TASK = ("отмени последнюю задачу", "отмени предыдущую команду", "отмени это действие",
-               "отмени операцию", "отмени последнюю генерацию", "отмени проверку", "отмени последнюю проверку")
+CANCEL_TASK = (
+    "отмени последнюю задачу",
+    "отмени предыдущую команду",
+    "отмени это действие",
+    "отмени операцию",
+    "отмени последнюю генерацию",
+    "отмени проверку",
+    "отмени последнюю проверку",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -58,8 +78,12 @@ async def _project(env, nodes=None) -> int:
     async with env.factory() as s:
         count = len((await s.scalars(select(Project.id))).all())
         nodes = copy.deepcopy(NODES if nodes is None else nodes)
-        project = Project(topic="undo", slug=f"undo-{count}", status=ProjectStatus.new,
-                          meta={"canvas_graph": {"workflow_id": 1, "nodes": nodes, "edges": []}})
+        project = Project(
+            topic="undo",
+            slug=f"undo-{count}",
+            status=ProjectStatus.new,
+            meta={"canvas_graph": {"workflow_id": 1, "nodes": nodes, "edges": []}},
+        )
         s.add(project)
         await s.commit()
         return int(project.id)
@@ -97,7 +121,10 @@ async def test_plain_phrases_roll_back_the_last_chat_change(env) -> None:
     pid = await _project(env)
     await _run(env, _model(pid, "gpt-6-sol"))
     last = await _run(env, _model(pid, "gpt-6-luna"))
-    for text in PLAIN_PHRASES + (f"верни как было в проекте {pid}", f"откати последнюю правку в проекте #{pid}"):
+    for text in PLAIN_PHRASES + (
+        f"верни как было в проекте {pid}",
+        f"откати последнюю правку в проекте #{pid}",
+    ):
         assert _rollback_of(await chat_undo.resolve(text)) == last["snapshot_id"], text
         assert _rollback_of(await chat_undo.resolve(text, pid)) == last["snapshot_id"], text
 
@@ -106,12 +133,16 @@ async def test_back_to_previous_model_is_a_rollback_not_a_costly_change(env) -> 
     pid = await _project(env)
     await _run(env, _model(pid, "gpt-6-sol"))
     last = await _run(env, _model(pid, "gpt-6-luna"))
-    for text in (f"верни модель на ноде сценарий в проекте {pid} обратно на GPT 6 Sol",
-                 f"поставь обратно GPT 6 Sol на сценарий в проекте {pid}"):
+    for text in (
+        f"верни модель на ноде сценарий в проекте {pid} обратно на GPT 6 Sol",
+        f"поставь обратно GPT 6 Sol на сценарий в проекте {pid}",
+    ):
         assert _rollback_of(await chat_undo.resolve(text)) == last["snapshot_id"], text
     async with env.factory() as s:
         meta = (await s.get(Project, pid)).meta
-    line = next(x for x in project_nodes.model_options_text(meta, "n_script").splitlines() if "GPT 6 Sol" in x)
+    line = next(
+        x for x in project_nodes.model_options_text(meta, "n_script").splitlines() if "GPT 6 Sol" in x
+    )
     assert "прежняя модель" in line
     if "дороже" in line or "неизвестна" in line:
         # Цена растёт: вернуть прежнюю — та же смена на дороже, с карточкой.
@@ -157,18 +188,29 @@ async def test_one_change_in_several_places_asks_which(env) -> None:
     async with env.factory() as s:
         s.add(store.ActionPlan(id="p" * 32, operator=CHAT, plan_hash="h"))
         await s.commit()
-    ids = [await store.save_snapshot(plan_id="p" * 32, step_index=0, action_id="node.set_model",
-                                     project_id=pid, kind="node_model",
-                                     target={"project_id": pid, "node_key": node},
-                                     before="gpt-6-sol", after="gpt-6-luna", restorable=True)
-           for node in ("n_script", "n_review")]
+    ids = [
+        await store.save_snapshot(
+            plan_id="p" * 32,
+            step_index=0,
+            action_id="node.set_model",
+            project_id=pid,
+            kind="node_model",
+            target={"project_id": pid, "node_key": node},
+            before="gpt-6-sol",
+            after="gpt-6-luna",
+            restorable=True,
+        )
+        for node in ("n_script", "n_review")
+    ]
     plan = await chat_undo.resolve("верни как было", pid, current_of=_always)
     assert plan is not None and plan.steps == []
     assert "«Сценарий»" in plan.reason and "«Проверка»" in plan.reason and "Напишите" in plan.reason
     assert "n_script" not in plan.reason and "snapshot" not in plan.reason
     example = re.search(r"«([^»]+)»$", plan.reason).group(1)
     assert _rollback_of(await chat_undo.resolve(example, current_of=_always)) == ids[1]
-    named = await chat_undo.resolve(f"верни прежнюю модель на ноде сценарий в проекте {pid}", current_of=_always)
+    named = await chat_undo.resolve(
+        f"верни прежнюю модель на ноде сценарий в проекте {pid}", current_of=_always
+    )
     assert _rollback_of(named) == ids[0]
 
 
@@ -180,17 +222,24 @@ async def test_mass_model_phrase_plans_one_revert_for_all_projects(env) -> None:
     first, second = await _project(env), await _project(env)
     text = chat_undo.many_model_phrase([first, second], "Сценарий")
     plan = await chat_undo.resolve(text)
-    assert plan is not None and plan.steps == [{
-        "action": "node.revert_model_many", "params": {"project_ids": [first, second], "node_key": "n_script"},
-        "paid": False, "mutating": True, "risk": "medium"}]
+    assert plan is not None and plan.steps == [
+        {
+            "action": "node.revert_model_many",
+            "params": {"project_ids": [first, second], "node_key": "n_script"},
+            "paid": False,
+            "mutating": True,
+            "risk": "medium",
+        }
+    ]
 
 
 async def test_rollback_card_speaks_plain_russian(env) -> None:
     pid = await _project(env)
     await _run(env, _model(pid, "gpt-6-sol"))
     last = await _run(env, _model(pid, "gpt-6-luna"))
-    card = await orch_bridge.prepare_card("history.rollback", {"snapshot_id": last["snapshot_id"]},
-                                          {"app": env.app, "task_id": 7})
+    card = await orch_bridge.prepare_card(
+        "history.rollback", {"snapshot_id": last["snapshot_id"]}, {"app": env.app, "task_id": 7}
+    )
     title = f"Вернуть прежнюю модель «GPT 6 Sol» на ноде «Сценарий» в проекте #{pid}"
     assert card["title"] == title
     assert card["effects_reversible"] is True
@@ -252,11 +301,21 @@ async def test_card_says_irreversible_where_undo_leaves_no_snapshot(env) -> None
     async with env.factory() as s:
         s.add(store.ActionPlan(id="c" * 32, operator=CHAT, plan_hash="h"))
         await s.commit()
-    sid = await store.save_snapshot(plan_id="c" * 32, step_index=0, action_id="node.set_agent", project_id=pid,
-                                    kind="check_agent", target={"project_id": pid, "node_key": "n_review"},
-                                    before={"source": "builtin"}, after={"source": "upload"}, restorable=True)
+    sid = await store.save_snapshot(
+        plan_id="c" * 32,
+        step_index=0,
+        action_id="node.set_agent",
+        project_id=pid,
+        kind="check_agent",
+        target={"project_id": pid, "node_key": "n_review"},
+        before={"source": "builtin"},
+        after={"source": "upload"},
+        restorable=True,
+    )
     card = await chat_undo.rollback_card({"snapshot_id": sid})
-    assert card["title"].startswith("Вернуть прежнего агента проверки") and card["effects_reversible"] is False
+    assert (
+        card["title"].startswith("Вернуть прежнего агента проверки") and card["effects_reversible"] is False
+    )
 
 
 async def test_questions_and_task_cancels_are_not_undo() -> None:
@@ -268,12 +327,18 @@ async def test_questions_and_task_cancels_are_not_undo() -> None:
     for text in QUESTIONS:
         assert not chat_undo.undo_phrase(text), text
         assert classify_deterministic(text).mode is MessageMode.append, text
-        assert await chat_undo.resolve(text, 6, snapshots_of=snapshots, meta_of=_meta, current_of=_always) is None
+        assert (
+            await chat_undo.resolve(text, 6, snapshots_of=snapshots, meta_of=_meta, current_of=_always)
+            is None
+        )
     for text in CANCEL_TASK:
         assert not chat_undo.undo_phrase(text), text
         found = classify_deterministic(text)
         assert found is None or found.mode is not MessageMode.task, text
-        assert await chat_undo.resolve(text, 6, snapshots_of=snapshots, meta_of=_meta, current_of=_always) is None
+        assert (
+            await chat_undo.resolve(text, 6, snapshots_of=snapshots, meta_of=_meta, current_of=_always)
+            is None
+        )
     # «Проверка» сама по себе — это работа ноды, а не агент проверки.
     assert chat_undo.kinds_of("отмени проверку") == set()
     assert chat_undo.kinds_of(chat_undo.AGENT_PHRASE) == {"check_agent"}
@@ -289,11 +354,13 @@ async def test_what_was_done_rule_matches_the_fact() -> None:
     async def broken(project_id, session_id):
         raise RuntimeError("db")
 
-    empty = (await QuestionContext(done_of=nothing).messages("что ты сделал сегодня", None, None, "s"))[0]["content"]
+    empty = (await QuestionContext(done_of=nothing).messages("что ты сделал сегодня", None, None, "s"))[0][
+        "content"
+    ]
     assert DONE_EMPTY_RULE in empty and DONE_RULE not in empty
     failed = (await QuestionContext(done_of=broken).messages("что ты менял", None, None, "s"))[0]["content"]
     assert DONE_RULE not in failed and DONE_EMPTY_RULE not in failed
-    other = (await QuestionContext(done_of=nothing).messages("почему модель изменилась?", None, None, "s"))
+    other = await QuestionContext(done_of=nothing).messages("почему модель изменилась?", None, None, "s")
     assert DONE_TITLE not in other[0]["content"]
 
 
@@ -311,8 +378,9 @@ async def test_planner_answers_undo_without_the_model() -> None:
             raise AssertionError("модель не нужна")
 
     async def undo(text, task_id):
-        return chat_undo.UndoPlan([{"action": "history.rollback", "params": {"snapshot_id": 4},
-                                    "mutating": True, "risk": "high"}])
+        return chat_undo.UndoPlan(
+            [{"action": "history.rollback", "params": {"snapshot_id": 4}, "mutating": True, "risk": "high"}]
+        )
 
     planner = RouterPlanner(NoRouter(), undo=undo)
     steps = await planner.make_plan("верни как было", task_id=1)
@@ -320,8 +388,15 @@ async def test_planner_answers_undo_without_the_model() -> None:
 
 
 def _row(kind: str, row_id: int, **target) -> SimpleNamespace:
-    return SimpleNamespace(id=row_id, kind=kind, project_id=6, plan_id=kind, before="gpt-6-sol",
-                           after="gpt-6-luna", target={"project_id": 6, **target})
+    return SimpleNamespace(
+        id=row_id,
+        kind=kind,
+        project_id=6,
+        plan_id=kind,
+        before="gpt-6-sol",
+        after="gpt-6-luna",
+        target={"project_id": 6, **target},
+    )
 
 
 async def _meta(project_id):
@@ -329,8 +404,12 @@ async def _meta(project_id):
 
 
 # Самая свежая правка — модель: фраза без вида правки возвращает её.
-_ROWS = (("node_model", 11, {"node_key": "n_script"}), ("prompt_slot", 12, {"node_key": "n_script", "slot_id": "main"}),
-         ("check_agent", 13, {"node_key": "n_review"}), ("node_params", 14, {"node_key": "n_script"}))
+_ROWS = (
+    ("node_model", 11, {"node_key": "n_script"}),
+    ("prompt_slot", 12, {"node_key": "n_script", "slot_id": "main"}),
+    ("check_agent", 13, {"node_key": "n_review"}),
+    ("node_params", 14, {"node_key": "n_script"}),
+)
 
 
 def _expected_row(text: str) -> int:
@@ -344,8 +423,12 @@ async def _all_kinds(project_id):
 
 def _suggested_phrases() -> list[str]:
     note = summarizer.StepNote("node.set_model", "Сменить модель", True, readonly=False, undo={"x": 1})
-    texts = [summarizer._undo_line(note), builtin_wave3._AGENT_UNDO_RU,
-             f"«{chat_undo.project_undo_phrase(6, 'промт')}»", f"«{chat_undo.project_undo_phrase(6)}»"]
+    texts = [
+        summarizer._undo_line(note),
+        builtin_wave3._AGENT_UNDO_RU,
+        f"«{chat_undo.project_undo_phrase(6, 'промт')}»",
+        f"«{chat_undo.project_undo_phrase(6)}»",
+    ]
     return [m for text in texts for m in re.findall(r"«([^»]+)»", text)]
 
 
@@ -390,8 +473,10 @@ async def test_undo_phrases_quoted_in_code_are_understood() -> None:
 
 async def test_mass_model_change_is_undone_project_by_project(env) -> None:
     first, second = await _project(env), await _project(env)
-    out = await _run(env, [step("node.set_model_many", project_ids=[first, second], node_key="n_script",
-                                model_id="gpt-6-sol")])
+    out = await _run(
+        env,
+        [step("node.set_model_many", project_ids=[first, second], node_key="n_script", model_id="gpt-6-sol")],
+    )
     assert [c["project_id"] for c in out["changed"]] == [first, second]
     # Каждый проект получил свой снимок, как при одиночной смене модели.
     sids = {c["project_id"]: c["snapshot_id"] for c in out["changed"]}
@@ -401,7 +486,12 @@ async def test_mass_model_change_is_undone_project_by_project(env) -> None:
         assert _rollback_of(await chat_undo.resolve("верни как было", pid)) == sids[pid]
     # Без проекта: одна правка в двух проектах — чат спрашивает, что вернуть.
     which = await chat_undo.resolve("верни как было")
-    assert which is not None and which.steps == [] and f"#{first}" in which.reason and f"#{second}" in which.reason
+    assert (
+        which is not None
+        and which.steps == []
+        and f"#{first}" in which.reason
+        and f"#{second}" in which.reason
+    )
     # Фраза из ответа массовой правки по-прежнему возвращает всё разом.
     many = await chat_undo.resolve(chat_undo.many_model_phrase([first, second], "Сценарий"))
     assert many is not None and [s["action"] for s in many.steps] == ["node.revert_model_many"]
@@ -419,17 +509,20 @@ async def test_rollback_to_default_model_names_the_default(env) -> None:
     bare = [{"id": "n_script", "type": "script", "data": {"label": "Сценарий"}}, NODES[1]]
     pid = await _project(env, bare)
     change = await _run(env, _model(pid, "gpt-6-sol"))
-    card = await orch_bridge.prepare_card("history.rollback", {"snapshot_id": change["snapshot_id"]},
-                                          {"app": env.app, "task_id": 7})
+    card = await orch_bridge.prepare_card(
+        "history.rollback", {"snapshot_id": change["snapshot_id"]}, {"app": env.app, "task_id": 7}
+    )
     assert card["title"] == f"Вернуть модель по умолчанию ({default}) на ноде «Сценарий» в проекте #{pid}"
     effects = " ".join(card["destructive_effects"])
     assert f"модель по умолчанию ({default}) вместо «GPT 6 Sol»" in effects
     back = await _run(env, [step("history.rollback", snapshot_id=change["snapshot_id"])])
-    assert back["text_ru"] == (f"На ноде «Сценарий» вернул модель по умолчанию ({default}), "
-                               "до этого была модель «GPT 6 Sol».")
+    assert back["text_ru"] == (
+        f"На ноде «Сценарий» вернул модель по умолчанию ({default}), до этого была модель «GPT 6 Sol»."
+    )
     # Обратный откат: прежней была модель по умолчанию — её тоже называем.
-    again = await orch_bridge.prepare_card("history.rollback", {"snapshot_id": back["reverse_snapshot_id"]},
-                                           {"app": env.app, "task_id": 7})
+    again = await orch_bridge.prepare_card(
+        "history.rollback", {"snapshot_id": back["reverse_snapshot_id"]}, {"app": env.app, "task_id": 7}
+    )
     assert again["title"] == f"Вернуть прежнюю модель «GPT 6 Sol» на ноде «Сценарий» в проекте #{pid}"
     assert f"вместо модели по умолчанию ({default})" in " ".join(again["destructive_effects"])
 
@@ -437,15 +530,21 @@ async def test_rollback_to_default_model_names_the_default(env) -> None:
 async def test_restore_from_last_snapshot_is_the_chat_undo(env) -> None:
     pid, other = await _project(env), await _project(env)
     tasks = TaskStore()
-    mine, foreign = tasks.insert("chat-snap", "поставь модель", "done"), tasks.insert("chat-x", "поставь", "done")
+    mine, foreign = (
+        tasks.insert("chat-snap", "поставь модель", "done"),
+        tasks.insert("chat-x", "поставь", "done"),
+    )
     own = await _run(env, _model(pid, "gpt-6-sol"), operator=chat_undo.task_operator(mine))
     await _run(env, _model(other, "gpt-6-sol"), operator=chat_undo.task_operator(mine))
     # Свежая правка соседней беседы в том же проекте — не «последний снимок» этого чата.
     await _run(env, _model(pid, "gpt-6-luna", node="n_review"), operator=chat_undo.task_operator(foreign))
     asking = tasks.insert("chat-snap", "восстанови", "running")
-    for text in (f"восстанови прежние значения из последнего снимка в проекте {pid}",
-                 f"откати к последнему снимку в проекте {pid}", f"верни из снимка в проекте {pid}",
-                 f"восстанови из последнего снимка проект {pid}"):
+    for text in (
+        f"восстанови прежние значения из последнего снимка в проекте {pid}",
+        f"откати к последнему снимку в проекте {pid}",
+        f"верни из снимка в проекте {pid}",
+        f"восстанови из последнего снимка проект {pid}",
+    ):
         assert chat_undo.undo_phrase(text), text
         assert _rollback_of(await chat_undo.plan_for_task(text, asking)) == own["snapshot_id"], text
     # Снимок без просьбы вернуть — не откат.
@@ -458,10 +557,23 @@ async def test_plain_undo_after_edit_without_snapshot_does_not_revert_older_edit
     «верни как было» откатывало закадр. Теперь честно говорит, что последнюю правку не вернуть."""
     from datetime import datetime, timedelta
 
-    old = SimpleNamespace(id=29, kind="voiceover", project_id=6, plan_id="vo", before="а", after="б",
-                          target={"project_id": 6, "frame_id": 5}, created_at=datetime(2026, 1, 1))
-    newer = SimpleNamespace(plan_id="cov", action_id="montage.set_coverage", params={"frame_number": 12},
-                            finished_at=old.created_at + timedelta(minutes=1), started_at=None)
+    old = SimpleNamespace(
+        id=29,
+        kind="voiceover",
+        project_id=6,
+        plan_id="vo",
+        before="а",
+        after="б",
+        target={"project_id": 6, "frame_id": 5},
+        created_at=datetime(2026, 1, 1),
+    )
+    newer = SimpleNamespace(
+        plan_id="cov",
+        action_id="montage.set_coverage",
+        params={"frame_number": 12},
+        finished_at=old.created_at + timedelta(minutes=1),
+        started_at=None,
+    )
 
     async def snapshots(project_id):
         return [old]
@@ -469,14 +581,18 @@ async def test_plain_undo_after_edit_without_snapshot_does_not_revert_older_edit
     async def steps(project_id):
         return [newer]
 
-    plan = await chat_undo.resolve("верни как было", 6, snapshots_of=snapshots, steps_of=steps,
-                                   meta_of=_meta, current_of=_always)
+    plan = await chat_undo.resolve(
+        "верни как было", 6, snapshots_of=snapshots, steps_of=steps, meta_of=_meta, current_of=_always
+    )
     assert plan is not None and plan.steps == []
     assert "Изменить покрытие кадра" in plan.reason and "(кадр 12)" in plan.reason
     # Шаг старше снимка — откат снимка как раньше.
     newer.finished_at = old.created_at - timedelta(minutes=1)
-    assert (await chat_undo.resolve("верни как было", 6, snapshots_of=snapshots, steps_of=steps,
-                                    meta_of=_meta, current_of=_always)).steps
+    assert (
+        await chat_undo.resolve(
+            "верни как было", 6, snapshots_of=snapshots, steps_of=steps, meta_of=_meta, current_of=_always
+        )
+    ).steps
 
 
 @pytest.mark.asyncio
@@ -485,9 +601,14 @@ async def test_plain_undo_after_parallel_change_sets_previous_number() -> None:
     хотя шаг сам записал прежнее число."""
     from datetime import datetime
 
-    step = SimpleNamespace(plan_id="par", action_id="queue.set_parallel", params={"workers": 3},
-                           result={"worker_max_parallel": 3, "before": 10},
-                           finished_at=datetime(2026, 1, 1), started_at=None)
+    step = SimpleNamespace(
+        plan_id="par",
+        action_id="queue.set_parallel",
+        params={"workers": 3},
+        result={"worker_max_parallel": 3, "before": 10},
+        finished_at=datetime(2026, 1, 1),
+        started_at=None,
+    )
 
     async def none(project_id):
         return []
@@ -495,14 +616,16 @@ async def test_plain_undo_after_parallel_change_sets_previous_number() -> None:
     async def steps(project_id):
         return [step]
 
-    plan = await chat_undo.resolve("верни как было", None, snapshots_of=none, steps_of=steps,
-                                   meta_of=_meta, current_of=_always)
+    plan = await chat_undo.resolve(
+        "верни как было", None, snapshots_of=none, steps_of=steps, meta_of=_meta, current_of=_always
+    )
     assert plan is not None and [s["action"] for s in plan.steps] == ["queue.set_parallel"]
     assert plan.steps[0]["params"] == {"workers": 10}
     # Прежнего числа нет — честный отказ, как раньше.
     step.result = {"worker_max_parallel": 3}
-    plan = await chat_undo.resolve("верни как было", None, snapshots_of=none, steps_of=steps,
-                                   meta_of=_meta, current_of=_always)
+    plan = await chat_undo.resolve(
+        "верни как было", None, snapshots_of=none, steps_of=steps, meta_of=_meta, current_of=_always
+    )
     assert plan is not None and plan.steps == [] and "не сохранялось" in plan.reason
 
 

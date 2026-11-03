@@ -307,7 +307,8 @@ def fix_camera_sequence(frames: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def camera_errors(frames: list[dict[str, Any]]) -> list[str]:
-    errs, prev = [], {}
+    errs: list[str] = []
+    prev: dict[Any, Any] = {}
     for f in frames:
         lane = f.get("door")
         if f["camera"] == "close" and prev.get(lane) == "close":

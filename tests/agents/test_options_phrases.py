@@ -2,7 +2,11 @@ from app.orchestrator.agents.question_context import _OPTIONS, _has, _norm
 
 
 def test_more_models_phrases_route_to_list():
-    for q in ("чем ещё можно генерировать картинки в проекте 12", "из чего выбрать для картинок", "какие модели можно поставить"):
+    for q in (
+        "чем ещё можно генерировать картинки в проекте 12",
+        "из чего выбрать для картинок",
+        "какие модели можно поставить",
+    ):
         assert _has(_norm(q), _OPTIONS), q
 
 

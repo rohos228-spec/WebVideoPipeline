@@ -39,6 +39,8 @@ def test_short_answer_to_clarification_keeps_request():
         ("assistant", "Уточните, для какого шота кадра 1 поставить генерацию видео: шот 1, шот 2 или оба."),
         ("user", "поставь в очередь видео для кадра 1 в 26"),
     ]
-    assert q.answered_request(previous, "шот 1") == "поставь в очередь видео для кадра 1 в 26; уточнение: шот 1"
+    assert (
+        q.answered_request(previous, "шот 1") == "поставь в очередь видео для кадра 1 в 26; уточнение: шот 1"
+    )
     assert q.answered_request(previous, "запусти картинки в 12") is None
     assert q.answered_request([("assistant", "Готово."), ("user", "x")], "шот 1") is None

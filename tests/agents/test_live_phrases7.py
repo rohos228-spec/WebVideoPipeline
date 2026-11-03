@@ -10,7 +10,12 @@ from typing import Any
 import pytest
 
 from app.orchestrator.agents import supervisor as sup
-from app.orchestrator.agents.launch_scope import MAX_PARALLEL, fix_queue_target, launch_ask, route_multi_launch
+from app.orchestrator.agents.launch_scope import (
+    MAX_PARALLEL,
+    fix_queue_target,
+    launch_ask,
+    route_multi_launch,
+)
 from app.orchestrator.agents.runtime import build_runtime, set_runtime
 from app.orchestrator.contracts import PlanStep, TaskStatus
 from app.services.action_layer import settings_diff as sd

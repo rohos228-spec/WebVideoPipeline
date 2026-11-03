@@ -1,6 +1,11 @@
 from app.services import node_edit as ne
 
-META = {"canvas_graph": {"nodes": [{"id": "n_images", "type": "images", "data": {"label": "Картинки"}}], "edges": []}}
+META = {
+    "canvas_graph": {
+        "nodes": [{"id": "n_images", "type": "images", "data": {"label": "Картинки"}}],
+        "edges": [],
+    }
+}
 
 
 def _state(gid):

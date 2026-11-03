@@ -51,12 +51,28 @@ async def _journal(result: dict) -> None:
 
     plan_id = uuid.uuid4().hex
     async with store.sessions()() as s:
-        s.add(store.ActionPlan(id=plan_id, operator=CHAT, plan_hash=uuid.uuid4().hex,
-                               status=store.PLAN_SUCCEEDED, risk_max="destructive", needs_approval=True))
-        s.add(store.ActionPlanStep(plan_id=plan_id, idx=0, action_id="change.apply",
-                                   params={"proposal_id": result["proposal_id"]},
-                                   status=store.STEP_SUCCEEDED, idempotency_key=uuid.uuid4().hex,
-                                   result=result, finished_at=datetime.utcnow()))
+        s.add(
+            store.ActionPlan(
+                id=plan_id,
+                operator=CHAT,
+                plan_hash=uuid.uuid4().hex,
+                status=store.PLAN_SUCCEEDED,
+                risk_max="destructive",
+                needs_approval=True,
+            )
+        )
+        s.add(
+            store.ActionPlanStep(
+                plan_id=plan_id,
+                idx=0,
+                action_id="change.apply",
+                params={"proposal_id": result["proposal_id"]},
+                status=store.STEP_SUCCEEDED,
+                idempotency_key=uuid.uuid4().hex,
+                result=result,
+                finished_at=datetime.utcnow(),
+            )
+        )
         await s.commit()
 
 
@@ -73,9 +89,16 @@ async def test_prompt_apply_and_rollback_are_tenant_scoped(pg, prompts_root) -> 
 
     with tenant_scope(a):
         original = (await service.prompt_base(gw, pid, NODE))["text"]
-        view = await service.propose(gw, tier="T2", kind="prompt_text", project_id=pid, node_key=NODE,
-                                     rationale="короче", proposer=CHAT,
-                                     candidate={"text": original.rstrip("\n") + "\nПиши коротко."})
+        view = await service.propose(
+            gw,
+            tier="T2",
+            kind="prompt_text",
+            project_id=pid,
+            node_key=NODE,
+            rationale="короче",
+            proposer=CHAT,
+            candidate={"text": original.rstrip("\n") + "\nПиши коротко."},
+        )
         assert [item["id"] for item in await chat_proposals.pending([CHAT])] == [view["id"]]
         plan = await chat_proposals.resolve("примени правку промта", operators=[CHAT])
         assert [s["action"] for s in plan.steps] == ["change.apply"]
@@ -101,8 +124,12 @@ async def test_prompt_apply_and_rollback_are_tenant_scoped(pg, prompts_root) -> 
         assert plan is None or plan.steps == []
         with pytest.raises(ChangeRefused):
             await service.rollback(gw, out["target"], out["version"], approved_by=HUMAN)
-        assert await _scalar_as(pg["factory"], b, "select count(*) from config_versions where target = :t",
-                                t=out["target"]) == 0
+        assert (
+            await _scalar_as(
+                pg["factory"], b, "select count(*) from config_versions where target = :t", t=out["target"]
+            )
+            == 0
+        )
 
     with tenant_scope(a):
         assert (await service.prompt_base(gw, pid, NODE))["text"] == changed

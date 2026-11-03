@@ -79,9 +79,7 @@ def _parent_child(project_id: int) -> tuple[Frame, Frame]:
 
 
 @pytest.mark.asyncio
-async def test_apply_scene_action_explodes_shots(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_apply_scene_action_explodes_shots(session: AsyncSession, project: Project) -> None:
     parent = Frame(
         project_id=project.id,
         number=5,
@@ -118,9 +116,7 @@ async def test_apply_scene_action_explodes_shots(
     rows = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()
@@ -145,9 +141,7 @@ async def test_apply_scene_action_explodes_shots(
 
 
 @pytest.mark.asyncio
-async def test_apply_scene_action_splits_director_prose(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_apply_scene_action_splits_director_prose(session: AsyncSession, project: Project) -> None:
     parent_uid = "ee" * 12
     child_uid = "ff" * 12
     parent = Frame(
@@ -217,9 +211,7 @@ async def test_apply_scene_action_splits_director_prose(
     rows = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()
@@ -244,9 +236,7 @@ async def test_apply_scene_action_splits_director_prose(
 
 
 @pytest.mark.asyncio
-async def test_apply_scene_action_rejects_empty(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_apply_scene_action_rejects_empty(session: AsyncSession, project: Project) -> None:
     parent, _child = _parent_child(project.id)
     session.add_all([project, parent])
     await session.flush()
@@ -320,10 +310,7 @@ async def test_apply_scene_action_rewrites_arrows_and_clears_extra(
         {
             "type": "coverage_scene_action",
             "frame_number": 1,
-            "action": (
-                "1. двор — душит → уходит скрытно\n"
-                "(Он вошёл и ушёл.)"
-            ),
+            "action": ("1. двор — душит → уходит скрытно\n(Он вошёл и ушёл.)"),
         },
     )
     assert result["ok"] is True
@@ -412,9 +399,7 @@ async def test_apply_scene_action_grow_inserts_without_renumber(
     rows = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()
@@ -450,9 +435,7 @@ async def test_apply_scene_action_grow_inserts_without_renumber(
 
 
 @pytest.mark.asyncio
-async def test_scene_action_keeps_medium_parent_plan(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_scene_action_keeps_medium_parent_plan(session: AsyncSession, project: Project) -> None:
     from app.services.montage_coverage_ops import apply_coverage_scene_action
     from app.services.montage_scene_editor import scene_group
     from app.services.vo_shot_expand import _cs
@@ -502,9 +485,7 @@ async def test_scene_action_keeps_medium_parent_plan(
     frames = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()
@@ -591,9 +572,7 @@ async def test_improve_does_not_turn_leftover_glue_into_new_scenes(
     rows = list(
         (
             await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.sort_key, Frame.number)
+                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
             )
         )
         .scalars()
@@ -625,9 +604,7 @@ async def test_improve_does_not_turn_leftover_glue_into_new_scenes(
 
 
 @pytest.mark.asyncio
-async def test_scene_action_clears_leftover_chips(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_scene_action_clears_leftover_chips(session: AsyncSession, project: Project) -> None:
     """Хвост leftover не держит старые крупность/ракурс после новой цепи."""
     from app.services.montage_coverage_ops import apply_coverage_scene_action
 
@@ -744,9 +721,7 @@ async def test_scene_action_clears_leftover_chips(
 
 
 @pytest.mark.asyncio
-async def test_apply_vo_span_saves_scene_text(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_apply_vo_span_saves_scene_text(session: AsyncSession, project: Project) -> None:
     from app.services.montage_scene_editor import cell_scene_text, scene_group
 
     parent_uid = "aa" * 12
@@ -788,9 +763,7 @@ async def test_apply_vo_span_saves_scene_text(
 
 
 @pytest.mark.asyncio
-async def test_apply_vo_span_writes_edited_full_text(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_apply_vo_span_writes_edited_full_text(session: AsyncSession, project: Project) -> None:
     from app.services.montage_scene_editor import cell_scene_text, scene_group
 
     parent = Frame(

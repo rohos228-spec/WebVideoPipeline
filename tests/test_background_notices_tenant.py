@@ -39,8 +39,15 @@ async def _next_notice(queue) -> dict:
 async def test_incident_notice_goes_out_as_the_project_tenant(notices_db, monkeypatch) -> None:
     import app.services.action_layer.plan as plan
 
-    row = SimpleNamespace(details={"title": "Нужно решение"}, severity="error", type="watchdog_stalled",
-                          project_id=13, incident_id="inc-bg-1", execution_id="ex-1", tenant_id=A)
+    row = SimpleNamespace(
+        details={"title": "Нужно решение"},
+        severity="error",
+        type="watchdog_stalled",
+        project_id=13,
+        incident_id="inc-bg-1",
+        execution_id="ex-1",
+        tenant_id=A,
+    )
     async with get_bus().subscribe("global") as queue:
         assert current_tenant() is None  # фоновый проход
         status = await chat_notice.incident(row, "Потрачено 48.20 USD, проект #13 ждёт решения")
@@ -56,8 +63,16 @@ async def test_incident_notice_goes_out_as_the_project_tenant(notices_db, monkey
 async def test_watchdog_stall_notice_goes_out_as_the_project_tenant(notices_db) -> None:
     from app.services.watchdog import Watchdog
 
-    created = [{"incident_id": "wd-1", "execution_id": "ex-2", "project_id": 21, "node_key": "n_images",
-                "stall": {"kind": "idle"}, "tenant_id": A}]
+    created = [
+        {
+            "incident_id": "wd-1",
+            "execution_id": "ex-2",
+            "project_id": 21,
+            "node_key": "n_images",
+            "stall": {"kind": "idle"},
+            "tenant_id": A,
+        }
+    ]
     async with get_bus().subscribe("global") as queue:
         await Watchdog(observer=None)._notify(created)
         event = await _next_notice(queue)

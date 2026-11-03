@@ -479,9 +479,18 @@ async def test_retry_feedback_reaches_the_model_prompt(tmp_path, monkeypatch):
 
 def test_upstream_step_is_a_card_with_its_own_reason_not_a_retry():
     # Пустой вход: первым идёт разбивка (другой платный шаг), а не повтор упавшей ноды.
-    split = {"action": "step.run_step", "params": {"project_id": 1, "step_code": "split"}, "upstream": True, "title_ru": "Довести до разбивки"}
+    split = {
+        "action": "step.run_step",
+        "params": {"project_id": 1, "step_code": "split"},
+        "upstream": True,
+        "title_ru": "Довести до разбивки",
+    }
     for auto_retry in (False, True):
-        d = _decide(_cfg(auto_fix_on_failure=True, auto_retry=auto_retry), options=(split, RUN), cause={"code": "empty_input"})
+        d = _decide(
+            _cfg(auto_fix_on_failure=True, auto_retry=auto_retry),
+            options=(split, RUN),
+            cause={"code": "empty_input"},
+        )
         by_step = {s.params.get("step_code"): s for s in d.steps}
         assert not by_step["split"].auto and "не повтор" in by_step["split"].why_ru
         assert "автоповтор" not in by_step["split"].why_ru
@@ -493,7 +502,10 @@ def test_retry_params_skip_upstream_and_upstream_keeps_its_step():
     from app.services import orchestrator_autonomy_run as run
 
     split = {"action": "step.run_step", "params": {"project_id": 30, "step_code": "split"}, "upstream": True}
-    rerun = {"action": "step.run_step", "params": {"project_id": 30, "step_code": "excel_gpt", "node_key": "n_excel_gpt_1"}}
+    rerun = {
+        "action": "step.run_step",
+        "params": {"project_id": 30, "step_code": "excel_gpt", "node_key": "n_excel_gpt_1"},
+    }
     card = run.retry_params({"fix_options": [split, rerun]}, None)
     assert card["step_code"] == "excel_gpt" and card["stop_after_node_key"] == "n_excel_gpt_1"
     assert run._with_run_params(split, card)["params"]["step_code"] == "split"

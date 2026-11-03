@@ -29,6 +29,8 @@ def test_without_key_or_override_stays_on_common_provider(monkeypatch: pytest.Mo
         assert gpt_api._pay52_override() is None
     monkeypatch.setattr(settings, "pay52_gpt_key", "test-key-not-real")
     assert gpt_api._pay52_override() is None
-    vibe = NodeLlmOverride(model_id="gpt-5.6-sol", channel="stable", kind="text", provider="vibecode", label="v")
+    vibe = NodeLlmOverride(
+        model_id="gpt-5.6-sol", channel="stable", kind="text", provider="vibecode", label="v"
+    )
     with use_override(vibe):
         assert gpt_api._pay52_override() is None

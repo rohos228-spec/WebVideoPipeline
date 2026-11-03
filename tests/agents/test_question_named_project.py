@@ -5,8 +5,10 @@ from app.orchestrator.agents.question_context import QuestionContext, plan_reads
 
 class _Nodes:
     async def project_items(self):
-        return [{"id": 4, "title": "2 коротких факта о совах", "status": "paused"},
-                {"id": 2, "title": "3 факта о котах", "status": "new"}]
+        return [
+            {"id": 4, "title": "2 коротких факта о совах", "status": "paused"},
+            {"id": 2, "title": "3 факта о котах", "status": "new"},
+        ]
 
     async def rows(self, _pid):
         return []
@@ -20,7 +22,9 @@ async def test_factory_question_reads_the_project_named_by_title() -> None:
         return {"text_ru": "ок"}
 
     ctx = QuestionContext(runner=runner, nodes=_Nodes())
-    messages = await ctx.messages("в проекте 2 коротких факта о совах какие платные запросы заблокированы?", None)
+    messages = await ctx.messages(
+        "в проекте 2 коротких факта о совах какие платные запросы заблокированы?", None
+    )
     assert ("media.list_unknown_outcomes", 4) in seen
     assert all(pid in (4, None) for _a, pid in seen)
     assert "проекте #4" in messages[0]["content"]
@@ -47,7 +51,10 @@ async def test_project_scope_question_about_another_numbered_project_reads_that_
 
     class _More(_Nodes):
         async def project_items(self):
-            return [*await super().project_items(), {"id": 6, "title": "2 факта о дельфинах", "status": "new"}]
+            return [
+                *await super().project_items(),
+                {"id": 6, "title": "2 факта о дельфинах", "status": "new"},
+            ]
 
     ctx = QuestionContext(runner=runner, nodes=_More())
     messages = await ctx.messages("что с проектом 6?", 14)
@@ -70,7 +77,14 @@ def test_frame_count_question_reads_the_board() -> None:
 def test_group_questions_read_the_group_list() -> None:
     from app.orchestrator.agents.question_context import fact_text
 
-    for text in ("какие группы нод есть?", "покажи готовые группы нод", "что за группы можно вставить в проект"):
+    for text in (
+        "какие группы нод есть?",
+        "покажи готовые группы нод",
+        "что за группы можно вставить в проект",
+    ):
         assert plan_reads(text, None) == [("group.list", {})]
-    fact = fact_text("group.list", {"count": 1, "groups": [{"id": "g1", "title": "Сцены: веер", "description": "4 агента"}]})
+    fact = fact_text(
+        "group.list",
+        {"count": 1, "groups": [{"id": "g1", "title": "Сцены: веер", "description": "4 агента"}]},
+    )
     assert "Сцены: веер (g1): 4 агента" in fact

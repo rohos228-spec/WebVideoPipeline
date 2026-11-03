@@ -57,11 +57,11 @@ _PROVIDER = re.compile(
     re.I,
 )
 # llm_ledger.BudgetExhausted: «бюджет исчерпан: $0.31 из $0.30 (проект #10)».
-_BUDGET = re.compile(
-    r"бюджет исчерпан|budget exhausted|spend_cap_\w+|потол\w* (?:трат|расход|запуска)", re.I
-)
+_BUDGET = re.compile(r"бюджет исчерпан|budget exhausted|spend_cap_\w+|потол\w* (?:трат|расход|запуска)", re.I)
 # «бюджет исчерпан: $0.15 из $0.10» — запись llm_ledger.BudgetExhausted про бюджет текстов проекта.
-_PROJECT_BUDGET = re.compile(r"бюджет исчерпан:\s*\$([0-9]+(?:\.[0-9]+)?)\s*из\s*\$([0-9]+(?:\.[0-9]+)?)", re.I)
+_PROJECT_BUDGET = re.compile(
+    r"бюджет исчерпан:\s*\$([0-9]+(?:\.[0-9]+)?)\s*из\s*\$([0-9]+(?:\.[0-9]+)?)", re.I
+)
 _TRUNC = re.compile(
     r"finish_reason\W*length|max_tokens|unterminated|обрез|оборван|незакрыт",
     re.I,
@@ -798,7 +798,9 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
             pass
     up = _upstream(meta, key)
     up_node = nodes.get(up) if up else None
-    up_title = (bi._labels(meta).get(up) or bi._node_title(up_node, bi._node_types(up_node, "")[1])) if up else None
+    up_title = (
+        (bi._labels(meta).get(up) or bi._node_title(up_node, bi._node_types(up_node, "")[1])) if up else None
+    )
     fixes = fix_options(
         cause, project_id=pid, node_key=key, step_code=step, upstream=up, upstream_title=up_title
     )

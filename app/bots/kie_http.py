@@ -758,5 +758,5 @@ async def task_status(api: str, task_id: str) -> tuple[str, dict[str, Any]]:
     except Exception:
         payload = {"msg": (r.text or "")[:300], "code": r.status_code}
     data = _check(payload, http_status=r.status_code, where=f"poll {path}")
-    inner = data.get("data") if isinstance(data.get("data"), dict) else {}
+    inner = raw_inner if isinstance(raw_inner := data.get("data"), dict) else {}
     return _task_state(api, inner), inner

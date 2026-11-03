@@ -28,8 +28,9 @@ async def _project_of(pg, tenant: str) -> int:  # noqa: F811
 
     with tenant_scope(tenant):
         async with pg["factory"]() as s:
-            p = Project(slug=f"st-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.new,
-                        hero_mode="no_hero")
+            p = Project(
+                slug=f"st-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.new, hero_mode="no_hero"
+            )
             s.add(p)
             await s.commit()
             return p.id
@@ -87,11 +88,17 @@ async def test_chat_kill_skips_foreign_project_of_running_step(pg) -> None:  # n
         sc.clear_stop(pid)
     try:
         with tenant_scope(b):
-            tid = await asyncio.to_thread(sup.tasks.insert, scoped_session("k", b), "g",
-                                          TaskStatus.executing.value)
+            tid = await asyncio.to_thread(
+                sup.tasks.insert, scoped_session("k", b), "g", TaskStatus.executing.value
+            )
             for idx, pid in enumerate((pid_a, pid_b)):
-                step = PlanStep(action="step.run_step", params={"project_id": pid, "step_code": "img"},
-                                expected="x", paid=True, mutating=True)
+                step = PlanStep(
+                    action="step.run_step",
+                    params={"project_id": pid, "step_code": "img"},
+                    expected="x",
+                    paid=True,
+                    mutating=True,
+                )
                 sid = await asyncio.to_thread(sup.tasks.insert_step, tid, idx, step)
                 conn = connect()
                 try:
@@ -120,10 +127,17 @@ async def test_chat_kill_with_invisible_task_row_keeps_no_step_projects(pg) -> N
     pid_b = await _project_of(pg, b)
     sup = pg["runtime"].supervisor
     with tenant_scope(b):
-        tid = await asyncio.to_thread(sup.tasks.insert, scoped_session("k2", b), "g", TaskStatus.executing.value)
+        tid = await asyncio.to_thread(
+            sup.tasks.insert, scoped_session("k2", b), "g", TaskStatus.executing.value
+        )
         for idx, pid in enumerate((pid_a, pid_b)):
-            step = PlanStep(action="step.run_step", params={"project_id": pid, "step_code": "img"},
-                            expected="x", paid=True, mutating=True)
+            step = PlanStep(
+                action="step.run_step",
+                params={"project_id": pid, "step_code": "img"},
+                expected="x",
+                paid=True,
+                mutating=True,
+            )
             sid = await asyncio.to_thread(sup.tasks.insert_step, tid, idx, step)
             conn = connect()
             try:
@@ -142,4 +156,3 @@ async def test_chat_kill_with_invisible_task_row_keeps_no_step_projects(pg) -> N
         assert projects == [], projects
     finally:
         del sup.tasks.list_steps
-

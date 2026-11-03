@@ -125,7 +125,7 @@ def save(changes: dict[str, Any], *, actor: str, tenant: str | None = None) -> d
     key = _tenant_key(tenant)
     with _LOCK:
         data = _load_all()
-        by_tenant = data.get("settings") if isinstance(data.get("settings"), dict) else {}
+        by_tenant = raw_settings if isinstance(raw_settings := data.get("settings"), dict) else {}
         cur = normalize(by_tenant.get(key))
         cur.update({k: v for k, v in changes.items() if k in DEFAULTS})
         cur["updated_by"] = str(actor or "")[:160]
@@ -185,7 +185,7 @@ def set_retries(project_id: int, node_key: str, value: int, tenant: str | None =
     key = _tenant_key(tenant)
     with _LOCK:
         data = _load_all()
-        all_r = data.get("retries") if isinstance(data.get("retries"), dict) else {}
+        all_r = raw_retries if isinstance(raw_retries := data.get("retries"), dict) else {}
         mine = dict(all_r.get(key) or {})
         if value > 0:
             mine[_retry_key(project_id, node_key)] = {"n": int(value), "at": time.time()}
@@ -290,6 +290,7 @@ _READ_ONLY_FIXES = frozenset(
     {"node.output", "logs.tail", "diag.node_failure", "diag.incidents", "diag.content_checks"}
 )
 
+
 def _model_label(model_id: str) -> str:
     """Название модели из каталога для карточки (а не её код)."""
     try:
@@ -368,10 +369,16 @@ def decide_fix(
             elif not fix_on:
                 why = "автоисправление выключено"
             name = "node.set_model" if cheaper else "node.set_model_costly"
-            models.append(FixStep(name, params, f"Поставить модель «{_model_label(new_model_id)}»", not why, why))
+            models.append(
+                FixStep(name, params, f"Поставить модель «{_model_label(new_model_id)}»", not why, why)
+            )
             continue
         if action == "step.run_step" and opt.get("upstream"):
-            upstream.append(FixStep(action, params, title, False, "это другой платный шаг, не повтор: только с подтверждением"))
+            upstream.append(
+                FixStep(
+                    action, params, title, False, "это другой платный шаг, не повтор: только с подтверждением"
+                )
+            )
             continue
         if action == "step.run_step":
             why = ""

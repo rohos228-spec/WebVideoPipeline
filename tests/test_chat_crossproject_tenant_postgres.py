@@ -71,6 +71,7 @@ def _queue_file(monkeypatch, ids: list[int]) -> list[int]:
 
     monkeypatch.setattr("app.services.gen_queue.get_gen_queue", _get)
     monkeypatch.setattr("app.services.sidebar_layout.get_gen_queue", _get)
+
     def _toggle(pid: int) -> list[int]:
         if int(pid) in queue:
             queue.remove(int(pid))
@@ -107,7 +108,9 @@ async def test_mass_model_edit_lists_only_own_projects(pg) -> None:  # noqa: F81
     assert await asyncio.to_thread(own_projects, None) == []
 
     with tenant_scope(b):
-        tid = await asyncio.to_thread(sup.tasks.insert, scoped_session("mass", b), "g", TaskStatus.executing.value)
+        tid = await asyncio.to_thread(
+            sup.tasks.insert, scoped_session("mass", b), "g", TaskStatus.executing.value
+        )
         listed = await asyncio.to_thread(_studio_projects, tid)
         block = await asyncio.to_thread(
             ActionCatalog(project_of=lambda _t: None).block,

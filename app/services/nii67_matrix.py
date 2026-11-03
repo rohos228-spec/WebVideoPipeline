@@ -31,7 +31,7 @@ def _block(kind: str, text: str, *, creature: dict[str, Any] | None = None, **ex
     return b
 
 
-def _first(*values: str) -> str:
+def _first(*values: str | None) -> str:
     for v in values:
         if v and v.strip():
             return v.strip()
@@ -49,8 +49,9 @@ def _door_creature(door: dict[str, Any]) -> dict[str, Any]:
 def matrix_blocks(door: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
     """Блоки двери из хода и полей состояния; второй элемент — чего не хватает."""
     move = door.get("move") or ""
-    st = door.get("state") or {}
-    name = _DOOR_RU.get(door.get("id"), door.get("id") or "дверь")
+    st: dict[str, Any] = door.get("state") or {}
+    door_id: Any = door.get("id")
+    name = _DOOR_RU.get(door_id, door_id or "дверь")
     issues: list[str] = []
     world = _first(st.get("world_text"), st.get("world_description"), door.get("theme"))
     env = _first(st.get("environment"))
@@ -65,14 +66,18 @@ def matrix_blocks(door: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
         )
         blocks.append(_block("gg_action", action or "герой пытается выбраться"))
         blocks.append(_block("enter_action", death or "мир убивает героя"))
-        blocks.append(_block("exit", _first(st.get("illustration"), st.get("death_trace")) or "след на месте"))
+        blocks.append(
+            _block("exit", _first(st.get("illustration"), st.get("death_trace")) or "след на месте")
+        )
         if not action:
             issues.append(f"{name}: не задано «Действие перед смертью»")
         if not death:
             issues.append(f"{name}: не задано, от чего герой умер")
     elif move == "neutral":
         place = _first(st.get("place"))
-        blocks.append(_block("gg_action", f"герой проходит дальше: {place}" if place else "герой проходит дальше"))
+        blocks.append(
+            _block("gg_action", f"герой проходит дальше: {place}" if place else "герой проходит дальше")
+        )
         blocks.append(_block("exit", _first(st.get("illustration"), place) or "герой ушёл дальше"))
         if not place:
             issues.append(f"{name}: не задано «Куда пришёл»")
@@ -82,13 +87,17 @@ def matrix_blocks(door: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]
         blocks.append(_block("world_character", "появляется существо", creature=creature))
         if act == "kill":
             blocks.append(_block("character_action", "существо убивает героя", creature=creature))
-            blocks.append(_block("exit", _first(st.get("illustration"), st.get("death_trace")) or "след на месте"))
+            blocks.append(
+                _block("exit", _first(st.get("illustration"), st.get("death_trace")) or "след на месте")
+            )
         elif act == "run":
             blocks.append(_block("character_action", "существо бросается на героя", creature=creature))
             blocks.append(_block("gg_action", "герой убегает обратно к двери"))
         elif act == "interact":
             result = _first(st.get("interaction_result"))
-            blocks.append(_block("character_action", result or "существо вступает в контакт", creature=creature))
+            blocks.append(
+                _block("character_action", result or "существо вступает в контакт", creature=creature)
+            )
             if not result:
                 issues.append(f"{name}: не задан «Результат взаимодействия»")
         else:
@@ -107,7 +116,11 @@ def matrix_plan(card: Any) -> dict[str, Any]:
     issues: list[str] = []
     preview = False
     for door in work["doors"]:
-        own = [b for b in door["blocks"] if b.get("kind") not in MATRIX_BLOCK_KINDS and (b.get("text") or "").strip()]
+        own = [
+            b
+            for b in door["blocks"]
+            if b.get("kind") not in MATRIX_BLOCK_KINDS and (b.get("text") or "").strip()
+        ]
         blocks, missing = matrix_blocks(door)
         if not blocks:
             if own:

@@ -107,7 +107,8 @@ async def test_project_frames_counts_single_db():
 
     step = SimpleNamespace(action="step.run_step", params={"step_code": "img_pr"})
     assert await plan_refusal([step], empty) == (
-        "Кадров нет — промты картинок делать не из чего, сначала разбивка на кадры (или импорт Excel).")
+        "Кадров нет — промты картинок делать не из чего, сначала разбивка на кадры (или импорт Excel)."
+    )
     assert await plan_refusal([step], with_frames) is None
 
 
@@ -164,8 +165,9 @@ async def test_studio_allows_leaves_project_untouched():
     running = await _add_project(status=ProjectStatus.splitting)
     assert await _studio_allows(running, step) is False
 
-    paused = await _add_project(status=ProjectStatus.paused,
-                                meta={"paused_from_status": ProjectStatus.script_ready.value})
+    paused = await _add_project(
+        status=ProjectStatus.paused, meta={"paused_from_status": ProjectStatus.script_ready.value}
+    )
     await _studio_allows(paused, step, paused=True)
     async with app_db.SessionLocal() as s:
         project = await s.get(Project, paused)
@@ -206,44 +208,105 @@ async def _seed_recovery(node_type: str, *, node_key: str = "n1") -> dict:
         project = Project(slug=f"rec-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.paused, meta={})
         s.add(project)
         await s.flush()
-        run = WorkflowRun(project_id=project.id, workflow_id=wf.id, status=WorkflowRunStatus.running,
-                          nodes_snapshot=nodes, edges_snapshot=[])
+        run = WorkflowRun(
+            project_id=project.id,
+            workflow_id=wf.id,
+            status=WorkflowRunStatus.running,
+            nodes_snapshot=nodes,
+            edges_snapshot=[],
+        )
         s.add(run)
         await s.flush()
-        s.add(NodeRun(workflow_run_id=run.id, node_key=node_key, node_type=node_type,
-                      status=NodeRunStatus.done))
-        s.add(ExecutionControl(execution_id=execution_id, project_id=project.id, workflow_run_id=run.id,
-                               node_keys=[node_key], graph_version=graph, mode="managed",
-                               observer_state="active", cursors={}, gaps=[]))
-        s.add(ActionExecutionControl(execution_id=execution_id, project_id=project.id,
-                                     workflow_run_id=run.id, group_id="g", node_keys=[node_key],
-                                     graph_version=graph, enabled=True, held=False,
-                                     initiator="test", rationale="test"))
+        s.add(
+            NodeRun(workflow_run_id=run.id, node_key=node_key, node_type=node_type, status=NodeRunStatus.done)
+        )
+        s.add(
+            ExecutionControl(
+                execution_id=execution_id,
+                project_id=project.id,
+                workflow_run_id=run.id,
+                node_keys=[node_key],
+                graph_version=graph,
+                mode="managed",
+                observer_state="active",
+                cursors={},
+                gaps=[],
+            )
+        )
+        s.add(
+            ActionExecutionControl(
+                execution_id=execution_id,
+                project_id=project.id,
+                workflow_run_id=run.id,
+                group_id="g",
+                node_keys=[node_key],
+                graph_version=graph,
+                enabled=True,
+                held=False,
+                initiator="test",
+                rationale="test",
+            )
+        )
         action_id = str(uuid.uuid4())
-        s.add(RecoveryAction(action_id=action_id, execution_id=execution_id, project_id=project.id,
-                             incident_id=str(uuid.uuid4()), node_key=node_key,
-                             source_attempt_id=str(uuid.uuid4()), new_attempt_id=attempt,
-                             idempotency_key="k1", preconditions={}, budget_state={},
-                             result={"worker_returned_at": old.isoformat()}, verification_result={},
-                             status="await_verify", created_at=old))
-        s.add(ActionRecord(action_id=action_id, execution_id=execution_id, project_id=project.id,
-                           action_kind="node_recovery", node_key=node_key, attempt_id=attempt,
-                           initiator="test", rationale="test", idempotency_key="k1",
-                           status="queued", verification={}))
+        s.add(
+            RecoveryAction(
+                action_id=action_id,
+                execution_id=execution_id,
+                project_id=project.id,
+                incident_id=str(uuid.uuid4()),
+                node_key=node_key,
+                source_attempt_id=str(uuid.uuid4()),
+                new_attempt_id=attempt,
+                idempotency_key="k1",
+                preconditions={},
+                budget_state={},
+                result={"worker_returned_at": old.isoformat()},
+                verification_result={},
+                status="await_verify",
+                created_at=old,
+            )
+        )
+        s.add(
+            ActionRecord(
+                action_id=action_id,
+                execution_id=execution_id,
+                project_id=project.id,
+                action_kind="node_recovery",
+                node_key=node_key,
+                attempt_id=attempt,
+                initiator="test",
+                rationale="test",
+                idempotency_key="k1",
+                status="queued",
+                verification={},
+            )
+        )
         facts = [
             ("node_start", {}),
             ("parse_result", {"payload_present": True}),
             ("data_applied", {}),
             # Единственный node_change одной базы — из flush-хука, db_scope="master".
-            ("node_change", {"changes": {"status": {"before": ["running"], "after": ["done"]}},
-                             "transactional": True}),
+            (
+                "node_change",
+                {"changes": {"status": {"before": ["running"], "after": ["done"]}}, "transactional": True},
+            ),
             ("node_end", {}),
         ]
         for kind, payload in facts:
-            s.add(ObservationEvent(event_id=str(uuid.uuid4()), execution_id=execution_id,
-                                   project_id=project.id, workflow_run_id=run.id, node_key=node_key,
-                                   attempt_id=attempt, db_scope="master", kind=kind, payload=payload,
-                                   created_at=old))
+            s.add(
+                ObservationEvent(
+                    event_id=str(uuid.uuid4()),
+                    execution_id=execution_id,
+                    project_id=project.id,
+                    workflow_run_id=run.id,
+                    node_key=node_key,
+                    attempt_id=attempt,
+                    db_scope="master",
+                    kind=kind,
+                    payload=payload,
+                    created_at=old,
+                )
+            )
         return {"project_id": project.id, "action_id": action_id, "execution_id": execution_id}
 
 
@@ -257,8 +320,11 @@ async def _state(seed):
         record = await s.get(ActionRecord, seed["action_id"])
         control = await s.get(ActionExecutionControl, seed["execution_id"])
         project = await s.get(Project, seed["project_id"])
-        outbox = (await s.scalars(select(ObservationOutbox).where(
-            ObservationOutbox.execution_id == seed["execution_id"]))).all()
+        outbox = (
+            await s.scalars(
+                select(ObservationOutbox).where(ObservationOutbox.execution_id == seed["execution_id"])
+            )
+        ).all()
         return row, record, control, project, outbox
 
 
@@ -332,29 +398,69 @@ async def _seed_recover_ticket(monkeypatch, tmp_path, *, node_key: str = "n_plan
     attempt = str(uuid.uuid4())
     nodes = [{"id": node_key, "type": "plan", "data": {}}]
     graph = revisions.graph_version(nodes, [])
-    meta = {"step_failure": {"abandoned_at": datetime.utcnow().isoformat(), "abandoned_reason": "exhausted",
-                             "abandoned_threshold": 2, "last_running": ProjectStatus.planning.value,
-                             "total_fails": {ProjectStatus.planning.value: 3}}}
+    meta = {
+        "step_failure": {
+            "abandoned_at": datetime.utcnow().isoformat(),
+            "abandoned_reason": "exhausted",
+            "abandoned_threshold": 2,
+            "last_running": ProjectStatus.planning.value,
+            "total_fails": {ProjectStatus.planning.value: 3},
+        }
+    }
     async with app_db.session_scope() as s:
         wf = Workflow(name=f"wf-{uuid.uuid4().hex[:8]}", is_default=False, nodes=[], edges=[])
         s.add(wf)
         await s.flush()
-        project = Project(slug=f"tic-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.paused, meta=meta)
+        project = Project(
+            slug=f"tic-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.paused, meta=meta
+        )
         s.add(project)
         await s.flush()
-        run = WorkflowRun(project_id=project.id, workflow_id=wf.id, status=WorkflowRunStatus.running,
-                          nodes_snapshot=nodes, edges_snapshot=[])
+        run = WorkflowRun(
+            project_id=project.id,
+            workflow_id=wf.id,
+            status=WorkflowRunStatus.running,
+            nodes_snapshot=nodes,
+            edges_snapshot=[],
+        )
         s.add(run)
         await s.flush()
-        s.add(NodeRun(workflow_run_id=run.id, node_key=node_key, node_type="plan",
-                      status=NodeRunStatus.failed, finished_at=datetime.utcnow()))
-        s.add(ExecutionControl(execution_id=execution_id, project_id=project.id, workflow_run_id=run.id,
-                               node_keys=[node_key], graph_version=graph, mode="managed",
-                               observer_state="active", cursors={}, gaps=[]))
-        s.add(ActionExecutionControl(execution_id=execution_id, project_id=project.id,
-                                     workflow_run_id=run.id, group_id="g", node_keys=[node_key],
-                                     graph_version=graph, enabled=True, held=False,
-                                     initiator="test", rationale="test"))
+        s.add(
+            NodeRun(
+                workflow_run_id=run.id,
+                node_key=node_key,
+                node_type="plan",
+                status=NodeRunStatus.failed,
+                finished_at=datetime.utcnow(),
+            )
+        )
+        s.add(
+            ExecutionControl(
+                execution_id=execution_id,
+                project_id=project.id,
+                workflow_run_id=run.id,
+                node_keys=[node_key],
+                graph_version=graph,
+                mode="managed",
+                observer_state="active",
+                cursors={},
+                gaps=[],
+            )
+        )
+        s.add(
+            ActionExecutionControl(
+                execution_id=execution_id,
+                project_id=project.id,
+                workflow_run_id=run.id,
+                group_id="g",
+                node_keys=[node_key],
+                graph_version=graph,
+                enabled=True,
+                held=False,
+                initiator="test",
+                rationale="test",
+            )
+        )
         await s.flush()
         parts: dict = {}
         revision = await actions_recovery.input_revision(s, project, node_key, parts=parts)
@@ -367,37 +473,67 @@ async def _seed_recover_ticket(monkeypatch, tmp_path, *, node_key: str = "n_plan
         ]
         events = []
         for kind, rid, payload in facts:
-            event = ObservationEvent(event_id=str(uuid.uuid4()), execution_id=execution_id,
-                                     project_id=project.id, workflow_run_id=run.id, node_key=node_key,
-                                     attempt_id=attempt, request_id=rid, db_scope="master", kind=kind,
-                                     payload=payload, created_at=datetime.utcnow())
+            event = ObservationEvent(
+                event_id=str(uuid.uuid4()),
+                execution_id=execution_id,
+                project_id=project.id,
+                workflow_run_id=run.id,
+                node_key=node_key,
+                attempt_id=attempt,
+                request_id=rid,
+                db_scope="master",
+                kind=kind,
+                payload=payload,
+                created_at=datetime.utcnow(),
+            )
             s.add(event)
             events.append(event)
         await s.flush()
         incident_id = str(uuid.uuid4())
-        s.add(Incident(incident_id=incident_id, execution_id=execution_id, project_id=project.id,
-                       node_key=node_key, attempt_id=attempt, type="invalid_json", severity="error",
-                       status="open", details={"currently_relevant": True, "event_ids": []}))
+        s.add(
+            Incident(
+                incident_id=incident_id,
+                execution_id=execution_id,
+                project_id=project.id,
+                node_key=node_key,
+                attempt_id=attempt,
+                type="invalid_json",
+                severity="error",
+                status="open",
+                details={"currently_relevant": True, "event_ids": []},
+            )
+        )
         s.add(DiagnosisState(execution_id=execution_id, cursor=events[-1].id))
         project_id = project.id
-    return {"project_id": project_id, "execution_id": execution_id, "incident_id": incident_id,
-            "node_key": node_key}
+    return {
+        "project_id": project_id,
+        "execution_id": execution_id,
+        "incident_id": incident_id,
+        "node_key": node_key,
+    }
 
 
 async def _recover(seed, key="rk-1"):
     from app.services.actions_v1 import ActionSupervisor
 
     return await ActionSupervisor(app_db.SessionLocal).recover_node(
-        project_id=seed["project_id"], execution_id=seed["execution_id"], incident_id=seed["incident_id"],
-        node_key=seed["node_key"], idempotency_key=key, initiator="test", rationale="retry once")
+        project_id=seed["project_id"],
+        execution_id=seed["execution_id"],
+        incident_id=seed["incident_id"],
+        node_key=seed["node_key"],
+        idempotency_key=key,
+        initiator="test",
+        rationale="retry once",
+    )
 
 
 async def _ticket_state(seed):
     async with app_db.SessionLocal() as s:
         project = await s.get(Project, seed["project_id"])
         node = await s.scalar(select(NodeRun).where(NodeRun.node_key == seed["node_key"]))
-        action = await s.scalar(select(RecoveryAction).where(
-            RecoveryAction.execution_id == seed["execution_id"]))
+        action = await s.scalar(
+            select(RecoveryAction).where(RecoveryAction.execution_id == seed["execution_id"])
+        )
         control = await s.get(ActionExecutionControl, seed["execution_id"])
         return project, node, action, control
 

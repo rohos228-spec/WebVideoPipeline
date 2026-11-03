@@ -53,9 +53,7 @@ def _ordered(frames: list[Frame]) -> list[Frame]:
 
 
 @pytest.mark.asyncio
-async def test_split_scene_at_keeps_numbers(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_split_scene_at_keeps_numbers(session: AsyncSession, project: Project) -> None:
     from app.services.montage_board import build_montage_board
     from app.services.vo_shot_expand import is_shot_child
 
@@ -82,9 +80,7 @@ async def test_split_scene_at_keeps_numbers(
     session.add_all([a, b, c])
     await session.flush()
 
-    result = await split_montage_scene_at(
-        session, project, at_frame_id=int(b.id)
-    )
+    result = await split_montage_scene_at(session, project, at_frame_id=int(b.id))
     await session.commit()
     assert result["left_number"] == 21
     assert result["right_number"] == 22
@@ -92,13 +88,7 @@ async def test_split_scene_at_keeps_numbers(
     assert result["right_size"] == 2
 
     rows = _ordered(
-        list(
-            (
-                await session.execute(
-                    select(Frame).where(Frame.project_id == project.id)
-                )
-            ).scalars()
-        )
+        list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
     )
     assert [fr.number for fr in rows] == [21, 22, 23]
     assert is_shot_child(rows[0]) is False
@@ -115,9 +105,7 @@ async def test_split_scene_at_keeps_numbers(
 
 
 @pytest.mark.asyncio
-async def test_split_scene_all_each_frame_own_scene(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_split_scene_all_each_frame_own_scene(session: AsyncSession, project: Project) -> None:
     from app.services.montage_board import build_montage_board
     from app.services.vo_shot_expand import is_shot_child
 
@@ -144,20 +132,12 @@ async def test_split_scene_all_each_frame_own_scene(
     session.add_all([a, b, c])
     await session.flush()
 
-    result = await split_montage_scene_frames(
-        session, project, frame_id=int(a.id)
-    )
+    result = await split_montage_scene_frames(session, project, frame_id=int(a.id))
     await session.commit()
     assert result["scenes"] == 3
 
     rows = _ordered(
-        list(
-            (
-                await session.execute(
-                    select(Frame).where(Frame.project_id == project.id)
-                )
-            ).scalars()
-        )
+        list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
     )
     assert [fr.number for fr in rows] == [31, 32, 33]
     assert all(is_shot_child(fr) is False for fr in rows)
@@ -173,9 +153,7 @@ async def test_split_scene_all_each_frame_own_scene(
 
 
 @pytest.mark.asyncio
-async def test_split_all_visible_ids_hides_extra_shots(
-    session: AsyncSession, project: Project
-) -> None:
+async def test_split_all_visible_ids_hides_extra_shots(session: AsyncSession, project: Project) -> None:
     from app.services.montage_board import build_montage_board
     from app.services.vo_shot_expand import _cs, is_shot_child
 
@@ -221,13 +199,7 @@ async def test_split_all_visible_ids_hides_extra_shots(
     assert result["scenes"] == 3
 
     rows = _ordered(
-        list(
-            (
-                await session.execute(
-                    select(Frame).where(Frame.project_id == project.id)
-                )
-            ).scalars()
-        )
+        list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
     )
     by_n = {int(fr.number): fr for fr in rows}
     assert is_shot_child(by_n[41]) is False
@@ -282,10 +254,20 @@ async def test_split_undo_restores_scenes_and_keeps_paid_media(
     await session.flush()
     session.add_all(
         [
-            Artifact(project_id=project.id, frame_id=b.id, kind=ArtifactKind.scene_image,
-                     uuid="img-b", path="x/b.png"),
-            Artifact(project_id=project.id, frame_id=c.id, kind=ArtifactKind.scene_video,
-                     uuid="vid-c", path="x/c.mp4"),
+            Artifact(
+                project_id=project.id,
+                frame_id=b.id,
+                kind=ArtifactKind.scene_image,
+                uuid="img-b",
+                path="x/b.png",
+            ),
+            Artifact(
+                project_id=project.id,
+                frame_id=c.id,
+                kind=ArtifactKind.scene_video,
+                uuid="vid-c",
+                path="x/c.mp4",
+            ),
         ]
     )
     await session.commit()
@@ -321,7 +303,10 @@ async def test_split_undo_refuses_when_frames_were_edited_after_split(
     await session.flush()
     res = await split_montage_scene_at(session, project, at_frame_id=int(b.id))
     await session.commit()
-    c.attrs = {**dict(c.attrs or {}), "camera_subdivide": {"role": "shot", "parent_uuid": "bb" * 12, "plan": "крупный"}}
+    c.attrs = {
+        **dict(c.attrs or {}),
+        "camera_subdivide": {"role": "shot", "parent_uuid": "bb" * 12, "plan": "крупный"},
+    }
     from sqlalchemy.orm.attributes import flag_modified
 
     flag_modified(c, "attrs")

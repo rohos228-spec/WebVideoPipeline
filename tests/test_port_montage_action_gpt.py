@@ -106,8 +106,7 @@ def test_extract_main_action_from_apply_ops() -> None:
                     "frame_uuid": uid,
                     "fields": {
                         "главное_действие": (
-                            "1. архив — вошёл → снял папку\n"
-                            "(Следователь вошёл в архив и снял папку.)"
+                            "1. архив — вошёл → снял папку\n(Следователь вошёл в архив и снял папку.)"
                         )
                     },
                 }
@@ -297,11 +296,7 @@ async def test_generate_cell_regenerates_piece_only(
                 "ops": [
                     {
                         "frame_uuid": parent_uid,
-                        "fields": {
-                            "главное_действие": (
-                                "2. казарма — вошёл в строй\n(Зашёл в казарму.)"
-                            )
-                        },
+                        "fields": {"главное_действие": ("2. казарма — вошёл в строй\n(Зашёл в казарму.)")},
                     }
                 ]
             },
@@ -553,4 +548,3 @@ async def test_generate_cell_grows_stubs_without_images(
     assert "image_ops" not in result
     assert len(result["frame_numbers"]) == 3
     assert 1 in result["frame_numbers"]
-

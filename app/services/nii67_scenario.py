@@ -16,7 +16,7 @@ import threading
 from collections.abc import Awaitable, Callable
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -532,7 +532,7 @@ EXAMPLE_THEME = {
 
 
 def _outcome_linked(doc: dict[str, Any]) -> bool:
-    beats = doc.get("beats") if isinstance(doc.get("beats"), list) else []
+    beats = cast(list[Any], doc.get("beats")) if isinstance(doc.get("beats"), list) else []
     beat_text = " ".join(
         str(b.get("text") or "")
         for b in beats
@@ -586,7 +586,7 @@ JUDGE_SYSTEM = (
 
 
 async def judge_door(llm: LlmFn, doc: dict[str, Any], door_id: str) -> dict[str, Any]:
-    beats = doc.get("beats") if isinstance(doc.get("beats"), list) else []
+    beats = cast(list[Any], doc.get("beats")) if isinstance(doc.get("beats"), list) else []
     story = "\n".join(f"{b.get('id')}: {b.get('text')}" for b in beats if isinstance(b, dict))
     prompt = (
         f"Мир: {doc.get('theme')}\nЗакон: {doc.get('law')}\nИсход: {_outcome(doc.get('outcome'))}\n"
@@ -700,12 +700,12 @@ def validate_door_scenario(
     blob = "\n".join(_strings(doc))
     errors = visualization_errors(blob)
 
-    beats = doc.get("beats") if isinstance(doc.get("beats"), list) else []
+    beats = cast(list[Any], doc.get("beats")) if isinstance(doc.get("beats"), list) else []
     action_bad = False
     for beat in beats:
         if not isinstance(beat, dict):
             continue
-        frames = beat.get("frames") if isinstance(beat.get("frames"), list) else []
+        frames = cast(list[Any], beat.get("frames")) if isinstance(beat.get("frames"), list) else []
         for frame in frames:
             if not isinstance(frame, dict):
                 continue
@@ -1445,7 +1445,7 @@ async def generate_scenarios(
         recent = []
         out1 = plan["door1"].get("outcome") or None
         out2 = plan["door2"].get("outcome") or None
-        plan_pick = {"door1": (out1, []), "door2": (out2, [])}
+        plan_pick: dict[str, tuple[Any, list[Any]]] = {"door1": (out1, []), "door2": (out2, [])}
     else:
         cats = list(categories_pick or pick_categories(2, path=history_path))
         cat_of = {"door1": cats[0], "door2": cats[1]}
@@ -1479,7 +1479,7 @@ async def generate_scenarios(
     for item in results:
         if isinstance(item, Exception):
             raise item
-    (doc1, log1), (doc2, log2) = results
+    (doc1, log1), (doc2, log2) = cast(list[tuple[dict[str, Any], list[dict[str, Any]]]], results)
     logs = list(log1) + list(log2)
     same_arc = _outcome(doc1.get("outcome")) == _outcome(doc2.get("outcome"))
     if plan:

@@ -149,9 +149,7 @@ async def test_is_shared_flag_follows_tenant_scope(env) -> None:
     list_a = (await client_a.get("/api/prompt-files/plan")).json()
     assert _flag(list_a, "default") is True
 
-    save_res = await client_a.put(
-        "/api/prompt-files/plan/default", json={"content": "личный план Алисы"}
-    )
+    save_res = await client_a.put("/api/prompt-files/plan/default", json={"content": "личный план Алисы"})
     assert save_res.status_code == 200
 
     list_a = (await client_a.get("/api/prompt-files/plan")).json()

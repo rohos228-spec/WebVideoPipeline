@@ -11,7 +11,10 @@ def test_overview_status_filter():
 
 class _Nodes:
     async def project_items(self):
-        return [{"id": 12, "title": "2 факта о муравьях", "status": "paused"}, {"id": 25, "title": "тест", "status": "new"}]
+        return [
+            {"id": 12, "title": "2 факта о муравьях", "status": "paused"},
+            {"id": 25, "title": "тест", "status": "new"},
+        ]
 
 
 def test_tail_number_is_project():

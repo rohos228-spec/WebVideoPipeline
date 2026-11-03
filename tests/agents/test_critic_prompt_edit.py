@@ -31,24 +31,30 @@ def _edit(**params: Any) -> PlanStep:
     return PlanStep(action="prompt.edit_text", params={**base, **params}, mutating=True, risk="medium")
 
 
-@pytest.mark.parametrize("reason", [
-    _LIVE_WHY,
-    "Используй только id из каталога и значения параметров из поля v",
-    "Параметры шага не подтверждены каталогом",
-])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        _LIVE_WHY,
+        "Используй только id из каталога и значения параметров из поля v",
+        "Параметры шага не подтверждены каталогом",
+    ],
+)
 def test_catalog_only_revise_is_recognised(reason: str) -> None:
     assert catalog_params_only(reason)
 
 
-@pytest.mark.parametrize("reason", [
-    "План меняет промт в проекте 8, а просили проект 7",
-    "Прогноз трат выше лимита",
-    "План удаляет кадры, проверь id из каталога",
-    "node_key n_excel_gpt_2 не та нода, нужна первая",
-    "Параметр append дописывает не тот текст: просили «Пиши коротко.»",
-    "Шаг правит общий промт для всех клиентов, а не этот проект",
-    "",
-])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "План меняет промт в проекте 8, а просили проект 7",
+        "Прогноз трат выше лимита",
+        "План удаляет кадры, проверь id из каталога",
+        "node_key n_excel_gpt_2 не та нода, нужна первая",
+        "Параметр append дописывает не тот текст: просили «Пиши коротко.»",
+        "Шаг правит общий промт для всех клиентов, а не этот проект",
+        "",
+    ],
+)
 def test_catalog_filter_keeps_real_objections(reason: str) -> None:
     assert not catalog_params_only(reason)
 
@@ -63,7 +69,9 @@ class _OneReply:
 
 
 @pytest.mark.asyncio
-async def test_critic_approves_plain_prompt_append_over_catalog_revise(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_critic_approves_plain_prompt_append_over_catalog_revise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from app.orchestrator.agents import critic as critic_mod
 
     async def fake_call(router, tier, messages, **kwargs):
@@ -132,16 +140,23 @@ class _RecordingCritic:
 @pytest.mark.asyncio
 async def test_screen_note_reaches_planner_but_not_critic(token: str) -> None:
     del token
-    propose = PlanStep(action="change.propose", params={"kind": "prompt_text", "project_id": 7},
-                       mutating=True, risk="medium")
+    propose = PlanStep(
+        action="change.propose", params={"kind": "prompt_text", "project_id": 7}, mutating=True, risk="medium"
+    )
     planner = _SeqPlanner([[propose], [_edit(append="Пиши коротко.")]])
     critic = _RecordingCritic()
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=planner, critic=critic)
+    rt = build_runtime(
+        actions=MockActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=planner,
+        critic=critic,
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task(
-            "cpe-348", "допиши в конец промта первой работы с гпт в проекте 7 строку: Пиши коротко.",
+            "cpe-348",
+            "допиши в конец промта первой работы с гпт в проекте 7 строку: Пиши коротко.",
             project_id=7,
         )
         await rt.supervisor.wait(task_id, timeout=5)

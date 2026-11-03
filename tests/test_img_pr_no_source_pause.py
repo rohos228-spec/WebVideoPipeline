@@ -51,11 +51,28 @@ class _Db:
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         async with self.sessions() as s:
-            s.add(Project(id=2, slug="s", title="s", topic="s",
-                          status=ProjectStatus.generating_image_prompts, meta=meta))
+            s.add(
+                Project(
+                    id=2,
+                    slug="s",
+                    title="s",
+                    topic="s",
+                    status=ProjectStatus.generating_image_prompts,
+                    meta=meta,
+                )
+            )
             for n in (5, 6, 7):
-                s.add(Frame(project_id=2, number=n, uuid=f"{n:024x}", sort_key=n,
-                            voiceover_text=f"vo {n}", meaning=f"смысл {n}", attrs={}))
+                s.add(
+                    Frame(
+                        project_id=2,
+                        number=n,
+                        uuid=f"{n:024x}",
+                        sort_key=n,
+                        voiceover_text=f"vo {n}",
+                        meaning=f"смысл {n}",
+                        attrs={},
+                    )
+                )
             await s.commit()
 
 
@@ -66,8 +83,10 @@ async def _run_step(db: _Db, runner) -> tuple[Project, BaseException | None]:
     async with db.sessions() as session:
         project = await session.get(Project, 2)
         err: BaseException | None = None
-        with patch.object(Project, "data_dir", property(lambda _: db.dir)), \
-                patch.object(xlsx_step_runners, "run_img_pr_xlsx", side_effect=runner):
+        with (
+            patch.object(Project, "data_dir", property(lambda _: db.dir)),
+            patch.object(xlsx_step_runners, "run_img_pr_xlsx", side_effect=runner),
+        ):
             try:
                 await generate_image_prompts.run(session, project, SimpleNamespace())
             except Exception as e:  # noqa: BLE001
@@ -99,14 +118,23 @@ async def _record_failure(project: Project, err: Exception) -> str:
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     try:
         async with sessions() as s:
-            p = Project(id=project.id, slug="s", title="s", topic="s", status=project.status,
-                        meta=dict(project.meta or {}))
+            p = Project(
+                id=project.id,
+                slug="s",
+                title="s",
+                topic="s",
+                status=project.status,
+                meta=dict(project.meta or {}),
+            )
             s.add(p)
             await s.flush()
-            with patch("app.services.step_failure_policy._soft_retry_without_wipe",
-                       new_callable=AsyncMock) as soft, \
-                    patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock), \
-                    patch("app.services.run_sync.stop_active_running_node", new_callable=AsyncMock):
+            with (
+                patch(
+                    "app.services.step_failure_policy._soft_retry_without_wipe", new_callable=AsyncMock
+                ) as soft,
+                patch("app.services.run_sync.mark_running_node_failed", new_callable=AsyncMock),
+                patch("app.services.run_sync.stop_active_running_node", new_callable=AsyncMock),
+            ):
                 action = await record_step_failure(s, p, error=err)
             assert soft.await_count == 0, "soft retry для «нет исходных данных» запрещён"
             project.meta = dict(p.meta or {})
@@ -191,9 +219,10 @@ async def test_resume_after_scene_data_fixed_calls_model_again() -> None:
 
         from app.services import agent_harness
 
-        with patch.object(agent_harness, "harness_gate_or_raise", new_callable=AsyncMock), \
-                patch("app.services.node_xlsx_snapshot.snapshot_and_bind_node_xlsx",
-                      new_callable=AsyncMock):
+        with (
+            patch.object(agent_harness, "harness_gate_or_raise", new_callable=AsyncMock),
+            patch("app.services.node_xlsx_snapshot.snapshot_and_bind_node_xlsx", new_callable=AsyncMock),
+        ):
             project2, err2 = await _run_step(db, ok_runner)
         assert err2 is None, err2
         assert calls == [1]
@@ -208,8 +237,7 @@ async def test_pause_reason_reaches_chat_notice_and_overview() -> None:
     from app.services.action_layer.builtin_insight import _pause_info
     from app.services.action_layer.step_outcome import stop_reason
 
-    p = Project(id=9, slug="s", title="s", topic="s",
-                status=ProjectStatus.generating_image_prompts, meta={})
+    p = Project(id=9, slug="s", title="s", topic="s", status=ProjectStatus.generating_image_prompts, meta={})
     action = await _record_failure(p, ipb.ImgPrNoSourceData([3]))
     assert action == "pause_infra"
     reason = p.meta["step_failure"]["last_error"]
@@ -245,9 +273,12 @@ def test_wrapped_error_still_pauses_and_success_clears_guard() -> None:
     except RuntimeError as wrapped:
         assert _no_source_error(wrapped) is inner
 
-    p = Project(id=1, slug="t", status=ProjectStatus.generating_image_prompts,
-                meta={"step_failure": {ipb.NO_SOURCE_GUARD_KEY: {"frame_numbers": [1],
-                                                                  "fingerprint": "x"}}})
+    p = Project(
+        id=1,
+        slug="t",
+        status=ProjectStatus.generating_image_prompts,
+        meta={"step_failure": {ipb.NO_SOURCE_GUARD_KEY: {"frame_numbers": [1], "fingerprint": "x"}}},
+    )
     clear_failure_on_success(p, ProjectStatus.generating_image_prompts)
     assert ipb.NO_SOURCE_GUARD_KEY not in p.meta["step_failure"]
 
@@ -255,16 +286,26 @@ def test_wrapped_error_still_pauses_and_success_clears_guard() -> None:
 def test_manual_start_of_img_pr_lifts_guard() -> None:
     from app.services.step_failure_policy import clear_failure_backoff_for_manual_start
 
-    p = Project(id=1, slug="t", status=ProjectStatus.image_prompts_ready,
-                meta={"step_failure": {ipb.NO_SOURCE_GUARD_KEY: {"frame_numbers": [1],
-                                                                  "fingerprint": "x"}}})
+    p = Project(
+        id=1,
+        slug="t",
+        status=ProjectStatus.image_prompts_ready,
+        meta={"step_failure": {ipb.NO_SOURCE_GUARD_KEY: {"frame_numbers": [1], "fingerprint": "x"}}},
+    )
     assert clear_failure_backoff_for_manual_start(p, running_key="generating_image_prompts")
     assert ipb.NO_SOURCE_GUARD_KEY not in p.meta["step_failure"]
 
 
 def test_fingerprint_ignores_prompt_fields_but_sees_scene_fields() -> None:
-    a = SimpleNamespace(number=1, voiceover_text="vo", meaning=None, transition_from=None,
-                        transition_to=None, scene_id=None, attrs={})
+    a = SimpleNamespace(
+        number=1,
+        voiceover_text="vo",
+        meaning=None,
+        transition_from=None,
+        transition_to=None,
+        scene_id=None,
+        attrs={},
+    )
     b = SimpleNamespace(**{**a.__dict__, "attrs": {"промт_картинки": "что-то"}})
     c = SimpleNamespace(**{**a.__dict__, "attrs": {"фон": "лес"}})
     assert ipb.scene_input_fingerprint([a]) == ipb.scene_input_fingerprint([b])
@@ -290,8 +331,7 @@ async def test_mixed_run_second_attempt_skips_no_source_frames() -> None:
         return SimpleNamespace(apply_ops=[], ops_applied_inline=True)
 
     try:
-        with patch("app.services.node_xlsx_snapshot.snapshot_and_bind_node_xlsx",
-                   new_callable=AsyncMock):
+        with patch("app.services.node_xlsx_snapshot.snapshot_and_bind_node_xlsx", new_callable=AsyncMock):
             _project, err = await _run_step(db, runner)
         assert len(kwargs_seen) == 2
         assert "skip_frame_numbers" not in kwargs_seen[0]
@@ -341,13 +381,21 @@ def _runner_env(tmp_path, monkeypatch, frames, calls):
             return None
 
         async def ask_with_files(self, msg, attach, **_kw):
-            uuids = [line.split(" = ")[1] for line in msg.splitlines()
-                     if line.startswith("кадр ") and " = " in line]
+            uuids = [
+                line.split(" = ")[1]
+                for line in msg.splitlines()
+                if line.startswith("кадр ") and " = " in line
+            ]
             calls.append(uuids)
-            return json.dumps({"ops": [
-                {"frame_uuid": u, "fields": {"промт_картинки": "Нет исходных данных для заполнения"}}
-                for u in uuids
-            ]}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "ops": [
+                        {"frame_uuid": u, "fields": {"промт_картинки": "Нет исходных данных для заполнения"}}
+                        for u in uuids
+                    ]
+                },
+                ensure_ascii=False,
+            )
 
     async def _ctx(_project, **_kw):
         return list(frames), [], "", list(frames)
@@ -406,8 +454,10 @@ async def test_guard_without_fingerprint_logs_warning() -> None:
     lines: list[str] = []
     sink = logger.add(lambda m: lines.append(str(m)), level="WARNING")
     try:
-        p = SimpleNamespace(id=3, meta={"step_failure": {ipb.NO_SOURCE_GUARD_KEY: {
-            "frame_numbers": [1], "fingerprint": None}}})
+        p = SimpleNamespace(
+            id=3,
+            meta={"step_failure": {ipb.NO_SOURCE_GUARD_KEY: {"frame_numbers": [1], "fingerprint": None}}},
+        )
         await _raise_if_no_source_unchanged(None, p, [], [])
     finally:
         logger.remove(sink)
@@ -425,14 +475,24 @@ async def test_no_source_and_credits_pause_have_distinct_dedup_keys() -> None:
         return {"ok": True}
 
     def _p(code: str) -> Project:
-        return Project(id=9, slug="s", title="s", topic="s", status=ProjectStatus.paused,
-                       meta={"paused_from_status": "generating_image_prompts",
-                             "step_failure": {"last_error_code": code, "last_error": "x",
-                                              "last_running": "generating_image_prompts"}})
+        return Project(
+            id=9,
+            slug="s",
+            title="s",
+            topic="s",
+            status=ProjectStatus.paused,
+            meta={
+                "paused_from_status": "generating_image_prompts",
+                "step_failure": {
+                    "last_error_code": code,
+                    "last_error": "x",
+                    "last_running": "generating_image_prompts",
+                },
+            },
+        )
 
     with patch.object(chat_notice, "notice", side_effect=fake_notice):
-        await chat_notice.step_failure(_p("img_pr_no_scene_data"), "pause_infra",
-                                       ipb.ImgPrNoSourceData([3]))
+        await chat_notice.step_failure(_p("img_pr_no_scene_data"), "pause_infra", ipb.ImgPrNoSourceData([3]))
         await chat_notice.step_failure(_p("gpt_credits"), "pause_infra", RuntimeError("no credits"))
     assert set(keys) == {"step_failure_pause_no_source", "step_failure_pause_infra"}
     assert keys["step_failure_pause_no_source"] != keys["step_failure_pause_infra"]

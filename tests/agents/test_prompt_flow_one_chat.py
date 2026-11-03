@@ -286,7 +286,9 @@ async def test_planner_clarification_is_shown_instead_of_not_understood(token: s
     set_runtime(rt)
     session = "pf-clarify"
     try:
-        task_id = await rt.supervisor.start_task(session, "откати правку промта первой работы с гпт в проекте 7")
+        task_id = await rt.supervisor.start_task(
+            session, "откати правку промта первой работы с гпт в проекте 7"
+        )
         await rt.supervisor.wait(task_id, timeout=5)
         text = _summary(rt, session)
         assert "Не понял" not in text and "Напишите номер проекта" not in text
@@ -317,6 +319,11 @@ def test_clarify_text_drops_ids_and_fields(reason: str, expected: str) -> None:
 
 def test_clarify_text_ignores_plain_refusals() -> None:
     # Без вопроса человеку — не уточнение: остаётся прежняя логика (и «Не понял», если нужно).
-    assert summarizer.clarify_text("В контексте нет ожидающего предложения правки; передайте его "
-                                   "proposal_id и expected_digest для применения.") == ""
+    assert (
+        summarizer.clarify_text(
+            "В контексте нет ожидающего предложения правки; передайте его "
+            "proposal_id и expected_digest для применения."
+        )
+        == ""
+    )
     assert summarizer.clarify_text("") == ""

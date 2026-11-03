@@ -322,8 +322,7 @@ async def _montage_shot1_refs(
             parent = find_coverage_parent_frame(rows, fr)
             pnum = int(parent.number) if parent is not None else 0
             raise RuntimeError(
-                f"нет still родителя #{pnum or '?'} для кадра {fr.number} — "
-                "сначала сгенерируйте родителя"
+                f"нет still родителя #{pnum or '?'} для кадра {fr.number} — сначала сгенерируйте родителя"
             )
         logger.info(
             "montage regen: child #{} ← parent still {}",

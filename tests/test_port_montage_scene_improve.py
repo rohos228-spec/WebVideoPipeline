@@ -79,8 +79,7 @@ def _cell(project: Project, *, bits: list[dict] | None = None) -> tuple[Frame, F
         "place": "дом",
         "vo_cell_full": VO,
         "главное_действие": (
-            "1. дом — пришёл в дом → положил носок → зашла девушка → закричала → убегает\n"
-            f"({VO})"
+            f"1. дом — пришёл в дом → положил носок → зашла девушка → закричала → убегает\n({VO})"
         ),
         "camera_subdivide": {"role": "vo_parent", "parent_uuid": UID, "место": "дом"},
     }
@@ -113,11 +112,7 @@ def _ops(fields: dict) -> str:
 
 async def _cell_frames(session: AsyncSession, project: Project) -> list[Frame]:
     frames = list(
-        (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key)
-            )
-        )
+        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key)))
         .scalars()
         .all()
     )
@@ -128,8 +123,7 @@ def _members(frames: list[Frame]) -> list[Frame]:
     return [
         fr
         for fr in frames
-        if fr.uuid == UID
-        or ((fr.attrs or {}).get("camera_subdivide") or {}).get("parent_uuid") == UID
+        if fr.uuid == UID or ((fr.attrs or {}).get("camera_subdivide") or {}).get("parent_uuid") == UID
     ]
 
 
@@ -223,17 +217,13 @@ def test_fallback_cards_follow_operator_chain() -> None:
     prose = cards_from_operator_prompt("только носок, без Банди", "дом", VO)
     assert [c["action"] for c in prose] == ["только носок, без Банди"]
     assert prose[0]["vo"] == VO
-    potom = cards_from_operator_prompt(
-        "тед банди преследует девушку а потом на нее нападает", "улица", VO
-    )
+    potom = cards_from_operator_prompt("тед банди преследует девушку а потом на нее нападает", "улица", VO)
     assert [c["action"] for c in potom] == [
         "тед банди преследует девушку",
         "на нее нападает",
     ]
     forest = cards_from_operator_prompt("выходит в лес → скрывается в тени", "лес", VO)
-    archive = cards_from_operator_prompt(
-        "кладёт папку на стол → читает штамп", "архив", VO
-    )
+    archive = cards_from_operator_prompt("кладёт папку на стол → читает штамп", "архив", VO)
     assert [c["action"] for c in forest] != [c["action"] for c in archive]
     assert forest[0]["action"] == "выходит в лес"
     assert archive[0]["action"] == "кладёт папку на стол"
@@ -258,9 +248,7 @@ def test_cards_raw_from_flat_json_array_and_numbered() -> None:
         "хватает её за плечо",
         "девушка лежит на земле",
     ]
-    numbered = cards_raw_from_reply(
-        {}, "1) идёт за девушкой\n2) хватает её\n3) лежит на земле"
-    )
+    numbered = cards_raw_from_reply({}, "1) идёт за девушкой\n2) хватает её\n3) лежит на земле")
     assert [c["action"] for c in numbered] == [
         "идёт за девушкой",
         "хватает её",
@@ -283,8 +271,20 @@ def test_split_vo_for_shots_never_empty_when_words_suffice() -> None:
 def test_normalize_maps_aliases_and_keeps_passport_place() -> None:
     shots = normalize_shots(
         [
-            {"действие": "входит в кабинет", "место": "кабинет: порог", "план": "общий план", "ракурс": "фронтально", "стык": "прямая склейка"},
-            {"действие": "берёт папку", "объект": "предмет", "план": "детальный", "ракурс": "из-за плеча", "стык": "по действию"},
+            {
+                "действие": "входит в кабинет",
+                "место": "кабинет: порог",
+                "план": "общий план",
+                "ракурс": "фронтально",
+                "стык": "прямая склейка",
+            },
+            {
+                "действие": "берёт папку",
+                "объект": "предмет",
+                "план": "детальный",
+                "ракурс": "из-за плеча",
+                "стык": "по действию",
+            },
             {"действие": "лицо: испуг", "объект": "лицо", "место": "другой дом"},
         ],
         cell_number=9,
@@ -317,22 +317,13 @@ def test_door_noun_is_not_establishing_and_plans_vary() -> None:
                     "c01 слева идёт к крыльцу рядом с c02"
                 )
             },
+            {"действие": ("на крыльце у открытой входной двери c02 входит первой в прихожую")},
             {
                 "действие": (
-                    "на крыльце у открытой входной двери c02 входит первой в прихожую"
+                    "в прихожей сразу за входом c01 тянет дверь на себя, c02 стоит справа лицом к нему"
                 )
             },
-            {
-                "действие": (
-                    "в прихожей сразу за входом c01 тянет дверь на себя, "
-                    "c02 стоит справа лицом к нему"
-                )
-            },
-            {
-                "действие": (
-                    "в комнате у закрытой входной двери c01 наваливается на c02"
-                )
-            },
+            {"действие": ("в комнате у закрытой входной двери c01 наваливается на c02")},
         ],
         cell_number=153,
         place="",
@@ -371,8 +362,18 @@ def test_shots_reply_without_ops_and_coverage_overlay() -> None:
 def test_adjacent_same_coverage_is_forced_apart() -> None:
     shots = normalize_shots(
         [
-            {"действие": "в университетском коридоре у входа стоит у шкафчиков", "план": "СРЕДНИЙ", "ракурс": "3/4", "движение": "статика"},
-            {"действие": "на тротуаре перед корпусом у ступеней входа стоит рядом", "план": "СРЕДНИЙ", "ракурс": "3/4", "движение": "статика"},
+            {
+                "действие": "в университетском коридоре у входа стоит у шкафчиков",
+                "план": "СРЕДНИЙ",
+                "ракурс": "3/4",
+                "движение": "статика",
+            },
+            {
+                "действие": "на тротуаре перед корпусом у ступеней входа стоит рядом",
+                "план": "СРЕДНИЙ",
+                "ракурс": "3/4",
+                "движение": "статика",
+            },
         ],
         cell_number=10,
         place="",
@@ -388,10 +389,38 @@ def test_repair_keeps_each_anchor_text_inside_its_shots() -> None:
     )
     shots = normalize_shots(
         [
-            {"якорь_n": 1, "действие": "идёт к дому", "объект": "тело", "план": "СРЕДНИЙ", "ракурс": "3/4", "закадр": PIECE_1 + " Через минуту"},
-            {"якорь_n": 1, "действие": "кладёт носок", "объект": "предмет", "план": "ДЕТАЛЬ", "ракурс": "с плеча", "закадр": ""},
-            {"якорь_n": 2, "действие": "девушка входит", "объект": "тело", "план": "СРЕДНИЙ", "ракурс": "3/4", "закадр": "к нему зашла девушка,"},
-            {"якорь_n": 2, "действие": "девушка убегает", "объект": "тело", "план": "СРЕДНИЙ", "ракурс": "3/4", "закадр": "увидела носок, закричала и убежала."},
+            {
+                "якорь_n": 1,
+                "действие": "идёт к дому",
+                "объект": "тело",
+                "план": "СРЕДНИЙ",
+                "ракурс": "3/4",
+                "закадр": PIECE_1 + " Через минуту",
+            },
+            {
+                "якорь_n": 1,
+                "действие": "кладёт носок",
+                "объект": "предмет",
+                "план": "ДЕТАЛЬ",
+                "ракурс": "с плеча",
+                "закадр": "",
+            },
+            {
+                "якорь_n": 2,
+                "действие": "девушка входит",
+                "объект": "тело",
+                "план": "СРЕДНИЙ",
+                "ракурс": "3/4",
+                "закадр": "к нему зашла девушка,",
+            },
+            {
+                "якорь_n": 2,
+                "действие": "девушка убегает",
+                "объект": "тело",
+                "план": "СРЕДНИЙ",
+                "ракурс": "3/4",
+                "закадр": "увидела носок, закричала и убежала.",
+            },
         ],
         cell_number=1,
         place="дом",
@@ -598,9 +627,7 @@ async def test_improve_does_not_attach_unmentioned_registry_name(
         )
 
     monkeypatch.setattr("app.services.gpt_client.gpt_ask_fresh", fake_ask)
-    result = await improve_cell_scene(
-        session, project, int(parent.id), passport={"place": "дом"}
-    )
+    result = await improve_cell_scene(session, project, int(parent.id), passport={"place": "дом"})
     codes = [c["code"] for c in result["improve_report"]["characters"]]
     assert codes == ["c02"]
 
@@ -617,9 +644,7 @@ async def test_improve_without_gpt_still_splits_vo(
         return "нет ответа"
 
     monkeypatch.setattr("app.services.gpt_client.gpt_ask_fresh", fake_ask)
-    result = await improve_cell_scene(
-        session, project, int(parent.id), passport={"place": "дом"}
-    )
+    result = await improve_cell_scene(session, project, int(parent.id), passport={"place": "дом"})
     nodes = {n["node"]: n["status"] for n in result["improve_report"]["nodes"]}
     assert list(nodes) == ["fw_action", "fw_shots", "fw_qc", "characters"]
     assert nodes["fw_action"] == "fallback"

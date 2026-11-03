@@ -50,7 +50,7 @@ def step_feedback(project: Any, step_code: str, running: str | None) -> str:
             parts.append(text)
     fs = _meta(project).get("step_failure")
     if running and isinstance(fs, dict) and str(fs.get("last_running") or "") == running:
-        totals = fs.get("total_fails") if isinstance(fs.get("total_fails"), dict) else {}
+        totals = raw_totals if isinstance(raw_totals := fs.get("total_fails"), dict) else {}
         error = str(fs.get("last_error") or "").strip()
         if error and int(totals.get(running) or 0) >= 1 and error not in "\n".join(parts):
             parts.append(f"Прошлый запуск шага упал с ошибкой: {error[:_ERROR_CHARS]}")

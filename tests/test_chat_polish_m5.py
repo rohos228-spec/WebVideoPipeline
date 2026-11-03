@@ -90,14 +90,19 @@ def test_light_phrase_is_coverage_not_redraw():
 def test_redraw_request_stays_in_queue():
     from app.orchestrator.agents.light_scope import light_as_coverage
 
-    plan = light_as_coverage(_queue_step("ночное освещение"), "перерисуй картинку кадра 8 с ночным освещением")
+    plan = light_as_coverage(
+        _queue_step("ночное освещение"), "перерисуй картинку кадра 8 с ночным освещением"
+    )
     assert plan[0].action == "montage.queue_ops"
 
 
 def test_frame_value_in_quotes_is_a_task():
     from app.orchestrator.queue import classify_deterministic
 
-    for q in ("в проекте 12 у кадра 14 действие: «сова поворачивает голову»", "кадр 15: опиши действие «птенец открывает клюв»"):
+    for q in (
+        "в проекте 12 у кадра 14 действие: «сова поворачивает голову»",
+        "кадр 15: опиши действие «птенец открывает клюв»",
+    ):
         assert classify_deterministic(q).mode.value == "task", q
     assert classify_deterministic("какой закадр у кадра 3 «тест»?").mode.value != "task"
 
@@ -116,7 +121,10 @@ def test_shot_question_answer_is_merged_with_request():
 def test_to_queue_without_verb_is_a_task():
     from app.orchestrator.queue import classify_deterministic
 
-    assert classify_deterministic("проект 4: в очередь ИИзменение видео кадра 1, сова моргает").mode.value == "task"
+    assert (
+        classify_deterministic("проект 4: в очередь ИИзменение видео кадра 1, сова моргает").mode.value
+        == "task"
+    )
     found = classify_deterministic("что в очереди правок проекта 10")
     assert found is None or found.mode.value != "task"
 
@@ -149,5 +157,7 @@ def test_upload_step_takes_path_from_goal():
     step = PlanStep(action="montage.upload_music", params={"project_id": 4}, expected="музыка")
     out = upload_source_from_goal([step], goal)
     assert out[0].params["source_path"] == "C:/data/uploads/music.wav"
-    kept = PlanStep(action="montage.upload_music", params={"project_id": 4, "source_path": "C:/x.wav"}, expected="м")
+    kept = PlanStep(
+        action="montage.upload_music", params={"project_id": 4, "source_path": "C:/x.wav"}, expected="м"
+    )
     assert upload_source_from_goal([kept], goal)[0].params["source_path"] == "C:/x.wav"

@@ -106,9 +106,10 @@ def test_resolve_parent_png_falls_back_to_shot1(tmp_path: Path) -> None:
 
 def test_slot_key_from_op_image_and_video() -> None:
     assert slot_key_from_op({"type": "image_regen", "frame_number": 9, "shot": 1}) == "9:image1"
-    assert slot_key_from_op(
-        {"type": "image_regen", "frame_number": 9, "shot": 1, "slot": "parent"}
-    ) == "9:image_parent"
+    assert (
+        slot_key_from_op({"type": "image_regen", "frame_number": 9, "shot": 1, "slot": "parent"})
+        == "9:image_parent"
+    )
     assert slot_key_from_op({"type": "video_regen", "frame_number": 9, "shot": 1}) == "9:1"
     kept = normalize_queue_ops([{"type": "image_regen", "frame_number": 3, "shot": 1, "slot": "parent"}])
     assert kept == [{"type": "image_regen", "frame_number": 3, "shot": 1, "slot": "parent"}]

@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -220,7 +220,11 @@ def retry_params(diag: dict, limit_usd: float | None) -> dict | None:
 
     # Разбивка перед пустым входом (upstream) — другой шаг, а не перезапуск упавшей ноды.
     opt = next(
-        (f for f in diag.get("fix_options") or [] if f.get("action") == "step.run_step" and not f.get("upstream")),
+        (
+            f
+            for f in diag.get("fix_options") or []
+            if f.get("action") == "step.run_step" and not f.get("upstream")
+        ),
         None,
     )
     if opt is None:
@@ -429,7 +433,7 @@ async def _incident(project_id: int, step_action: str, app: Any) -> dict:
             and operator
         ):
             run_auto = retry_params(diag, cfg["auto_spend_limit_usd"])
-            run_plan, retry_cost = await _priced_retry(app, run_auto, operator, diag)
+            run_plan, retry_cost = await _priced_retry(app, cast(dict, run_auto), operator, diag)
         options = [_with_run_params(f, run_card) for f in diag.get("fix_options") or []]
         decision = oa.decide_fix(
             cause=diag.get("cause") or {},

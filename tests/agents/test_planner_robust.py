@@ -19,11 +19,15 @@ from app.orchestrator.queue import MessageQueue, is_status_question  # noqa: E40
 from app.services.action_layer import builtin_launch as bl  # noqa: E402
 from tests.agents.mocks import MockActions, MockValidators, ScriptedCritic, ScriptedRouter  # noqa: E402
 
-GROUP_RUN = ("в проекте 6 запусти ноду Границы сцен из группы Кадры и дальше по одной ноде группы "
-             "до отчета, лимит 1 доллар")
+GROUP_RUN = (
+    "в проекте 6 запусти ноду Границы сцен из группы Кадры и дальше по одной ноде группы "
+    "до отчета, лимит 1 доллар"
+)
 NEXT_STEP = "в проектах 10,12,14 запусти следующий шаг, дальше они в очереди пойдут сами до видео"
-ASKED = ("Требуется отдельное подтверждение человека перед платным запуском шага «Предметы»; "
-         "подтвердите эти действия")
+ASKED = (
+    "Требуется отдельное подтверждение человека перед платным запуском шага «Предметы»; "
+    "подтвердите эти действия"
+)
 
 
 def _node(key: str, typ: str, label: str) -> dict:
@@ -31,13 +35,15 @@ def _node(key: str, typ: str, label: str) -> dict:
 
 
 def _meta() -> dict:
-    nodes = [_node("n_excel_gpt_fw_boundaries", "excel_gpt", "Границы сцен"),
-             _node("n_excel_gpt_fw_script", "excel_gpt", "Каркас"),
-             _node("n_excel_gpt_fw_report", "excel_gpt", "Отчёт: кадры"),
-             _node("n_excel_gpt_1", "excel_gpt", "Работа с GPT"),
-             _node("n_hero", "hero", "Персонажи")]
+    nodes = [
+        _node("n_excel_gpt_fw_boundaries", "excel_gpt", "Границы сцен"),
+        _node("n_excel_gpt_fw_script", "excel_gpt", "Каркас"),
+        _node("n_excel_gpt_fw_report", "excel_gpt", "Отчёт: кадры"),
+        _node("n_excel_gpt_1", "excel_gpt", "Работа с GPT"),
+        _node("n_hero", "hero", "Персонажи"),
+    ]
     chain = [n["id"] for n in nodes]
-    edges = [{"source": a, "target": b} for a, b in zip(chain, chain[1:])]
+    edges = [{"source": a, "target": b} for a, b in zip(chain, chain[1:], strict=False)]
     return {"canvas_graph": {"nodes": nodes, "edges": edges}}
 
 
@@ -45,13 +51,16 @@ def _ids(block: str) -> list[str]:
     return [json.loads(line)["id"] for line in block.splitlines() if line.startswith("{")]
 
 
-@pytest.mark.parametrize("text", [
-    GROUP_RUN,
-    NEXT_STEP,
-    "в проекте 6 запусти ноду Границы сцен из группы Кадры, дальше по цепочке группы до отчёта",
-    "прогони в проекте 6 группу Кадры до отчёта",
-    "перезапусти первую ноду работа с GPT у проектов 11, 12 и 13",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        GROUP_RUN,
+        NEXT_STEP,
+        "в проекте 6 запусти ноду Границы сцен из группы Кадры, дальше по цепочке группы до отчёта",
+        "прогони в проекте 6 группу Кадры до отчёта",
+        "перезапусти первую ноду работа с GPT у проектов 11, 12 и 13",
+    ],
+)
 def test_launch_words_always_offer_step_run(text: str) -> None:
     assert wants_launch(text)
     block = ActionCatalog(max_catalog=12, project_of=lambda task_id: None).block(text)
@@ -84,7 +93,11 @@ def test_critic_reads_stop_point_as_the_only_node_key() -> None:
 
 def test_gpt_chain_follows_arrows_until_a_non_gpt_node() -> None:
     assert bl.gpt_chain(_meta(), "n_excel_gpt_fw_boundaries") == [
-        "n_excel_gpt_fw_boundaries", "n_excel_gpt_fw_script", "n_excel_gpt_fw_report", "n_excel_gpt_1"]
+        "n_excel_gpt_fw_boundaries",
+        "n_excel_gpt_fw_script",
+        "n_excel_gpt_fw_report",
+        "n_excel_gpt_1",
+    ]
     assert bl.gpt_chain(_meta(), "n_excel_gpt_1") == ["n_excel_gpt_1"]
 
 
@@ -119,14 +132,16 @@ async def test_stop_point_must_be_in_the_chain() -> None:
     assert await bl._pre_stop_point(ctx, dict(_RUN)) is None
     wrong = await bl._pre_stop_point(ctx, {**_RUN, "stop_after_node_key": "n_hero"})
     assert "не идёт по стрелкам" in wrong and "«Отчёт: кадры»" in wrong
-    plain = await bl._pre_stop_point(ctx, {"project_id": 6, "step_code": "plan",
-                                           "stop_after_node_key": "n_excel_gpt_fw_report"})
+    plain = await bl._pre_stop_point(
+        ctx, {"project_id": 6, "step_code": "plan", "stop_after_node_key": "n_excel_gpt_fw_report"}
+    )
     assert "только для запуска ноды" in plain
 
 
 async def test_run_arms_the_studio_stop_key_before_the_start(monkeypatch) -> None:
     async def _ok(ctx, params):
         return None
+
     monkeypatch.setattr(bl, "_verify_any_cost", _ok)
     ctx = _Ctx(_meta())
     out = await bl._run_any_step(ctx, {**_RUN, "stop_after_node_key": "n_excel_gpt_fw_report"})
@@ -138,6 +153,7 @@ async def test_run_arms_the_studio_stop_key_before_the_start(monkeypatch) -> Non
 async def test_run_without_stop_point_clears_a_stale_key(monkeypatch) -> None:
     async def _ok(ctx, params):
         return None
+
     monkeypatch.setattr(bl, "_verify_any_cost", _ok)
     stale = _Ctx({**_meta(), bl.STOP_META_KEY: "n_excel_gpt_fw_script"})
     await bl._run_any_step(stale, dict(_RUN))
@@ -152,6 +168,7 @@ async def test_poll_reports_the_chain_and_an_early_stop(monkeypatch) -> None:
 
     async def _done(ctx, params, started):
         return JobState(done=True, ok=True, result={"final_status": "enrich_7_ready"})
+
     monkeypatch.setattr(bl, "_node_run_poll", _done)
     params = {**_RUN, "stop_after_node_key": "n_excel_gpt_fw_report"}
     reached = await bl._poll_any_step(_Ctx(_meta()), params, {})
@@ -169,6 +186,7 @@ async def test_failed_chain_leaves_no_stop_key_for_the_studio(monkeypatch) -> No
 
     async def _failed(ctx, params, started):
         return JobState(done=True, ok=False, error="нода завершилась с ошибкой")
+
     monkeypatch.setattr(bl, "_node_run_poll", _failed)
     ctx = _Ctx({**_meta(), bl.STOP_META_KEY: "n_excel_gpt_fw_report"})
     state = await bl._poll_any_step(ctx, {**_RUN, "stop_after_node_key": "n_excel_gpt_fw_report"}, {})
@@ -177,8 +195,13 @@ async def test_failed_chain_leaves_no_stop_key_for_the_studio(monkeypatch) -> No
 
 
 def _runtime(planner, router):
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=router,
-                       planner=planner, critic=ScriptedCritic(["approve"]))
+    rt = build_runtime(
+        actions=MockActions(),
+        validators=MockValidators(),
+        router=router,
+        planner=planner,
+        critic=ScriptedCritic(["approve"]),
+    )
     set_runtime(rt)
     return rt
 
@@ -192,8 +215,20 @@ async def test_empty_plan_asking_for_approval_is_planned_again(token: str) -> No
     router = ScriptedRouter()
     router.script = [
         json.dumps({"steps": [], "reason": ASKED}, ensure_ascii=False),
-        json.dumps({"steps": [{"action": "project.status", "params": {"project_id": 10}, "paid": False,
-                               "mutating": False, "risk": "none", "parallel_group": None}]}),
+        json.dumps(
+            {
+                "steps": [
+                    {
+                        "action": "project.status",
+                        "params": {"project_id": 10},
+                        "paid": False,
+                        "mutating": False,
+                        "risk": "none",
+                        "parallel_group": None,
+                    }
+                ]
+            }
+        ),
     ]
     rt = _runtime(RouterPlanner(router), router)
     try:
@@ -223,23 +258,29 @@ async def test_repeated_approval_refusal_gets_a_plain_reason(token: str) -> None
         set_runtime(None)
 
 
-@pytest.mark.parametrize("text", [
-    "статус проекта 6",
-    "как там проект 6, какая нода сейчас идет",
-    "покажи прогресс по проекту 10",
-    "что с проектом 12 сейчас",
-    "как идет прогон проекта 6",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "статус проекта 6",
+        "как там проект 6, какая нода сейчас идет",
+        "покажи прогресс по проекту 10",
+        "что с проектом 12 сейчас",
+        "как идет прогон проекта 6",
+    ],
+)
 def test_status_phrases_are_questions(text: str) -> None:
     assert is_status_question(text)
 
 
-@pytest.mark.parametrize("text", [
-    "запусти проект 6 и покажи статус",
-    "поставь проект 6 в очередь",
-    "сделай отчёт по нодам проекта 6",
-    "прогони проект 6 дальше, что с лимитом?",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "запусти проект 6 и покажи статус",
+        "поставь проект 6 в очередь",
+        "сделай отчёт по нодам проекта 6",
+        "прогони проект 6 дальше, что с лимитом?",
+    ],
+)
 def test_requests_are_not_status_questions(text: str) -> None:
     assert not is_status_question(text)
 
@@ -281,6 +322,7 @@ async def _classify(active, text: str):
 
     async def _fast(session_id, text, tier, project_id=None):
         answered.append(text)
+
     queue._stream_fast = _fast
     await queue._classify("s", text, "run", None)
     return sup, router, answered
@@ -322,7 +364,14 @@ def test_shot_numbers_written_as_strings_become_ints() -> None:
     ensure_builtin_actions()
     out = _schema_numbers(
         "montage.move_image",
-        {"project_id": "4", "from_frame": "1", "from_shot": "2", "to_frame": "2", "to_shot": "1", "note": "x"},
+        {
+            "project_id": "4",
+            "from_frame": "1",
+            "from_shot": "2",
+            "to_frame": "2",
+            "to_shot": "1",
+            "note": "x",
+        },
     )
     assert out["to_shot"] == 1 and out["from_frame"] == 1 and out["note"] == "x"
     assert _schema_numbers("no.such_action", {"a": "1"}) == {"a": "1"}
@@ -363,22 +412,28 @@ def test_generate_phrases_reach_step_run(text: str) -> None:
     assert "step.run_step" in select_catalog(text, None, registry, 12).ids
 
 
-@pytest.mark.parametrize("text", [
-    "напиши сценарий по брифингу",
-    "сделай картинки ко всем кадрам",
-    "сгенерируй озвучку для проекта",
-    "озвучь ролик",
-    "собери видео из готовых кадров",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "напиши сценарий по брифингу",
+        "сделай картинки ко всем кадрам",
+        "сгенерируй озвучку для проекта",
+        "озвучь ролик",
+        "собери видео из готовых кадров",
+    ],
+)
 def test_make_words_offer_step_run(text: str) -> None:
     """«Напиши сценарий» — тоже запуск шага: раньше чат отвечал «Этого чат пока не умеет»."""
     assert wants_launch(text)
 
 
-@pytest.mark.parametrize("text", [
-    "сделай кадр 3 короче",
-    "объедини кадры 7, 8 и 9",
-    "подготовь проект, спроси что нужно",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "сделай кадр 3 короче",
+        "объедини кадры 7, 8 и 9",
+        "подготовь проект, спроси что нужно",
+    ],
+)
 def test_edit_words_do_not_force_launch(text: str) -> None:
     assert not wants_launch(text)

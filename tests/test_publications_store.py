@@ -47,8 +47,9 @@ async def db(maker):
 
 
 async def _claim(session, owner, platform="tiktok", sha="abc", project_id=1, **kw):
-    return await ps.claim(session, project_id=project_id, platform=platform, sha256=sha,
-                          artifact_uuid="u", owner=owner, **kw)
+    return await ps.claim(
+        session, project_id=project_id, platform=platform, sha256=sha, artifact_uuid="u", owner=owner, **kw
+    )
 
 
 def _tables(db: Path) -> set[str]:
@@ -90,7 +91,9 @@ async def test_failure_before_click_is_retryable_but_bounded(db):
     for attempt in range(1, ps.MAX_PRE_CLICK_ATTEMPTS + 1):
         c = await _claim(db, f"w{attempt}")
         assert c.outcome == ps.ACQUIRED and c.attempts == attempt
-        await ps.record_result(db, c.pub_id, f"w{attempt}", status=ps.S_FAILED, error_code="caption_field_missing")
+        await ps.record_result(
+            db, c.pub_id, f"w{attempt}", status=ps.S_FAILED, error_code="caption_field_missing"
+        )
     assert (await _claim(db, "wx")).outcome == ps.NEEDS_HUMAN
 
 
@@ -126,16 +129,34 @@ async def test_confirmed_is_done_and_idempotent_per_sha(db):
 
 
 async def test_record_unclaimed_and_skipped_never_override_confirmed(db):
-    st = await ps.record_unclaimed(db, project_id=2, platform="tiktok", sha256="s", artifact_uuid=None,
-                                   status=ps.S_CONFIRMED, clicked=True, post_url="https://x/2")
+    st = await ps.record_unclaimed(
+        db,
+        project_id=2,
+        platform="tiktok",
+        sha256="s",
+        artifact_uuid=None,
+        status=ps.S_CONFIRMED,
+        clicked=True,
+        post_url="https://x/2",
+    )
     assert st == ps.S_CONFIRMED
-    again = await ps.record_unclaimed(db, project_id=2, platform="tiktok", sha256="s", artifact_uuid=None,
-                                      status=ps.S_FAILED, clicked=True, error_code="boom")
+    again = await ps.record_unclaimed(
+        db,
+        project_id=2,
+        platform="tiktok",
+        sha256="s",
+        artifact_uuid=None,
+        status=ps.S_FAILED,
+        clicked=True,
+        error_code="boom",
+    )
     assert again == ps.S_CONFIRMED
-    await ps.mark_skipped(db, project_id=2, platform="vk_clips", sha256="s", artifact_uuid=None,
-                          reason="publish_disabled")
-    await ps.mark_skipped(db, project_id=2, platform="vk_clips", sha256="s", artifact_uuid=None,
-                          reason="publish_disabled")
+    await ps.mark_skipped(
+        db, project_id=2, platform="vk_clips", sha256="s", artifact_uuid=None, reason="publish_disabled"
+    )
+    await ps.mark_skipped(
+        db, project_id=2, platform="vk_clips", sha256="s", artifact_uuid=None, reason="publish_disabled"
+    )
     rows = {r["platform"]: r for r in await ps.list_for(db, 2, "s")}
     assert rows["vk_clips"]["status"] == ps.S_SKIPPED and rows["vk_clips"]["attempts"] == 0
     assert ps.display_state(rows["vk_clips"]) == ps.D_SKIPPED
@@ -144,8 +165,18 @@ async def test_record_unclaimed_and_skipped_never_override_confirmed(db):
 
 
 def test_summarize_and_project_state():
-    rows = [{"platform": p, "status": ps.S_CONFIRMED, "post_url": "u", "post_id": None, "clicked_at": 1,
-             "attempts": 1, "lease_until": None} for p in PLATFORMS]
+    rows = [
+        {
+            "platform": p,
+            "status": ps.S_CONFIRMED,
+            "post_url": "u",
+            "post_id": None,
+            "clicked_at": 1,
+            "attempts": 1,
+            "lease_until": None,
+        }
+        for p in PLATFORMS
+    ]
     assert ps.summarize(rows, PLATFORMS)["all_confirmed"] is True
     assert ps.derive_project_state(rows, PLATFORMS, set())["state"] == ps.PS_PUBLISHED
     rows[0]["post_url"] = None
@@ -162,16 +193,27 @@ def test_summarize_and_project_state():
 
 
 async def test_approval_is_one_time_and_bound_to_caption(db):
-    await ps.grant_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c1",
-                            approved_by="operator:test")
+    await ps.grant_approval(
+        db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c1", approved_by="operator:test"
+    )
     got = await ps.list_approvals(db, 3, "f", caption_sha256="c2")
     assert got["tiktok"]["valid"] is False
-    assert await ps.consume_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c2") is False
-    assert await ps.consume_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c1") is True
-    assert await ps.consume_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c1") is False
+    assert (
+        await ps.consume_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c2")
+        is False
+    )
+    assert (
+        await ps.consume_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c1")
+        is True
+    )
+    assert (
+        await ps.consume_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c1")
+        is False
+    )
     # Повторная выдача (upsert по ключу) снова делает разрешение действующим.
-    await ps.grant_approval(db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c3",
-                            approved_by="operator:test")
+    await ps.grant_approval(
+        db, project_id=3, platform="tiktok", sha256="f", caption_sha256="c3", approved_by="operator:test"
+    )
     assert (await ps.list_approvals(db, 3, "f", caption_sha256="c3"))["tiktok"]["valid"] is True
     out = await ps.revoke_approval(db, project_id=3, platform="tiktok", sha256="f")
     assert out["platform"] == "tiktok"
@@ -184,13 +226,15 @@ async def test_approval_refused_for_confirmed_or_clicked(db):
     c = await _claim(db, "w1", sha="g", project_id=4)
     await ps.mark_clicked(db, c.pub_id, "w1")
     with pytest.raises(ps.PublicationRefused) as info:
-        await ps.grant_approval(db, project_id=4, platform="tiktok", sha256="g", caption_sha256="c",
-                                approved_by="op")
+        await ps.grant_approval(
+            db, project_id=4, platform="tiktok", sha256="g", caption_sha256="c", approved_by="op"
+        )
     assert info.value.code == "needs_human_first"
     await ps.record_result(db, c.pub_id, "w1", status=ps.S_CONFIRMED, post_url="https://x/4")
     with pytest.raises(ps.PublicationRefused) as info:
-        await ps.grant_approval(db, project_id=4, platform="tiktok", sha256="g", caption_sha256="c",
-                                approved_by="op")
+        await ps.grant_approval(
+            db, project_id=4, platform="tiktok", sha256="g", caption_sha256="c", approved_by="op"
+        )
     assert info.value.code == "already_confirmed"
 
 
@@ -202,26 +246,31 @@ async def test_manual_confirm_and_mark_failed_are_logged(db):
         await ps.confirm_manual(db, project_id=5, platform="tiktok", sha256="h", actor="op", reason="ok")
     assert info.value.code == "evidence_required"
     with pytest.raises(ps.PublicationRefused):
-        await ps.confirm_manual(db, project_id=5, platform="tiktok", sha256="h", actor="op",
-                                post_url="ftp://bad")
-    done = await ps.confirm_manual(db, project_id=5, platform="tiktok", sha256="h", actor="op",
-                                   post_url="https://x/5")
+        await ps.confirm_manual(
+            db, project_id=5, platform="tiktok", sha256="h", actor="op", post_url="ftp://bad"
+        )
+    done = await ps.confirm_manual(
+        db, project_id=5, platform="tiktok", sha256="h", actor="op", post_url="https://x/5"
+    )
     assert done["changed"] and done["prev_status"] == ps.S_UNCONFIRMED
-    again = await ps.confirm_manual(db, project_id=5, platform="tiktok", sha256="h", actor="op",
-                                    post_url="https://x/5")
+    again = await ps.confirm_manual(
+        db, project_id=5, platform="tiktok", sha256="h", actor="op", post_url="https://x/5"
+    )
     assert again["changed"] is False
 
     c2 = await _claim(db, "w1", sha="h", project_id=5, platform="vk_clips")
     await ps.record_result(db, c2.pub_id, "w1", status=ps.S_FAILED, error_code="captcha")
-    out = await ps.mark_failed_manual(db, project_id=5, platform="vk_clips", sha256="h", actor="op",
-                                      reason="пост не вышел")
+    out = await ps.mark_failed_manual(
+        db, project_id=5, platform="vk_clips", sha256="h", actor="op", reason="пост не вышел"
+    )
     assert out["status"] == ps.S_FAILED and out["allow_republish"] is False
     row = {r["platform"]: r for r in await ps.list_for(db, 5)}["vk_clips"]
     assert row["attempts"] == ps.MAX_PRE_CLICK_ATTEMPTS and row["error_code"] == ps.MANUAL_FAILED_CODE
     assert "vk_clips" in ps.summarize([row], ["vk_clips"])["manual_failed"]
     with pytest.raises(ps.PublicationRefused) as info:
-        await ps.mark_failed_manual(db, project_id=5, platform="tiktok", sha256="h", actor="op",
-                                    reason="пост не вышел")
+        await ps.mark_failed_manual(
+            db, project_id=5, platform="tiktok", sha256="h", actor="op", reason="пост не вышел"
+        )
     assert info.value.code == "already_confirmed"
 
     actions = await ps.list_manual_actions(db, 5)
@@ -232,8 +281,15 @@ async def test_manual_confirm_and_mark_failed_are_logged(db):
 async def test_mark_failed_with_republish_resets_attempts(db):
     c = await _claim(db, "w1", sha="r", project_id=6)
     await ps.mark_clicked(db, c.pub_id, "w1")
-    await ps.mark_failed_manual(db, project_id=6, platform="tiktok", sha256="r", actor="op",
-                                reason="удалили пост", allow_republish=True)
+    await ps.mark_failed_manual(
+        db,
+        project_id=6,
+        platform="tiktok",
+        sha256="r",
+        actor="op",
+        reason="удалили пост",
+        allow_republish=True,
+    )
     again = await _claim(db, "w2", sha="r", project_id=6)
     assert again.outcome == ps.ACQUIRED and again.attempts == 1
 
@@ -241,7 +297,9 @@ async def test_mark_failed_with_republish_resets_attempts(db):
 async def test_manual_actions_are_append_only(db, tmp_path):
     c = await _claim(db, "w1", sha="m", project_id=7)
     await ps.mark_clicked(db, c.pub_id, "w1")
-    await ps.confirm_manual(db, project_id=7, platform="tiktok", sha256="m", actor="op", post_url="https://x/7")
+    await ps.confirm_manual(
+        db, project_id=7, platform="tiktok", sha256="m", actor="op", post_url="https://x/7"
+    )
     with sqlite3.connect(tmp_path / "pub.db") as con:
         with pytest.raises(sqlite3.DatabaseError, match="append-only"):
             con.execute("UPDATE publication_manual_actions SET actor='x'")
@@ -251,8 +309,9 @@ async def test_manual_actions_are_append_only(db, tmp_path):
 
 async def test_manual_action_without_journal_row_is_refused(db):
     with pytest.raises(ps.PublicationRefused) as info:
-        await ps.confirm_manual(db, project_id=8, platform="tiktok", sha256="none", actor="op",
-                                post_url="https://x/8")
+        await ps.confirm_manual(
+            db, project_id=8, platform="tiktok", sha256="none", actor="op", post_url="https://x/8"
+        )
     assert info.value.code == "no_publication_record"
 
 
@@ -294,8 +353,12 @@ def test_fresh_database_gets_publication_tables_from_alembic(tmp_path):
     assert {"publication_manual_no_update", "publication_manual_no_delete"} <= _triggers(db)
     with sqlite3.connect(db) as con:
         idx = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='index'")}
-    assert {"ux_publications_idem", "ix_publications_project", "ux_publish_approvals_key",
-            "ix_publication_manual_project"} <= idx
+    assert {
+        "ux_publications_idem",
+        "ix_publications_project",
+        "ux_publish_approvals_key",
+        "ix_publication_manual_project",
+    } <= idx
 
 
 def test_database_at_0017_is_caught_up_and_upgrade_is_idempotent(tmp_path):

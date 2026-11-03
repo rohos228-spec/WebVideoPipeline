@@ -25,7 +25,9 @@ def test_unknown_image_model_is_named_not_shown_raw() -> None:
 
 
 def test_settings_diff_card_text_has_no_raw_id() -> None:
-    items = sd.diff({"image_generator": "gpt_image_2_vip"}, {"project_id": 5, "image_generator": "gpt_image_2"})
+    items = sd.diff(
+        {"image_generator": "gpt_image_2_vip"}, {"project_id": 5, "image_generator": "gpt_image_2"}
+    )
     text = sd.change_text(items)
     assert text == "модель картинок: GPT Image 2 VIP (нет в каталоге) → GPT Image 2"
     assert "gpt_image_2_vip" not in text
@@ -107,8 +109,14 @@ def _fresh_preview_cache() -> Any:
 
 
 def _frame(number: int, **kw: Any) -> SimpleNamespace:
-    base = {"number": number, "uuid": f"u{number}", "voiceover_text": f"закадр {number}", "meaning": None,
-            "image_prompt": None, "attrs": {}}
+    base = {
+        "number": number,
+        "uuid": f"u{number}",
+        "voiceover_text": f"закадр {number}",
+        "meaning": None,
+        "image_prompt": None,
+        "attrs": {},
+    }
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -142,7 +150,7 @@ async def test_live_frames_fall_back_to_xlsx_preview_and_roll_back(monkeypatch: 
 async def test_live_frames_from_db_skip_xlsx(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.action_layer import builtin_insight as bi
 
-    monkeypatch.setattr(bi, "_sessions", lambda: (lambda: _Session([_frame(1, meaning="лес")])))
+    monkeypatch.setattr(bi, "_sessions", lambda: lambda: _Session([_frame(1, meaning="лес")]))
 
     async def boom(*_a: Any) -> bool:
         raise AssertionError("xlsx не нужен, кадры есть в базе")
@@ -156,7 +164,7 @@ async def test_live_frames_from_db_skip_xlsx(monkeypatch: pytest.MonkeyPatch) ->
 async def test_failed_xlsx_preview_means_no_check(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services.action_layer import builtin_insight as bi
 
-    monkeypatch.setattr(bi, "_sessions", lambda: (lambda: _Session([])))
+    monkeypatch.setattr(bi, "_sessions", lambda: lambda: _Session([]))
 
     async def broken(*_a: Any) -> bool:
         raise ValueError("битый xlsx")
@@ -177,8 +185,9 @@ _NOTE_TEXT = (
 
 def _facts() -> sm.TaskFacts:
     note = sm.StepNote("node.describe", "Показать настройки ноды", ok=True, text=_NOTE_TEXT)
-    return sm.TaskFacts(goal="покажи какой промт стоит у первой работы с гпт в проекте 7", status="done",
-                        steps=[note])
+    return sm.TaskFacts(
+        goal="покажи какой промт стоит у первой работы с гпт в проекте 7", status="done", steps=[note]
+    )
 
 
 def test_prompt_excerpt_is_parsed() -> None:

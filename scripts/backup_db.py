@@ -12,6 +12,7 @@
 tracker.db из <репозиторий>/api-tracker/tracker.db. Файл .env скрипт не читает.
 Текущий файл при восстановлении не удаляется: он переименовывается в <имя>.before-restore-<время>.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,9 +60,13 @@ def cmd_backup(args) -> int:
             try:
                 res = sm.backup_sqlite(db, tag=args.tag, keep=args.keep)
                 check = sm.verify_backup(res.path)
-                item.update(status="backed_up" if check["ok"] else "backed_up_unverified", path=str(res.path),
-                            journal=str(res.journal_path) if res.journal_path else None,
-                            verified=check["ok"], problems=check["problems"])
+                item.update(
+                    status="backed_up" if check["ok"] else "backed_up_unverified",
+                    path=str(res.path),
+                    journal=str(res.journal_path) if res.journal_path else None,
+                    verified=check["ok"],
+                    problems=check["problems"],
+                )
             except sm.BackupError as exc:
                 item.update(status="failed", error=str(exc))
     for item in results:
@@ -79,8 +84,14 @@ def cmd_list(args) -> int:
     for db in _targets(args):
         d = sm.default_backup_dir(db)
         for p in sm.backup_files(d, db.stem):
-            rows.append({"db": str(db), "backup": str(p), "size": p.stat().st_size,
-                         "age_h": round((time.time() - p.stat().st_mtime) / 3600, 2)})
+            rows.append(
+                {
+                    "db": str(db),
+                    "backup": str(p),
+                    "size": p.stat().st_size,
+                    "age_h": round((time.time() - p.stat().st_mtime) / 3600, 2),
+                }
+            )
     _print(rows)
     return 0
 
@@ -135,7 +146,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def common(sp):
-        sp.add_argument("--db", action="append", help="файл базы (можно несколько); по умолчанию state.db и tracker.db")
+        sp.add_argument(
+            "--db", action="append", help="файл базы (можно несколько); по умолчанию state.db и tracker.db"
+        )
 
     b = sub.add_parser("backup")
     common(b)

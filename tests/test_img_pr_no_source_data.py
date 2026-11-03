@@ -41,7 +41,9 @@ def test_real_prompt_is_not_missing() -> None:
     assert is_no_source_data_prompt(REAL) is False
     assert image_prompt_missing(REAL) is False
     # одна оговорка внутри нормального промта — не отказ
-    mixed = REAL.replace("Действие:", "Свет: нет исходных данных для заполнения, мягкий рассеянный. Действие:")
+    mixed = REAL.replace(
+        "Действие:", "Свет: нет исходных данных для заполнения, мягкий рассеянный. Действие:"
+    )
     assert image_prompt_missing(mixed) is False
 
 
@@ -74,10 +76,15 @@ async def test_runner_does_not_split_or_reask_no_source_reply(tmp_path, monkeypa
         async def ask_with_files(self, msg, attach, **_kw):
             uuids = [line.split(" = ")[1] for line in msg.splitlines() if " = " in line]
             calls.append(uuids)
-            return json.dumps({"ops": [
-                {"frame_uuid": u, "fields": {"промт_картинки": "Нет исходных данных для заполнения"}}
-                for u in uuids
-            ]}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "ops": [
+                        {"frame_uuid": u, "fields": {"промт_картинки": "Нет исходных данных для заполнения"}}
+                        for u in uuids
+                    ]
+                },
+                ensure_ascii=False,
+            )
 
     async def _ctx(_project, **_kw):
         return list(frames), [], "", list(frames)

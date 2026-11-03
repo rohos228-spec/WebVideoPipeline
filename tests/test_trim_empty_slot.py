@@ -22,7 +22,9 @@ class _Ctx:
 
 
 def _trim(ctx):
-    return asyncio.run(bm._set_video_trim(ctx, {"project_id": 4, "frame_number": 1, "shot": 1, "start": 0, "end": 2}))
+    return asyncio.run(
+        bm._set_video_trim(ctx, {"project_id": 4, "frame_number": 1, "shot": 1, "start": 0, "end": 2})
+    )
 
 
 def test_trim_on_empty_slot_is_refused():

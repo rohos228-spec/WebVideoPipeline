@@ -52,9 +52,13 @@ def _model_change_facts() -> sm.TaskFacts:
     for i in range(5):
         steps.append(_describe("cinematic_scene_director", _BODY * 40, shown=1500, total=5647))
         steps.append(
-            sm.StepNote("node.set_model", f"Сменить модель ноды {i}", ok=True, text="модель сменена", readonly=False)
+            sm.StepNote(
+                "node.set_model", f"Сменить модель ноды {i}", ok=True, text="модель сменена", readonly=False
+            )
         )
-    return sm.TaskFacts(goal="смени модель у всех работ с гпт в проекте 7 на gpt-5", status="done", steps=steps)
+    return sm.TaskFacts(
+        goal="смени модель у всех работ с гпт в проекте 7 на gpt-5", status="done", steps=steps
+    )
 
 
 def test_model_change_does_not_quote_prompt() -> None:
@@ -78,8 +82,9 @@ def test_model_change_waiting_or_failed_still_no_quote() -> None:
 
 
 def test_model_question_reads_node_but_does_not_quote_prompt() -> None:
-    facts = sm.TaskFacts(goal="какая модель стоит у работы с гпт в проекте 7", status="done",
-                         steps=[_describe("p", _BODY)])
+    facts = sm.TaskFacts(
+        goal="какая модель стоит у работы с гпт в проекте 7", status="done", steps=[_describe("p", _BODY)]
+    )
     assert sm.prompt_excerpts(facts) == []
     system = sm._facts_prompt(facts)[0]["content"]
     assert sm.PROMPT_QUOTE_RULE not in system
@@ -88,13 +93,17 @@ def test_model_question_reads_node_but_does_not_quote_prompt() -> None:
 
 
 def test_prompt_question_without_show_verb_but_only_describe_steps() -> None:
-    facts = sm.TaskFacts(goal="промт первой работы с гпт в проекте 7", status="done", steps=[_describe("p", _BODY)])
+    facts = sm.TaskFacts(
+        goal="промт первой работы с гпт в проекте 7", status="done", steps=[_describe("p", _BODY)]
+    )
     (item,) = sm.prompt_excerpts(facts)
     assert item.body == _BODY
 
 
 def test_prompt_change_request_is_not_a_quote_request() -> None:
-    facts = sm.TaskFacts(goal="замени промт у работы с гпт в проекте 7", status="done", steps=[_describe("p", _BODY)])
+    facts = sm.TaskFacts(
+        goal="замени промт у работы с гпт в проекте 7", status="done", steps=[_describe("p", _BODY)]
+    )
     assert sm.prompt_excerpts(facts) == []
 
 
@@ -201,8 +210,14 @@ class _Session:
 
 
 def _frame(number: int, **kw: Any) -> SimpleNamespace:
-    base = {"number": number, "uuid": f"u{number}", "voiceover_text": f"закадр {number}", "meaning": None,
-            "image_prompt": None, "attrs": {}}
+    base = {
+        "number": number,
+        "uuid": f"u{number}",
+        "voiceover_text": f"закадр {number}",
+        "meaning": None,
+        "image_prompt": None,
+        "attrs": {},
+    }
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -217,7 +232,7 @@ def _fresh_preview_cache() -> Any:
 def _patch_db(monkeypatch: pytest.MonkeyPatch, db_rows: list[Any], xlsx: _Xlsx) -> None:
     from app.services.action_layer import builtin_insight as bi
 
-    monkeypatch.setattr(bi, "_sessions", lambda: (lambda: _Session(list(db_rows), xlsx)))
+    monkeypatch.setattr(bi, "_sessions", lambda: lambda: _Session(list(db_rows), xlsx))
 
 
 @pytest.mark.asyncio
@@ -309,13 +324,21 @@ def _node(key: str, typ: str, slot: int | None = None) -> dict[str, Any]:
 
 
 def _graph_meta(nodes: list[dict[str, Any]], edges: list[tuple[str, str]], **extra: Any) -> dict[str, Any]:
-    return {"canvas_graph": {"nodes": nodes, "edges": [{"source": a, "target": b} for a, b in edges]}, **extra}
+    return {
+        "canvas_graph": {"nodes": nodes, "edges": [{"source": a, "target": b} for a, b in edges]},
+        **extra,
+    }
 
 
 def test_unnumbered_gpt_node_does_not_block_continue_into_hero() -> None:
     """Слот 1 ведёт в героев; «Работа с GPT» без номера (тоже «слот 1») - в промты картинок."""
     meta = _graph_meta(
-        [_node("g1", "excel_gpt", 1), _node("hero", "hero"), _node("gx", "excel_gpt"), _node("ip", "image_prompts")],
+        [
+            _node("g1", "excel_gpt", 1),
+            _node("hero", "hero"),
+            _node("gx", "excel_gpt"),
+            _node("ip", "image_prompts"),
+        ],
         [("g1", "hero"), ("hero", "gx"), ("gx", "ip")],
     )
     assert not ipg._ready_slot_leads_to_img_pr(meta, "enrich_1_ready")
@@ -328,7 +351,12 @@ def test_single_unnumbered_gpt_node_is_ambiguous() -> None:
 
 def test_numbered_slot_still_follows_its_arrows() -> None:
     meta = _graph_meta(
-        [_node("g1", "excel_gpt", 1), _node("hero", "hero"), _node("g2", "excel_gpt", 2), _node("ip", "image_prompts")],
+        [
+            _node("g1", "excel_gpt", 1),
+            _node("hero", "hero"),
+            _node("g2", "excel_gpt", 2),
+            _node("ip", "image_prompts"),
+        ],
         [("g1", "hero"), ("hero", "g2"), ("g2", "ip")],
     )
     assert ipg._ready_slot_leads_to_img_pr(meta, "enrich_2_ready")
@@ -336,8 +364,12 @@ def test_numbered_slot_still_follows_its_arrows() -> None:
 
 
 def test_active_node_resolves_slot_collision() -> None:
-    nodes = [_node("g2a", "excel_gpt", 2), _node("hero", "hero"), _node("g2b", "excel_gpt", 2),
-             _node("ip", "image_prompts")]
+    nodes = [
+        _node("g2a", "excel_gpt", 2),
+        _node("hero", "hero"),
+        _node("g2b", "excel_gpt", 2),
+        _node("ip", "image_prompts"),
+    ]
     edges = [("g2a", "hero"), ("hero", "g2b"), ("g2b", "ip")]
     assert not ipg._ready_slot_leads_to_img_pr(_graph_meta(nodes, edges), "enrich_2_ready")
     assert ipg._ready_slot_leads_to_img_pr(
@@ -451,7 +483,9 @@ async def test_single_paid_step_card_has_no_other_steps_note(token: str) -> None
 async def test_bridge_marks_failed_card_build(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import orch_bridge as ob
 
-    spec = SimpleNamespace(id="project.continue_pipeline", title_ru="Продолжить", risk="high", destructive_effects=None)
+    spec = SimpleNamespace(
+        id="project.continue_pipeline", title_ru="Продолжить", risk="high", destructive_effects=None
+    )
     monkeypatch.setattr(ob, "_spec", lambda _name: spec)
     monkeypatch.setattr(ob, "plan_required", lambda _id: True)
 

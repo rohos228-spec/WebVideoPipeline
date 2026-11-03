@@ -289,7 +289,7 @@ def _matrix_card(move1: str, move2: str, **state) -> dict:
     from app.services.nii67_card import default_card
 
     card = default_card()
-    for door, move in zip(card["doors"], (move1, move2)):
+    for door, move in zip(card["doors"], (move1, move2), strict=False):
         door["move"] = move
         door["state"] = {**door["state"], "world_description": "затопленный архив", **state}
         if move == "creature":
@@ -315,8 +315,11 @@ async def test_matrix_plan_without_move_is_a_draft_and_not_saved() -> None:
 async def test_matrix_plan_builds_and_saves_frames_without_gpt() -> None:
     pid = await _project()
     card = _matrix_card(
-        "death_world", "creature",
-        death_action="тянется к рубильнику", death_cause="удар током", interaction_result="существо отдаёт ключ",
+        "death_world",
+        "creature",
+        death_action="тянется к рубильнику",
+        death_cause="удар током",
+        interaction_result="существо отдаёт ключ",
     )
     async with _client() as c:
         r = await c.post(f"/api/projects/{pid}/nii67/matrix-plan", json={"card": card})

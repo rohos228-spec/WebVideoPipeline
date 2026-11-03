@@ -677,6 +677,10 @@ async def run_style_extract(
             break
         _p(stage="extract", video=video.name, index=idx, total=len(videos))
         vdir = out_root / "analysis" / video.stem
+
+        def _extract_progress(st: str, _v: Path = video) -> None:
+            _p(stage=f"extract:{st}", video=_v.name, index=idx, total=len(videos))
+
         try:
             profile = await asyncio.to_thread(
                 extract.analyze_video,
@@ -689,9 +693,7 @@ async def run_style_extract(
                 ocr_fn=ocr_fn,
                 skip_ocr=bool(settings.get("skip_ocr")),
                 frames_per_min=int(settings.get("frames_per_min") or extract.DEFAULT_FRAMES_PER_MIN),
-                progress=lambda st, _v=video: _p(
-                    stage=f"extract:{st}", video=_v.name, index=idx, total=len(videos)
-                ),
+                progress=_extract_progress,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("style_extract: ролик {} не разобран", video.name)

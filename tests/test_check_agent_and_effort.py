@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+pytest_plugins = ["tests.action_layer_support"]
+
 import copy
 
 import pytest
@@ -11,13 +13,11 @@ from app.services import node_edit as ne
 from app.services.action_layer import executor
 from app.services.action_layer.spec import ensure_builtin_actions, registry
 from app.services.project_meta import merge_project_meta
-from tests.action_layer_support import env
 
 AL = "/api/action-layer"
 NODE = "n_review"
 NODES = [
-    {"id": "n_script", "type": "script", "data": {"label": "Закадровый текст",
-                                                  "modelId": "gpt-5.6-sol"}},
+    {"id": "n_script", "type": "script", "data": {"label": "Закадровый текст", "modelId": "gpt-5.6-sol"}},
     {"id": "n_script_2", "type": "script", "data": {"label": "Второй закадр"}},
     {"id": NODE, "type": "excel_gpt", "data": {"label": "Проверка", "slotIndex": 1}},
     {"id": "n_sd_world", "type": "excel_gpt", "data": {"label": "Мир", "sd_agent": "world"}},
@@ -27,8 +27,10 @@ NODES = [
 
 
 def _meta(**extra) -> dict:
-    meta = {"canvas_graph": {"workflow_id": 1, "nodes": copy.deepcopy(NODES), "edges": []},
-            "excel_gpt_nodes": {NODE: {"role": "review"}}}
+    meta = {
+        "canvas_graph": {"workflow_id": 1, "nodes": copy.deepcopy(NODES), "edges": []},
+        "excel_gpt_nodes": {NODE: {"role": "review"}},
+    }
     meta.update(extra)
     return meta
 
@@ -52,7 +54,10 @@ def _no_pay52(monkeypatch):
     monkeypatch.setattr("app.services.pay52_routes.resolve_text", lambda _m: None)
 
 
-@pytest.mark.xfail(strict=True, reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs")
+@pytest.mark.xfail(
+    strict=True,
+    reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs",
+)
 def test_effort_lowering_is_safe_raising_needs_confirmation_and_revert_is_exact() -> None:
     state = _state()
     plan = ne.plan_params_change(state, "n_script", {"reasoning_effort": "low"})
@@ -63,8 +68,10 @@ def test_effort_lowering_is_safe_raising_needs_confirmation_and_revert_is_exact(
     assert _data(meta1, "n_script")["reasoningEffort"] == "med"
     assert ne.node_effort(ne.find_node(meta1, "n_script")) == "medium"
     assert meta1[ne.PINS_KEY]["nodes"]["n_script"]["reasoningEffort"] == {
-        "value": "med", "prev": None, "at": meta1[ne.PINS_KEY]["nodes"]["n_script"][
-            "reasoningEffort"]["at"]}
+        "value": "med",
+        "prev": None,
+        "at": meta1[ne.PINS_KEY]["nodes"]["n_script"]["reasoningEffort"]["at"],
+    }
     up = ne.plan_params_change({**state, "meta": meta1}, "n_script", {"reasoning_effort": "high"})
     assert up["needs_confirmation"] is True and "дороже" in up["items"][0]["note_ru"]
     meta2, out = ne.revert_params({**state, "meta": meta1}, "n_script")
@@ -73,7 +80,10 @@ def test_effort_lowering_is_safe_raising_needs_confirmation_and_revert_is_exact(
     assert "n_script" not in (meta2.get(ne.PINS_KEY) or {}).get("nodes", {})
 
 
-@pytest.mark.xfail(strict=True, reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs")
+@pytest.mark.xfail(
+    strict=True,
+    reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs",
+)
 def test_effort_refusals_are_honest(monkeypatch) -> None:
     state = _state()
     cases = {
@@ -96,11 +106,17 @@ def test_effort_refusals_are_honest(monkeypatch) -> None:
     assert "52pay" in exc.value.message
 
 
-@pytest.mark.xfail(strict=True, reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs")
+@pytest.mark.xfail(
+    strict=True,
+    reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs",
+)
 def test_stale_canvas_autosave_keeps_the_chat_effort() -> None:
     base, _ = ne.apply_params_change(_state(), "n_script", {"reasoning_effort": "low"})
-    stale = {"canvas_graph": copy.deepcopy(_meta()["canvas_graph"]), "canvas_pins": {},
-             "node_edit_history": {}}
+    stale = {
+        "canvas_graph": copy.deepcopy(_meta()["canvas_graph"]),
+        "canvas_pins": {},
+        "node_edit_history": {},
+    }
     merged = merge_project_meta(base, stale, source="test")
     assert _data(merged, "n_script")["reasoningEffort"] == "low"
     user = copy.deepcopy(stale)
@@ -110,10 +126,12 @@ def test_stale_canvas_autosave_keeps_the_chat_effort() -> None:
     assert ne.PINS_KEY not in moved
 
 
-@pytest.mark.xfail(strict=True, reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs")
+@pytest.mark.xfail(
+    strict=True,
+    reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs",
+)
 def test_describe_tells_the_effort_and_where_it_does_not_apply() -> None:
-    assert "Уровень рассуждений: высокий (по умолчанию)." in ne.describe_node(
-        _state(), "n_script")["text_ru"]
+    assert "Уровень рассуждений: высокий (по умолчанию)." in ne.describe_node(_state(), "n_script")["text_ru"]
     second = ne.describe_node(_state(), "n_script_2")["text_ru"]
     assert "Уровень рассуждений: высокий (по умолчанию) (не действует:" in second
 
@@ -152,14 +170,16 @@ async def test_effort_through_the_layer_and_revert(env) -> None:
     assert "уровень рассуждений модели" in plan["steps"][0]["result"]["text_ru"]
     assert _data(await _meta_of(env, pid), "n_script")["reasoningEffort"] == "low"
     high = {**low, "reasoning_effort": "high"}
-    r = await env.client.post(f"{AL}/plans/preview", json={"steps": [
-        {"action_id": "node.set_params", "params": high}]})
+    r = await env.client.post(
+        f"{AL}/plans/preview", json={"steps": [{"action_id": "node.set_params", "params": high}]}
+    )
     assert r.status_code == 422 and "подтвержд" in r.text
     plan = await _run(env, [{"action_id": "node.set_params_costly", "params": high}])
     assert plan["status"] == "succeeded", plan
     assert _data(await _meta_of(env, pid), "n_script")["reasoningEffort"] == "high"
-    back = await _run(env, [{"action_id": "node.revert_params",
-                             "params": {"project_id": pid, "node_key": "n_script"}}])
+    back = await _run(
+        env, [{"action_id": "node.revert_params", "params": {"project_id": pid, "node_key": "n_script"}}]
+    )
     assert back["status"] == "succeeded", back
     assert _data(await _meta_of(env, pid), "n_script")["reasoningEffort"] == "low"
     assert known_text("node.revert_params", back["steps"][0]["result"]).startswith("Нода «")
@@ -179,20 +199,39 @@ async def _agent_view(env, pid: int) -> dict | None:
 
 async def test_check_agent_change_is_saved_and_can_be_reverted(env) -> None:
     pid = await _project(env, _meta())
-    revert = [{"action_id": "node.revert_check_agent",
-               "params": {"project_id": pid, "node_key": NODE}}]
+    revert = [{"action_id": "node.revert_check_agent", "params": {"project_id": pid, "node_key": NODE}}]
     r = await env.client.post(f"{AL}/plans/preview", json={"steps": revert})
     assert r.status_code == 422 and "не меняли через чат" in r.text
 
-    first = await _run(env, [{"action_id": "node.upload_check_agent", "params": {
-        "project_id": pid, "node_key": NODE,
-        "source_path": _src(env, "first.md", "# первый агент\nищи ошибки в закадре")}}])
+    first = await _run(
+        env,
+        [
+            {
+                "action_id": "node.upload_check_agent",
+                "params": {
+                    "project_id": pid,
+                    "node_key": NODE,
+                    "source_path": _src(env, "first.md", "# первый агент\nищи ошибки в закадре"),
+                },
+            }
+        ],
+    )
     assert first["status"] == "succeeded", first
     res = first["steps"][0]["result"]
     assert res["rollback_possible"] is True and "верни прежнего агента" in res["text_ru"]
-    second = await _run(env, [{"action_id": "node.upload_check_agent", "params": {
-        "project_id": pid, "node_key": NODE,
-        "source_path": _src(env, "second.txt", "второй агент: проверь кадры")}}])
+    second = await _run(
+        env,
+        [
+            {
+                "action_id": "node.upload_check_agent",
+                "params": {
+                    "project_id": pid,
+                    "node_key": NODE,
+                    "source_path": _src(env, "second.txt", "второй агент: проверь кадры"),
+                },
+            }
+        ],
+    )
     assert second["status"] == "succeeded", second
     assert (await _agent_view(env, pid))["text"] == "второй агент: проверь кадры"
 
@@ -207,8 +246,9 @@ async def test_check_agent_change_is_saved_and_can_be_reverted(env) -> None:
     assert again["status"] == "succeeded", again
     assert (await _agent_view(env, pid))["fileName"] == "second.txt"
 
-    cleared = await _run(env, [{"action_id": "node.clear_check_agent",
-                                "params": {"project_id": pid, "node_key": NODE}}])
+    cleared = await _run(
+        env, [{"action_id": "node.clear_check_agent", "params": {"project_id": pid, "node_key": NODE}}]
+    )
     assert cleared["status"] == "succeeded", cleared
     assert (await _agent_view(env, pid)) is None
     back = await _run(env, revert)
@@ -223,12 +263,20 @@ async def test_check_agent_change_is_saved_and_can_be_reverted(env) -> None:
 
 async def test_first_upload_revert_returns_to_no_agent_and_check_off(env) -> None:
     pid = await _project(env, _meta())
-    up = await _run(env, [{"action_id": "node.upload_check_agent", "params": {
-        "project_id": pid, "node_key": NODE, "source_path": _src(env, "a.txt", "агент А")}}])
+    up = await _run(
+        env,
+        [
+            {
+                "action_id": "node.upload_check_agent",
+                "params": {"project_id": pid, "node_key": NODE, "source_path": _src(env, "a.txt", "агент А")},
+            }
+        ],
+    )
     assert up["status"] == "succeeded", up
     assert (await _meta_of(env, pid))["excel_gpt_nodes"][NODE]["checkMode"] is True
-    back = await _run(env, [{"action_id": "node.revert_check_agent",
-                             "params": {"project_id": pid, "node_key": NODE}}])
+    back = await _run(
+        env, [{"action_id": "node.revert_check_agent", "params": {"project_id": pid, "node_key": NODE}}]
+    )
     assert back["status"] == "succeeded", back
     assert (await _agent_view(env, pid)) is None
     cfg = (await _meta_of(env, pid))["excel_gpt_nodes"][NODE]
@@ -247,14 +295,21 @@ def test_revert_action_is_registered_like_other_node_reverts() -> None:
     for aid in ("node.upload_check_agent", "node.clear_check_agent"):
         spec = registry.get(aid)
         assert "node.revert_check_agent" in spec.description_ru, aid
-    assert registry.get("node.set_params").params_schema["properties"]["reasoning_effort"][
-        "enum"] == ["low", "medium", "high"]
+    assert registry.get("node.set_params").params_schema["properties"]["reasoning_effort"]["enum"] == [
+        "low",
+        "medium",
+        "high",
+    ]
 
 
-@pytest.mark.xfail(strict=True, reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs")
+@pytest.mark.xfail(
+    strict=True,
+    reason="merge line: a node without its own effort goes with the studio-wide level (off by default), not 'high'; model catalog differs",
+)
 async def test_planner_block_lists_node_agents_and_how_to_change_them() -> None:
-    meta = _meta(excel_gpt_nodes={NODE: {"role": "review", "checkMode": True,
-                                         "checkAgentFileName": "мой_агент.md"}})
+    meta = _meta(
+        excel_gpt_nodes={NODE: {"role": "review", "checkMode": True, "checkAgentFileName": "мой_агент.md"}}
+    )
 
     async def meta_of(_pid):
         return meta

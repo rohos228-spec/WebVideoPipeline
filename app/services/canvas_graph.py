@@ -151,25 +151,6 @@ async def resolve_effective_graph(session: AsyncSession, project: Project) -> di
     return None
 
 
-def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | None) -> dict[str, Any]:
-    out = dict(meta) if isinstance(meta, dict) else {}
-    if graph and graph.get("nodes") and not canvas_graph_from_meta(out):
-        out["canvas_graph"] = build_canvas_graph_payload(
-            workflow_id=graph.get("workflow_id"),
-            nodes=_graph_items(graph.get("nodes")),
-            edges=_graph_items(graph.get("edges")),
-        )
-    return out
-
-
-async def effective_project_meta(
-    session: AsyncSession, project: Project
-) -> tuple[dict[str, Any], str | None]:
-    graph = await resolve_effective_graph(session, project)
-    meta = project.meta if isinstance(project.meta, dict) else {}
-    return with_effective_graph(meta, graph), (graph or {}).get("source")
-
-
 EFFECTIVE_GRAPH_ATTR = "_effective_canvas_graph"
 
 
@@ -189,23 +170,6 @@ def project_graph(project: Any) -> dict[str, Any] | None:
     if not isinstance(attached, dict):
         return None
     return canvas_graph_from_meta({"canvas_graph": attached})
-
-
-async def materialize_project_graph(session: AsyncSession, project: Project) -> bool:
-    meta = project.meta if isinstance(project.meta, dict) else {}
-    if canvas_graph_from_meta(meta):
-        return False
-    graph = await resolve_effective_graph(session, project)
-    if not graph:
-        return False
-    project.meta = with_effective_graph(meta, graph)
-    logger.info(
-        "[#{}] canvas_graph: project got its own copy of the {} graph ({} nodes)",
-        project.id,
-        graph.get("origin"),
-        len(graph.get("nodes") or []),
-    )
-    return True
 
 
 def canvas_topology_key(

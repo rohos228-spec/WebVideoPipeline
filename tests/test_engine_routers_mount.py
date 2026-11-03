@@ -534,9 +534,13 @@ def _whoami_spec(action_id: str):
         return {"email": me.get("email"), "role": me.get("role")}
 
     return ActionSpec(
-        id=action_id, title_ru="Кто я", description_ru="Проверка личности внутреннего вызова",
+        id=action_id,
+        title_ru="Кто я",
+        description_ru="Проверка личности внутреннего вызова",
         params_schema={"type": "object", "properties": {}, "additionalProperties": False},
-        executor=_run, risk="read")
+        executor=_run,
+        risk="read",
+    )
 
 
 async def _run_plan_as(env, operator_id: str, *, identity):
@@ -555,8 +559,12 @@ async def _run_plan_as(env, operator_id: str, *, identity):
     reg.register(_whoami_spec("t.whoami"))
     who = approval.OperatorIdentity(operator_id)
     plan_id, preview = await service.create_plan(
-        env["app"], [{"action_id": "t.whoami", "params": {}}], operator=who,
-        request_text="кто я", registry=reg)
+        env["app"],
+        [{"action_id": "t.whoami", "params": {}}],
+        operator=who,
+        request_text="кто я",
+        registry=reg,
+    )
     assert plan_id, preview
     if preview.get("needs_approval"):
         await service.approve_plan(env["app"], plan_id, who, registry=reg)
@@ -647,8 +655,11 @@ async def test_plan_run_through_the_router_reaches_the_api_in_accounts_mode(env)
     registry.register(_whoami_spec("t.whoami_http"))
     try:
         c, auth = env["client"], env["admin"].auth
-        res = await c.post("/api/action-layer/plans/preview", headers=auth,
-                           json={"steps": [{"action_id": "t.whoami_http", "params": {}}]})
+        res = await c.post(
+            "/api/action-layer/plans/preview",
+            headers=auth,
+            json={"steps": [{"action_id": "t.whoami_http", "params": {}}]},
+        )
         assert res.status_code == 200, res.text
         plan_id = res.json()["plan_id"]
         if res.json()["preview"].get("needs_approval"):

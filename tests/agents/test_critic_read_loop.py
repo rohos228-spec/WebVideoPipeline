@@ -57,18 +57,27 @@ def test_resume_after_read_plan_shapes() -> None:
     assert sup._resume_after_read_plan([_status(), _resume()], actions)
     # Без чтения статуса этого проекта — судит критик (карточка критика с условиями шага остаётся).
     assert not sup._resume_after_read_plan([_resume()], actions)
-    assert not sup._resume_after_read_plan([PlanStep(action="node.describe", params={"project_id": 10, "node_key": "n"}), _resume()], actions)
+    assert not sup._resume_after_read_plan(
+        [PlanStep(action="node.describe", params={"project_id": 10, "node_key": "n"}), _resume()], actions
+    )
     assert sup._resume_after_read_plan([_status(), _resume(action="project.resume")], actions)
     # Чтение другого проекта, два продолжения, продолжение не последним, лишний платный шаг — критик остаётся.
     assert not sup._resume_after_read_plan([_status(3), _resume()], actions)
     assert not sup._resume_after_read_plan([_resume(), _resume(11)], actions)
     assert not sup._resume_after_read_plan([_resume(), _status()], actions)
-    run = PlanStep(action="step.run_step", params={"project_id": 10, "step_code": "img"}, paid=True,
-                   mutating=True, risk="high")
+    run = PlanStep(
+        action="step.run_step",
+        params={"project_id": 10, "step_code": "img"},
+        paid=True,
+        mutating=True,
+        risk="high",
+    )
     assert not sup._resume_after_read_plan([_status(), run, _resume()], actions)
     assert not sup._resume_after_read_plan([PlanStep(action="project.continue_pipeline", params={})], actions)
     # Продолжение без карточки (риск none и в реестре, и в плане) — не пропускаем мимо критика.
-    quiet = MetaActions({**_META, "project.continue_pipeline": {**RESUME_META, "risk": "none", "paid": False}})
+    quiet = MetaActions(
+        {**_META, "project.continue_pipeline": {**RESUME_META, "risk": "none", "paid": False}}
+    )
     step = PlanStep(action="project.continue_pipeline", params={"project_id": 10}, risk="none")
     assert not sup._resume_after_read_plan([_status(), step], quiet)
 
@@ -78,8 +87,13 @@ async def test_continue_project_card_without_critic_round(token: str) -> None:
     del token
     actions = MetaActions(_META)
     critic = ScriptedCritic([])  # вызов критика упал бы: вердиктов нет
-    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner([_status(), _resume()]), critic=critic)
+    rt = build_runtime(
+        actions=actions,
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner([_status(), _resume()]),
+        critic=critic,
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("crl-continue", "продолжи проект 10", project_id=10)
@@ -102,8 +116,12 @@ def test_read_state_revise_satisfied_when_read_precedes() -> None:
     assert not read_state_satisfied(plan, "Нужно прочитать состояние и прогноз трат выше лимита")
     assert not read_state_satisfied(plan, "План удаляет кадры, сначала прочитай состояние")
     # Смена модели: нужно чтение этой же ноды, статус проекта не заменяет его.
-    model = PlanStep(action="node.set_model", params={"project_id": 7, "node_key": "n_1", "model_id": "x"},
-                     mutating=True, risk="medium")
+    model = PlanStep(
+        action="node.set_model",
+        params={"project_id": 7, "node_key": "n_1", "model_id": "x"},
+        mutating=True,
+        risk="medium",
+    )
     why = "Перед сменой нужно прочитать состояние ноды"
     assert not read_state_satisfied([_status(7), model], why)
     describe = PlanStep(action="node.describe", params={"project_id": 7, "node_key": "n_1"})
@@ -159,8 +177,13 @@ async def test_slow_revise_round_gives_card_instead_of_new_round(
     del token
     clock = iter([0.0, 100.0, 100.0, 100.0, 100.0])
     monkeypatch.setattr(sup, "_monotonic", lambda: next(clock, 100.0))
-    run = PlanStep(action="step.run_step", params={"project_id": 10, "step_code": "img"}, paid=True,
-                   mutating=True, risk="high")
+    run = PlanStep(
+        action="step.run_step",
+        params={"project_id": 10, "step_code": "img"},
+        paid=True,
+        mutating=True,
+        risk="high",
+    )
     planner_calls = []
 
     class _Planner(FixedPlanner):
@@ -170,8 +193,13 @@ async def test_slow_revise_round_gives_card_instead_of_new_round(
 
     critic = ScriptedCritic(["revise", "revise", "revise"])
     critic.last_reason = "нужно прочитать состояние проекта"
-    rt = build_runtime(actions=MetaActions(_META), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=_Planner([_status(), run]), critic=critic)
+    rt = build_runtime(
+        actions=MetaActions(_META),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=_Planner([_status(), run]),
+        critic=critic,
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("crl-slow", "запусти картинки в проекте 10", project_id=10)
@@ -202,12 +230,15 @@ def _models(kind: str) -> list[dict]:
     return _TEXT_MODELS if kind == "text" else [{"id": "gpt-image-2", "label": "GPT Image 2"}]
 
 
-@pytest.mark.parametrize("reason", [
-    "Модели `gpt-5` нет в списке доступных для ноды `n_excel_gpt_1` проекта 7; уточните доступную "
-    "модель, например `gpt-5.5` или `gpt-5.6-sol`.",
-    "Модель «gpt-5» отсутствует в списке доступных моделей для первой ноды «Работа с GPT»; уточните "
-    "точный вариант, например gpt-5.6-sol.",
-])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Модели `gpt-5` нет в списке доступных для ноды `n_excel_gpt_1` проекта 7; уточните доступную "
+        "модель, например `gpt-5.5` или `gpt-5.6-sol`.",
+        "Модель «gpt-5» отсутствует в списке доступных моделей для первой ноды «Работа с GPT»; уточните "
+        "точный вариант, например gpt-5.6-sol.",
+    ],
+)
 def test_unknown_model_reason_becomes_question_with_closest_models(reason: str) -> None:
     text = unknown_model_text(reason, _GOAL, models_of=_models)
     assert text.startswith("Модели gpt-5 для этой ноды нет. Есть: gpt-5.6-sol, ")
@@ -234,10 +265,17 @@ async def test_unknown_model_answer_is_question_not_not_understood(
 ) -> None:
     del token
     monkeypatch.setattr("app.services.node_edit.allowed_models", _models)
-    reason = ("Модели `gpt-5` нет в списке доступных для ноды `n_excel_gpt_1` проекта 7; уточните "
-              "доступную модель, например `gpt-5.5` или `gpt-5.6-sol`.")
-    rt = build_runtime(actions=MetaActions(_META), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=_EmptyPlanner(reason), critic=ScriptedCritic([]))
+    reason = (
+        "Модели `gpt-5` нет в списке доступных для ноды `n_excel_gpt_1` проекта 7; уточните "
+        "доступную модель, например `gpt-5.5` или `gpt-5.6-sol`."
+    )
+    rt = build_runtime(
+        actions=MetaActions(_META),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=_EmptyPlanner(reason),
+        critic=ScriptedCritic([]),
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("crl-model", _GOAL, project_id=7)
@@ -245,7 +283,9 @@ async def test_unknown_model_answer_is_question_not_not_understood(
         texts = [e.payload.get("text") for e in rt.bus.replay("crl-model", 0) if e.type == "message"]
         assert texts and texts[-1].startswith("Модели gpt-5 для этой ноды нет. Есть: gpt-5.6-sol")
         assert "Не понял" not in texts[-1] and "Напишите номер проекта" not in texts[-1]
-        statuses = [e.payload.get("reason") for e in rt.bus.replay("crl-model", 0) if e.type == "agent_status"]
+        statuses = [
+            e.payload.get("reason") for e in rt.bus.replay("crl-model", 0) if e.type == "agent_status"
+        ]
         assert "answered" in statuses
     finally:
         set_runtime(None)
@@ -266,8 +306,14 @@ class _CountingCritic(ScriptedCritic):
 
 
 def _pricey() -> PlanStep:
-    return PlanStep(action="project.continue_pipeline", params={"project_id": 10}, paid=True,
-                    mutating=True, risk="high", estimated_cost=500.0)
+    return PlanStep(
+        action="project.continue_pipeline",
+        params={"project_id": 10},
+        paid=True,
+        mutating=True,
+        risk="high",
+        estimated_cost=500.0,
+    )
 
 
 def test_pre_approval_keeps_critic_spend_checks(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,8 +323,9 @@ def test_pre_approval_keeps_critic_spend_checks(monkeypatch: pytest.MonkeyPatch)
     assert critic_mod.deterministic_verdict([_status(), _pricey()]) == ("revise", "прогноз трат выше лимита")
     assert not sup._critic_checks_clear([_status(), _pricey()])
     assert sup._critic_checks_clear([_status(), _resume()])
-    queue = PlanStep(action="queue.enqueue_many", params={"project_ids": [5, 6]}, risk="high",
-                     estimated_cost=500.0)
+    queue = PlanStep(
+        action="queue.enqueue_many", params={"project_ids": [5, 6]}, risk="high", estimated_cost=500.0
+    )
     assert not sup._critic_checks_clear([queue])
 
 
@@ -290,8 +337,13 @@ async def test_over_limit_resume_goes_to_critic(token: str, monkeypatch: pytest.
 
     monkeypatch.setattr(critic_mod, "server_forecast_limit", lambda: 40.0)
     critic = _CountingCritic(["revise", "revise", "revise"], "прогноз трат выше лимита")
-    rt = build_runtime(actions=MetaActions(_META), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner([_status(), _pricey()]), critic=critic)
+    rt = build_runtime(
+        actions=MetaActions(_META),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner([_status(), _pricey()]),
+        critic=critic,
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("crl-pricey", "продолжи проект 10", project_id=10)
@@ -311,12 +363,22 @@ def test_resume_pre_approval_checks_every_param() -> None:
     assert not sup._resume_after_read_plan([_status(), other, _resume()], actions)
     assert not sup._resume_after_read_plan([other, _resume()], actions)
     # Лишние параметры продолжения: другие проекты, тенант, «до отчёта».
-    wide = PlanStep(action="project.continue_pipeline", params={"project_id": 10, "project_ids": [11, 12],
-                    "tenant_id": "other", "until_node": "report"}, paid=True, mutating=True, risk="high")
+    wide = PlanStep(
+        action="project.continue_pipeline",
+        params={"project_id": 10, "project_ids": [11, 12], "tenant_id": "other", "until_node": "report"},
+        paid=True,
+        mutating=True,
+        risk="high",
+    )
     assert not sup._resume_after_read_plan([_status(), wide], actions)
     for extra in ({"tenant_id": "x"}, {"until_node": "report"}, {"project_ids": [11]}):
-        step = PlanStep(action="project.continue_pipeline", params={"project_id": 10, **extra},
-                        paid=True, mutating=True, risk="high")
+        step = PlanStep(
+            action="project.continue_pipeline",
+            params={"project_id": 10, **extra},
+            paid=True,
+            mutating=True,
+            risk="high",
+        )
         assert not sup._resume_after_read_plan([_status(), step], actions)
     # Чтение без project_id перед продолжением — судит критик.
     assert not sup._resume_after_read_plan([PlanStep(action="project.status", params={}), _resume()], actions)
@@ -326,28 +388,34 @@ def test_resume_pre_approval_checks_every_param() -> None:
 _PLAN = [_status(), _resume()]
 
 
-@pytest.mark.parametrize("reason", [
-    "Нужно прочитать состояние; продолжение платное и дорогое, нужна оценка цены",
-    "Прочитай состояние проекта 11 — пользователь просил проект 11, а в плане 10",
-    "Прочитай состояние проекта 11 перед запуском",
-    "Перед запуском прочитай статус: план продолжает не того клиента",
-    "Сначала прочитай состояние: продолжение перезапишет и сотрёт готовые картинки",
-    "Нужно прочитать статус, затем сбросить шаг; продолжение очистит результаты",
-    "Прочитай состояние: проект 10 принадлежит другому арендатору/тенанту",
-    "Прочитай статус: пользователь просил только одну ноду, а continue прогонит всю цепочку до отчёта",
-    "прочитай статус; the plan spends $200 of credits",
-    "Сначала прочитай статус проекта: на балансе $3, а продолжение потратит $25",
-])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "Нужно прочитать состояние; продолжение платное и дорогое, нужна оценка цены",
+        "Прочитай состояние проекта 11 — пользователь просил проект 11, а в плане 10",
+        "Прочитай состояние проекта 11 перед запуском",
+        "Перед запуском прочитай статус: план продолжает не того клиента",
+        "Сначала прочитай состояние: продолжение перезапишет и сотрёт готовые картинки",
+        "Нужно прочитать статус, затем сбросить шаг; продолжение очистит результаты",
+        "Прочитай состояние: проект 10 принадлежит другому арендатору/тенанту",
+        "Прочитай статус: пользователь просил только одну ноду, а continue прогонит всю цепочку до отчёта",
+        "прочитай статус; the plan spends $200 of credits",
+        "Сначала прочитай статус проекта: на балансе $3, а продолжение потратит $25",
+    ],
+)
 def test_read_state_filter_keeps_real_objections(reason: str) -> None:
     assert not read_state_satisfied(_PLAN, reason)
 
 
-@pytest.mark.parametrize("reason", [
-    _LIVE_WHY,
-    "Перед запуском следующего шага нужно прочитать состояние проекта",
-    "Нужно повторно прочитать статус проекта 10 перед project.continue_pipeline",
-    "Сначала добавь project.status перед продолжением",
-])
+@pytest.mark.parametrize(
+    "reason",
+    [
+        _LIVE_WHY,
+        "Перед запуском следующего шага нужно прочитать состояние проекта",
+        "Нужно повторно прочитать статус проекта 10 перед project.continue_pipeline",
+        "Сначала добавь project.status перед продолжением",
+    ],
+)
 def test_read_state_filter_accepts_pure_read_requests(reason: str) -> None:
     assert read_state_satisfied(_PLAN, reason)
 
@@ -358,13 +426,15 @@ def test_read_state_filter_checks_steps_by_registry_and_scope() -> None:
     edit = PlanStep(action="prompt.edit_text", params={"project_id": 12, "node_key": "x", "text": "..."})
     assert not read_state_satisfied([_status(), edit, _resume()], why)
     # Чтение без project_id не покрывает запуск проекта 55.
-    run = PlanStep(action="step.run_step", params={"project_id": 55, "step_code": "img"}, paid=True,
-                   mutating=True)
+    run = PlanStep(
+        action="step.run_step", params={"project_id": 55, "step_code": "img"}, paid=True, mutating=True
+    )
     assert not read_state_satisfied([PlanStep(action="project.status", params={}), run], why)
     assert read_state_satisfied([_status(55), run], why)
     # node.output другой ноды — не чтение состояния перед запуском шага.
-    run10 = PlanStep(action="step.run_step", params={"project_id": 10, "step_code": "img"}, paid=True,
-                     mutating=True)
+    run10 = PlanStep(
+        action="step.run_step", params={"project_id": 10, "step_code": "img"}, paid=True, mutating=True
+    )
     out = PlanStep(action="node.output", params={"project_id": 10, "node_key": "a"})
     assert not read_state_satisfied([out, run10], "Нужно прочитать статус")
     # Чтение с ключом другого проекта не покрывает.
@@ -387,34 +457,50 @@ def test_unknown_model_does_not_mix_kinds() -> None:
     text = unknown_model_text("Модели `gpt-5` нет в списке доступных", "поставь gpt-5", models_of=_cat)
     assert text == "Модели gpt-5 для этой ноды нет. Какую модель поставить?"
     # Настоящий вид ноды из состояния важнее слов просьбы.
-    real = unknown_model_text("Модели `gpt-5` нет в списке доступных", "поставь gpt-5", kind="text",
-                              models_of=_cat)
+    real = unknown_model_text(
+        "Модели `gpt-5` нет в списке доступных", "поставь gpt-5", kind="text", models_of=_cat
+    )
     assert real == "Модели gpt-5 для этой ноды нет. Есть: gpt-5.6-sol, gpt-4o. Какую поставить?"
 
 
 def test_unknown_model_text_node_about_pictures_gets_text_models() -> None:
-    text = unknown_model_text("Модели `gpt-5` нет у ноды «Работа с GPT»",
-                              "в ноде работа с gpt которая описывает картинки поставь gpt-5", models_of=_cat)
+    text = unknown_model_text(
+        "Модели `gpt-5` нет у ноды «Работа с GPT»",
+        "в ноде работа с gpt которая описывает картинки поставь gpt-5",
+        models_of=_cat,
+    )
     assert "gpt-5.6-sol" in text and "gpt-image-1" not in text and "flux-pro" not in text
-    real = unknown_model_text("Модели `gpt-5` нет у ноды", "в ноде которая описывает картинки поставь gpt-5",
-                              kind="text", models_of=_cat)
+    real = unknown_model_text(
+        "Модели `gpt-5` нет у ноды",
+        "в ноде которая описывает картинки поставь gpt-5",
+        kind="text",
+        models_of=_cat,
+    )
     assert "gpt-image-1" not in real and "gpt-5.6-sol" in real
 
 
 def test_unknown_model_guess_never_calls_existing_model_missing() -> None:
     # Вид угадан по словам («работа с gpt»), модель есть в каталоге картинок: не утверждаем, что её нет.
-    assert unknown_model_text("Модели `gpt-image-1` нет у ноды",
-                              "поставь в текстовую ноду работа с gpt модель gpt-image-1", models_of=_cat) == ""
+    assert (
+        unknown_model_text(
+            "Модели `gpt-image-1` нет у ноды",
+            "поставь в текстовую ноду работа с gpt модель gpt-image-1",
+            models_of=_cat,
+        )
+        == ""
+    )
     # Настоящий вид — текст: такой модели у ноды действительно нет.
-    real = unknown_model_text("Модели `gpt-image-1` нет у ноды", "поставь модель gpt-image-1", kind="text",
-                              models_of=_cat)
+    real = unknown_model_text(
+        "Модели `gpt-image-1` нет у ноды", "поставь модель gpt-image-1", kind="text", models_of=_cat
+    )
     assert real.startswith("Модели gpt-image-1 для этой ноды нет. Есть: ")
 
 
 def test_unknown_model_name_skips_node_keys_and_redacts(monkeypatch: pytest.MonkeyPatch) -> None:
     assert unknown_model_text("Модель для ноды 'n_12' не найдена", "смени модель", models_of=_cat) == ""
-    text = unknown_model_text("Модель для ноды 'n_12' не найдена: 'gpt-5'", "смени модель на gpt-5",
-                              kind="text", models_of=_cat)
+    text = unknown_model_text(
+        "Модель для ноды 'n_12' не найдена: 'gpt-5'", "смени модель на gpt-5", kind="text", models_of=_cat
+    )
     assert text.startswith("Модели gpt-5 для этой ноды нет.")
     # Слово в кавычках, которого нет в просьбе, моделью не считаем.
     assert unknown_model_text("Модели `secretname` нет у ноды", "смени модель", models_of=_cat) == ""
@@ -422,13 +508,18 @@ def test_unknown_model_name_skips_node_keys_and_redacts(monkeypatch: pytest.Monk
     import app.services.redact as redact_mod
 
     monkeypatch.setattr(redact_mod, "redact_text", lambda text: str(text).replace("gpt-5", "[скрыто]"))
-    assert "gpt-5 " not in unknown_model_text("Модели `gpt-5` нет у ноды", "поставь gpt-5", kind="text",
-                                             models_of=_cat)
+    assert "gpt-5 " not in unknown_model_text(
+        "Модели `gpt-5` нет у ноды", "поставь gpt-5", kind="text", models_of=_cat
+    )
 
 
 def _canvas(typ: str) -> dict:
-    return {"canvas_graph": {"nodes": [{"id": "n_excel_gpt_1", "type": typ, "data": {"label": "Работа с GPT"}}],
-                             "edges": []}}
+    return {
+        "canvas_graph": {
+            "nodes": [{"id": "n_excel_gpt_1", "type": typ, "data": {"label": "Работа с GPT"}}],
+            "edges": [],
+        }
+    }
 
 
 def test_node_model_kind_from_canvas() -> None:
@@ -451,13 +542,23 @@ async def test_unknown_model_answer_uses_real_node_kind(token: str, monkeypatch:
     monkeypatch.setattr(sup, "_load_node_meta", _meta)
     monkeypatch.setattr("app.services.node_edit.allowed_models", _cat)
     reason = "Модели `gpt-5` нет в списке доступных для ноды `n_excel_gpt_1` проекта 7"
-    rt = build_runtime(actions=MetaActions(_META), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=_EmptyPlanner(reason), critic=ScriptedCritic([]))
+    rt = build_runtime(
+        actions=MetaActions(_META),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=_EmptyPlanner(reason),
+        critic=ScriptedCritic([]),
+    )
     set_runtime(rt)
     try:
-        task_id = await rt.supervisor.start_task("crl-kind", "смени модель работы с гпт на gpt-5", project_id=7)
+        task_id = await rt.supervisor.start_task(
+            "crl-kind", "смени модель работы с гпт на gpt-5", project_id=7
+        )
         await rt.supervisor.wait(task_id, timeout=5)
         texts = [e.payload.get("text") for e in rt.bus.replay("crl-kind", 0) if e.type == "message"]
-        assert texts and texts[-1] == "Модели gpt-5 для этой ноды нет. Есть: gpt-image-1, flux-pro. Какую поставить?"
+        assert (
+            texts
+            and texts[-1] == "Модели gpt-5 для этой ноды нет. Есть: gpt-image-1, flux-pro. Какую поставить?"
+        )
     finally:
         set_runtime(None)

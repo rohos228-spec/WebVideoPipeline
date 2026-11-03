@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from loguru import logger
 from sqlalchemy import select
@@ -177,7 +178,7 @@ async def scan_missing_frames(session: AsyncSession, project: Project) -> list[i
     for fr in frames:
         if is_coverage_leftover(fr):
             continue
-        if is_skippable_empty_prompt(frame_image_prompt_text(fr, frames)):
+        if is_skippable_empty_prompt(frame_image_prompt_text(fr, cast(list[Frame], frames))):
             continue
         total_with_prompt += 1
         if not disk_has_valid_frame_image(scenes_dir, fr.number):

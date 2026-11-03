@@ -54,8 +54,7 @@ def _fake(stopping: tuple[int, ...] = ()) -> Any:
     async def _dequeue(ids: list[int], session_id: str) -> dict[str, list[int]]:
         seen.append(list(ids))
         _dequeue.sessions.append(session_id)  # type: ignore[attr-defined]
-        return {"removed": list(ids), "stopping": [pid for pid in ids if pid in stopping],
-                "kept_user": []}
+        return {"removed": list(ids), "stopping": [pid for pid in ids if pid in stopping], "kept_user": []}
 
     _dequeue.seen = seen  # type: ignore[attr-defined]
     _dequeue.sessions = []  # type: ignore[attr-defined]
@@ -72,8 +71,7 @@ def _runtime() -> Any:
 
 
 def _enqueue_step(ids: list[int]) -> PlanStep:
-    return PlanStep(action="queue.enqueue_many", params={"project_ids": ids, "mode": "full"},
-                    mutating=True)
+    return PlanStep(action="queue.enqueue_many", params={"project_ids": ids, "mode": "full"}, mutating=True)
 
 
 @pytest.mark.asyncio
@@ -83,8 +81,9 @@ async def test_kill_removes_session_projects_and_stops_running_ones(monkeypatch:
     halted: list[bool] = []
     fake = _fake(stopping=(22,))
     monkeypatch.setattr(sup_mod, "_dequeue_chat_from_queue", fake)
-    monkeypatch.setattr("app.services.sidebar_layout.set_gen_queue_halted",
-                        lambda *a, **k: halted.append(True))
+    monkeypatch.setattr(
+        "app.services.sidebar_layout.set_gen_queue_halted", lambda *a, **k: halted.append(True)
+    )
     runtime = _runtime()
     set_runtime(runtime)
     try:
@@ -126,8 +125,9 @@ async def test_kill_checks_every_task_of_session_not_only_last(monkeypatch: pyte
         first = tasks.insert("kq-s", "поставь 71 72 73 в очередь", TaskStatus.done.value)
         tasks.insert_step(first, 0, _enqueue_step([71, 72, 73]))
         last = tasks.insert("kq-s", "параллель 2", TaskStatus.done.value)
-        tasks.insert_step(last, 0, PlanStep(action="queue.set_parallel", params={"workers": 2},
-                                             mutating=True))
+        tasks.insert_step(
+            last, 0, PlanStep(action="queue.set_parallel", params={"workers": 2}, mutating=True)
+        )
         payload = await runtime.supervisor._publish_kill("kq-s", last)
         assert fake.seen == [[71, 72, 73]]
         assert payload["queue_removed_count"] == 3
@@ -209,7 +209,9 @@ def test_queue_removed_note_plain_words() -> None:
 
 
 @pytest.mark.asyncio
-async def test_kill_after_queue_task_finished_reports_removed(monkeypatch: pytest.MonkeyPatch, token: str) -> None:
+async def test_kill_after_queue_task_finished_reports_removed(
+    monkeypatch: pytest.MonkeyPatch, token: str
+) -> None:
     """Задача «поставь в очередь» закончилась, сессии в памяти нет: стоп убирает проекты и говорит сколько."""
     from fastapi import FastAPI
     from httpx import ASGITransport, AsyncClient
@@ -237,13 +239,16 @@ async def test_kill_after_queue_task_finished_reports_removed(monkeypatch: pytes
         app.add_middleware(OrchestratorAuthMiddleware)
         app.include_router(router, prefix="/api")
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            r = await client.post(f"/api/orchestrator/chat/{session}/message",
-                                  json={"text": "аварийный стоп", "kill_switch": True},
-                                  headers={"Authorization": f"Bearer {TEST_TOKEN}"})
+            r = await client.post(
+                f"/api/orchestrator/chat/{session}/message",
+                json={"text": "аварийный стоп", "kill_switch": True},
+                headers={"Authorization": f"Bearer {TEST_TOKEN}"},
+            )
             assert r.status_code == 200
             await runtime.queue.drain()
-        texts = [str(e.payload.get("text") or "") for e in runtime.bus.replay(session, 0)
-                 if e.type == "message"]
+        texts = [
+            str(e.payload.get("text") or "") for e in runtime.bus.replay(session, 0) if e.type == "message"
+        ]
         assert any("убрал 3 проекта" in t and "#61, #62, #63" in t for t in texts), texts
     finally:
         set_runtime(None)

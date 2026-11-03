@@ -1,6 +1,9 @@
 """Отчёты report.nodes / report.projects в формате отчёта «Кадры»: все пачки, без архивных кадров,
 стоимость по нодам только по связи с тратами, HTML рядом с xlsx."""
+
 from __future__ import annotations
+
+pytest_plugins = ["tests.action_layer_support"]
 
 import json
 from datetime import datetime, timedelta
@@ -17,7 +20,6 @@ from app.services.action_layer import report_html
 from app.services.action_layer.context import ActionCallError
 from app.services.action_layer.spec import ActionRegistry
 from app.settings import settings
-from tests.action_layer_support import env  # noqa: F401
 
 T0 = datetime(2026, 10, 21, 14, 0, 0)
 
@@ -48,26 +50,67 @@ def _call(run_dir, name, reply, ops_final=None, error=""):
 
 
 def test_split_costs_uses_only_real_links() -> None:
-    runs = [{"node_key": "n_a", "started_at": T0.isoformat(), "finished_at": (T0 + timedelta(minutes=5)).isoformat()},
-            {"node_key": "n_b", "started_at": (T0 + timedelta(minutes=4)).isoformat(),
-             "finished_at": (T0 + timedelta(minutes=9)).isoformat()}]
-    rows = [
-        {"created_at": T0 + timedelta(minutes=1), "source": "native_call", "run_id": "native:7:x", "request_id": "req-c",
-         "usd": 0.1},
-        {"created_at": T0 + timedelta(minutes=2), "source": "native_call", "run_id": "native:7:x", "request_id": "",
-         "usd": 0.2},
-        # Окна n_a и n_b пересекаются: какая нода потратила — неизвестно, запись не разносим.
-        {"created_at": T0 + timedelta(minutes=4, seconds=30), "source": "native_call", "run_id": "native:7:x",
-         "request_id": "", "usd": 0.4},
-        {"created_at": T0 - timedelta(hours=1), "source": "native_call", "run_id": "native:7:verdict-plan",
-         "request_id": "queue-1", "usd": 0.05},
-        # Траты чата нодам не приписываются даже во время прогона.
-        {"created_at": T0 + timedelta(minutes=2), "source": "orch_llm", "run_id": "orch-task-1", "request_id": "",
-         "usd": 0.3},
-        {"created_at": "2026-10-21 14:07:00.123456", "source": "native_call", "run_id": "", "request_id": "",
-         "usd": 0.01},
+    runs = [
+        {
+            "node_key": "n_a",
+            "started_at": T0.isoformat(),
+            "finished_at": (T0 + timedelta(minutes=5)).isoformat(),
+        },
+        {
+            "node_key": "n_b",
+            "started_at": (T0 + timedelta(minutes=4)).isoformat(),
+            "finished_at": (T0 + timedelta(minutes=9)).isoformat(),
+        },
     ]
-    split = rc.split_costs(rows, {"req-c": {"n_c"}}, runs, {"plan": ["n_plan"], "excel_gpt": ["n_a", "n_b"]}, 7)
+    rows = [
+        {
+            "created_at": T0 + timedelta(minutes=1),
+            "source": "native_call",
+            "run_id": "native:7:x",
+            "request_id": "req-c",
+            "usd": 0.1,
+        },
+        {
+            "created_at": T0 + timedelta(minutes=2),
+            "source": "native_call",
+            "run_id": "native:7:x",
+            "request_id": "",
+            "usd": 0.2,
+        },
+        # Окна n_a и n_b пересекаются: какая нода потратила — неизвестно, запись не разносим.
+        {
+            "created_at": T0 + timedelta(minutes=4, seconds=30),
+            "source": "native_call",
+            "run_id": "native:7:x",
+            "request_id": "",
+            "usd": 0.4,
+        },
+        {
+            "created_at": T0 - timedelta(hours=1),
+            "source": "native_call",
+            "run_id": "native:7:verdict-plan",
+            "request_id": "queue-1",
+            "usd": 0.05,
+        },
+        # Траты чата нодам не приписываются даже во время прогона.
+        {
+            "created_at": T0 + timedelta(minutes=2),
+            "source": "orch_llm",
+            "run_id": "orch-task-1",
+            "request_id": "",
+            "usd": 0.3,
+        },
+        {
+            "created_at": "2026-10-21 14:07:00.123456",
+            "source": "native_call",
+            "run_id": "",
+            "request_id": "",
+            "usd": 0.01,
+        },
+    ]
+    split = rc.split_costs(
+        rows, {"req-c": {"n_c"}}, runs, {"plan": ["n_plan"], "excel_gpt": ["n_a", "n_b"]}, 7
+    )
     assert round(split.by_node["n_c"], 4) == 0.1 and split.how["n_c"] == [rc.HOW_REQUEST]
     assert round(split.by_node["n_a"], 4) == 0.2 and split.how["n_a"] == [rc.HOW_WINDOW]
     assert round(split.by_node["n_plan"], 4) == 0.05 and split.how["n_plan"] == [rc.HOW_VERDICT]
@@ -80,19 +123,43 @@ def test_split_costs_uses_only_real_links() -> None:
 def test_writes_from_batches_reads_every_call_and_skips_archived(tmp_path) -> None:
     run = tmp_path / "node_trace" / "n_excel_gpt_1" / "20261021-140000-000001-1"
     run.mkdir(parents=True)
-    (run / "run.json").write_text(json.dumps({"status": "ok", "calls": 3, "counts": {"fix": 2},
-                                              "skipped": [{"uuids": ["u9"], "reason": "гейт"}]}), encoding="utf-8")
+    (run / "run.json").write_text(
+        json.dumps(
+            {
+                "status": "ok",
+                "calls": 3,
+                "counts": {"fix": 2},
+                "skipped": [{"uuids": ["u9"], "reason": "гейт"}],
+            }
+        ),
+        encoding="utf-8",
+    )
     long_text = "длинный закадр " * 300
-    _call(run, "call_01_L1", _reply([{"frame_uuid": "u1", "fields": {"закадр": "сырой"}}],
-                                    characters=[{"id": "c01", "имя": "Сова"}]),
-          ops_final=[{"frame_uuid": "u1", "fields": {"закадр": long_text}}])
-    _call(run, "call_02_L1", _reply([{"frame_uuid": "u2", "fields": {"место": "лес", "кадры": [{"id": "1-K1"}]}},
-                                     {"frame_uuid": "u-old", "fields": {"место": "архив"}}]))
+    _call(
+        run,
+        "call_01_L1",
+        _reply(
+            [{"frame_uuid": "u1", "fields": {"закадр": "сырой"}}], characters=[{"id": "c01", "имя": "Сова"}]
+        ),
+        ops_final=[{"frame_uuid": "u1", "fields": {"закадр": long_text}}],
+    )
+    _call(
+        run,
+        "call_02_L1",
+        _reply(
+            [
+                {"frame_uuid": "u2", "fields": {"место": "лес", "кадры": [{"id": "1-K1"}]}},
+                {"frame_uuid": "u-old", "fields": {"место": "архив"}},
+            ]
+        ),
+    )
     _call(run, "call_10_L2", "не json", error="таймаут")
     # Последний ответ (gpt_reply.txt) — только одна пачка; отчёт берёт все из node_trace.
     up = tmp_path / "excel_gpt_uploads" / "n_excel_gpt_1"
     up.mkdir(parents=True)
-    (up / "gpt_reply.txt").write_text(_reply([{"frame_uuid": "u2", "fields": {"место": "лес"}}]), encoding="utf-8")
+    (up / "gpt_reply.txt").write_text(
+        _reply([{"frame_uuid": "u2", "fields": {"место": "лес"}}]), encoding="utf-8"
+    )
     index = rg.FrameIndex(num_by_uuid={"u1": 1, "u2": 2}, archived_uuids={"u-old"}, archived_numbers={3})
     w = rg.node_writes(tmp_path, "n_excel_gpt_1", index)
     assert w["frames"] == {1: ["voiceover_text"], 2: ["place", "кадры"]}
@@ -113,8 +180,11 @@ def test_writes_from_batches_reads_every_call_and_skips_archived(tmp_path) -> No
 def test_xlsx_keeps_value_longer_than_excel_cell(tmp_path) -> None:
     big = "я" * (rg.XLSX_CELL_MAX * 2 + 5)
     path = tmp_path / "r.xlsx"
-    rg.write_workbook(path, [("Лист", (("a", "Нода"), ("v", "Значение")), [{"a": "Работа с GPT 1", "v": big}])],
-                      [("Итог", 1)])
+    rg.write_workbook(
+        path,
+        [("Лист", (("a", "Нода"), ("v", "Значение")), [{"a": "Работа с GPT 1", "v": big}])],
+        [("Итог", 1)],
+    )
     ws = load_workbook(path)["Лист"]
     rows = [[c.value for c in r] for r in ws.iter_rows(min_row=2)]
     assert len(rows) == 3 and "".join(r[1] for r in rows) == big
@@ -123,24 +193,90 @@ def test_xlsx_keeps_value_longer_than_excel_cell(tmp_path) -> None:
 
 def test_nodes_html_escapes_and_keeps_full_values() -> None:
     value = "<script>alert(1)</script>\n" + "слово " * 500
-    gpt = [{"node_key": "n_excel_gpt_1", "label": "Работа с GPT 1", "prompt_title": "Разметка", "model": "m",
-            "status_ru": "готово", "frames_written": 1, "fields": ["place"], "fields_ru": "место",
-            "frames": {"1": ["place"]}, "values": {"1": {"place": value}}, "characters": [], "scenes": [],
-            "note": "", "source": "пачек прогона: 2", "cost_usd": None, "cost_how": ""},
-           {"node_key": "n_excel_gpt_2", "label": "Работа с GPT 2", "prompt_title": "", "model": "",
-            "status_ru": "готово", "frames_written": 1, "fields": ["place"], "fields_ru": "место",
-            "frames": {"1": ["place"]}, "values": {"1": {"place": "поле"}}, "characters": [], "scenes": [],
-            "note": "", "source": "", "cost_usd": 0.25, "cost_how": rc.HOW_WINDOW}]
-    rows = [{"node_key": "n_excel_gpt_1", "title": "Работа с GPT", "type_ru": "GPT", "status_ru": "готово",
-             "attempts": 1, "model": "m", "prompt": "", "checks": "", "result": "", "cost_usd": None,
-             "cost_how": "", "errors": ""}]
-    page = report_html.render_nodes_html({
-        "project_id": 4, "title": "Совы", "slug": "sovy", "stamp": "21.10.2026 14:00", "rows": rows, "gpt": gpt,
-        "frames": [{"number": 1, "uuid": "u1", "voiceover_text": "закадр", "place": "лес"}],
-        "archived_frames": 2, "runs": [{"node_key": "n_excel_gpt_1", "finished": "2026-10-21T14:05:00",
-                                        "status": "ok", "calls": 2, "counts": {"fix": 1}, "dir": "x"}],
-        "diary": [], "with_rules": False, "costs": {"total": 1.0, "attributed": 0.25, "unattributed": 0.75,
-                                                    "by_source": {"native_call": 1.0}}})
+    gpt = [
+        {
+            "node_key": "n_excel_gpt_1",
+            "label": "Работа с GPT 1",
+            "prompt_title": "Разметка",
+            "model": "m",
+            "status_ru": "готово",
+            "frames_written": 1,
+            "fields": ["place"],
+            "fields_ru": "место",
+            "frames": {"1": ["place"]},
+            "values": {"1": {"place": value}},
+            "characters": [],
+            "scenes": [],
+            "note": "",
+            "source": "пачек прогона: 2",
+            "cost_usd": None,
+            "cost_how": "",
+        },
+        {
+            "node_key": "n_excel_gpt_2",
+            "label": "Работа с GPT 2",
+            "prompt_title": "",
+            "model": "",
+            "status_ru": "готово",
+            "frames_written": 1,
+            "fields": ["place"],
+            "fields_ru": "место",
+            "frames": {"1": ["place"]},
+            "values": {"1": {"place": "поле"}},
+            "characters": [],
+            "scenes": [],
+            "note": "",
+            "source": "",
+            "cost_usd": 0.25,
+            "cost_how": rc.HOW_WINDOW,
+        },
+    ]
+    rows = [
+        {
+            "node_key": "n_excel_gpt_1",
+            "title": "Работа с GPT",
+            "type_ru": "GPT",
+            "status_ru": "готово",
+            "attempts": 1,
+            "model": "m",
+            "prompt": "",
+            "checks": "",
+            "result": "",
+            "cost_usd": None,
+            "cost_how": "",
+            "errors": "",
+        }
+    ]
+    page = report_html.render_nodes_html(
+        {
+            "project_id": 4,
+            "title": "Совы",
+            "slug": "sovy",
+            "stamp": "21.10.2026 14:00",
+            "rows": rows,
+            "gpt": gpt,
+            "frames": [{"number": 1, "uuid": "u1", "voiceover_text": "закадр", "place": "лес"}],
+            "archived_frames": 2,
+            "runs": [
+                {
+                    "node_key": "n_excel_gpt_1",
+                    "finished": "2026-10-21T14:05:00",
+                    "status": "ok",
+                    "calls": 2,
+                    "counts": {"fix": 1},
+                    "dir": "x",
+                }
+            ],
+            "diary": [],
+            "with_rules": False,
+            "costs": {
+                "total": 1.0,
+                "attributed": 0.25,
+                "unattributed": 0.75,
+                "by_source": {"native_call": 1.0},
+            },
+        }
+    )
     assert "<script>" not in page and "&lt;script&gt;" in page
     assert ("слово " * 500).strip() in page
     assert "Нода</th><th>Когда</th><th>Итог</th><th>Вызовов GPT</th>" in page
@@ -149,55 +285,151 @@ def test_nodes_html_escapes_and_keeps_full_values() -> None:
 
 
 def test_download_links_lists_every_report_file() -> None:
-    body = {"download_url": "/api/projects/4/reports/a.html", "file_format": "html",
-            "downloads": [{"url": "/api/projects/4/reports/a.html", "file_format": "html"},
-                          {"url": "/api/projects/4/reports/a.xlsx", "file_format": "xlsx"},
-                          {"url": "https://evil/x.xlsx", "file_format": "xlsx"}]}
-    assert download_links(body) == ["[Скачать отчёт (html)](/api/projects/4/reports/a.html)",
-                                    "[Скачать отчёт (xlsx)](/api/projects/4/reports/a.xlsx)"]
+    body = {
+        "download_url": "/api/projects/4/reports/a.html",
+        "file_format": "html",
+        "downloads": [
+            {"url": "/api/projects/4/reports/a.html", "file_format": "html"},
+            {"url": "/api/projects/4/reports/a.xlsx", "file_format": "xlsx"},
+            {"url": "https://evil/x.xlsx", "file_format": "xlsx"},
+        ],
+    }
+    assert download_links(body) == [
+        "[Скачать отчёт (html)](/api/projects/4/reports/a.html)",
+        "[Скачать отчёт (xlsx)](/api/projects/4/reports/a.xlsx)",
+    ]
 
 
 async def test_report_nodes_reads_batches_skips_archived_and_costs_by_link(env, monkeypatch) -> None:
-    meta = {"canvas_graph": {"nodes": [
-        {"id": "n_plan", "type": "plan", "data": {"label": "План"}},
-        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"label": "Работа с GPT", "slotIndex": 1}},
-        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"label": "Работа с GPT", "slotIndex": 2}},
-    ], "edges": []}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_plan", "type": "plan", "data": {"label": "План"}},
+                {
+                    "id": "n_excel_gpt_1",
+                    "type": "excel_gpt",
+                    "data": {"label": "Работа с GPT", "slotIndex": 1},
+                },
+                {
+                    "id": "n_excel_gpt_2",
+                    "type": "excel_gpt",
+                    "data": {"label": "Работа с GPT", "slotIndex": 2},
+                },
+            ],
+            "edges": [],
+        }
+    }
     async with env.factory() as s:
-        p = Project(topic="совы", title="Совы", slug="sovy-fmt", status=ProjectStatus("images_ready"), meta=meta)
+        p = Project(
+            topic="совы", title="Совы", slug="sovy-fmt", status=ProjectStatus("images_ready"), meta=meta
+        )
         s.add(p)
         await s.flush()
-        s.add(Frame(project_id=p.id, number=1, uuid="u1", voiceover_text="Совы видят ночью", attrs={"место": "лес"}))
+        s.add(
+            Frame(
+                project_id=p.id,
+                number=1,
+                uuid="u1",
+                voiceover_text="Совы видят ночью",
+                attrs={"место": "лес"},
+            )
+        )
         s.add(Frame(project_id=p.id, number=2, uuid="u2", voiceover_text="Совы молчат", attrs={}))
         s.add(Frame(project_id=p.id, number=3, uuid="u3", voiceover_text="старое", attrs={"archived": True}))
         for minute, usd in ((1, 0.2), (2, 0.3)):
-            s.add(spend_guard.SpendLedger(created_at=T0 + timedelta(minutes=minute), day="2026-10-21",
-                                          kind="estimated", provider="vibecode", project_id=p.id,
-                                          run_id=f"native:{p.id}:t", source="native_call", usd=usd, credits=0.0,
-                                          note="", request_id="tick-1", ref=""))
-        s.add(spend_guard.SpendLedger(created_at=T0, day="2026-10-21", kind="estimated", provider="kie",
-                                      project_id=p.id, run_id="orch-task-1", source="orch_llm", usd=0.05,
-                                      credits=0.0, note="", request_id="", ref=""))
+            s.add(
+                spend_guard.SpendLedger(
+                    created_at=T0 + timedelta(minutes=minute),
+                    day="2026-10-21",
+                    kind="estimated",
+                    provider="vibecode",
+                    project_id=p.id,
+                    run_id=f"native:{p.id}:t",
+                    source="native_call",
+                    usd=usd,
+                    credits=0.0,
+                    note="",
+                    request_id="tick-1",
+                    ref="",
+                )
+            )
+        s.add(
+            spend_guard.SpendLedger(
+                created_at=T0,
+                day="2026-10-21",
+                kind="estimated",
+                provider="kie",
+                project_id=p.id,
+                run_id="orch-task-1",
+                source="orch_llm",
+                usd=0.05,
+                credits=0.0,
+                note="",
+                request_id="",
+                ref="",
+            )
+        )
         await s.commit()
         pid, slug = p.id, p.slug
     root = settings.data_dir / "videos" / slug
     run = root / "node_trace" / "n_excel_gpt_1" / "20261021-140000-000001-1"
     run.mkdir(parents=True)
-    (run / "run.json").write_text(json.dumps({"node_key": "n_excel_gpt_1", "status": "ok", "calls": 2,
-                                              "counts": {"fix": 1}, "finished": "2026-10-21T14:05:00"}),
-                                  encoding="utf-8")
+    (run / "run.json").write_text(
+        json.dumps(
+            {
+                "node_key": "n_excel_gpt_1",
+                "status": "ok",
+                "calls": 2,
+                "counts": {"fix": 1},
+                "finished": "2026-10-21T14:05:00",
+            }
+        ),
+        encoding="utf-8",
+    )
     _call(run, "call_01_L1", _reply([{"frame_uuid": "u1", "fields": {"место": "дупло"}}]))
-    _call(run, "call_02_L1", _reply([{"frame_uuid": "u2", "fields": {"место": "поляна"}},
-                                     {"frame_uuid": "u3", "fields": {"место": "архив"}}]))
-    node_runs = [{"node_key": "n_excel_gpt_1", "node_type": "excel_gpt", "status": "done", "attempts": 1,
-                  "started_at": T0.isoformat(), "finished_at": (T0 + timedelta(minutes=5)).isoformat()},
-                 {"node_key": "n_plan", "node_type": "plan", "status": "done", "attempts": 1,
-                  "started_at": (T0 - timedelta(hours=2)).isoformat(),
-                  "finished_at": (T0 - timedelta(hours=1)).isoformat()}]
-    detail = {"id": pid, "slug": slug, "title": "Совы", "topic": "совы", "status": "images_ready", "meta": meta,
-              "prompt_overrides": {}}
-    ctx = FakeCtx({("GET", f"/projects/{pid}"): detail,
-                   ("GET", f"/projects/{pid}/run"): {"id": 1, "node_runs": node_runs}})
+    _call(
+        run,
+        "call_02_L1",
+        _reply(
+            [
+                {"frame_uuid": "u2", "fields": {"место": "поляна"}},
+                {"frame_uuid": "u3", "fields": {"место": "архив"}},
+            ]
+        ),
+    )
+    node_runs = [
+        {
+            "node_key": "n_excel_gpt_1",
+            "node_type": "excel_gpt",
+            "status": "done",
+            "attempts": 1,
+            "started_at": T0.isoformat(),
+            "finished_at": (T0 + timedelta(minutes=5)).isoformat(),
+        },
+        {
+            "node_key": "n_plan",
+            "node_type": "plan",
+            "status": "done",
+            "attempts": 1,
+            "started_at": (T0 - timedelta(hours=2)).isoformat(),
+            "finished_at": (T0 - timedelta(hours=1)).isoformat(),
+        },
+    ]
+    detail = {
+        "id": pid,
+        "slug": slug,
+        "title": "Совы",
+        "topic": "совы",
+        "status": "images_ready",
+        "meta": meta,
+        "prompt_overrides": {},
+    }
+    ctx = FakeCtx(
+        {
+            ("GET", f"/projects/{pid}"): detail,
+            ("GET", f"/projects/{pid}/run"): {"id": 1, "node_runs": node_runs},
+        }
+    )
     reg = ActionRegistry()
     bi.register_insight(reg)
     report = reg.get("report.nodes").executor

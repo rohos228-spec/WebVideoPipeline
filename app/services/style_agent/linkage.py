@@ -70,7 +70,7 @@ def link_subtitles_to_shots(subs: list[dict[str, Any]], shots: list[dict[str, An
         if any(abs(t - st) <= PHRASE_CUT_WINDOW_S for st in shot_starts):
             phrases_with_cut += 1
     lines_per_shot = [len(v) for v in shot_lines.values()] if shot_lines else []
-    stats = {
+    stats: dict[str, Any] = {
         "lines": len(subs),
         "shots": len(shots),
         "cuts": len(cut_times),

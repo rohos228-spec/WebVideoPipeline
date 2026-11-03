@@ -18,7 +18,9 @@ P = 7
 
 
 def _sup():
-    return build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter()).supervisor
+    return build_runtime(
+        actions=MockActions(), validators=MockValidators(), router=ScriptedRouter()
+    ).supervisor
 
 
 @pytest.fixture(autouse=True)
@@ -37,10 +39,10 @@ def test_worker_consumed_then_user_stop_survives_resume_without_restart(token: s
     sup = _sup()
     sup._note_kill_stop(P, 42)
     assert sc.is_stop_requested(P)
-    assert sc.consume_stop(P)                 # воркер снял ключ kill
-    assert not sc.holder_path(P).exists()     # и запись о нём ушла вместе с ключом
-    sc.request_stop(P, reason="user_stop")    # человек нажал ⏹
-    sup._clear_one_project_stop(42, P)        # задача 42 возобновилась в том же процессе
+    assert sc.consume_stop(P)  # воркер снял ключ kill
+    assert not sc.holder_path(P).exists()  # и запись о нём ушла вместе с ключом
+    sc.request_stop(P, reason="user_stop")  # человек нажал ⏹
+    sup._clear_one_project_stop(42, P)  # задача 42 возобновилась в том же процессе
     assert sc.is_stop_requested(P)
 
 
@@ -60,7 +62,7 @@ def test_later_kill_does_not_take_over_the_users_key(token: str) -> None:
     sup._note_kill_stop(P, 42)
     sc.consume_stop(P)
     sc.request_stop(P, reason="user_stop")
-    sup._note_kill_stop(P, 43)                # новый kill после ⏹ человека
+    sup._note_kill_stop(P, 43)  # новый kill после ⏹ человека
     sup._clear_one_project_stop(43, P)
     sup._clear_one_project_stop(42, P)
     assert sc.is_stop_requested(P)
@@ -87,7 +89,7 @@ def test_two_tasks_share_the_key_and_the_last_resume_clears_it_after_restart(tok
     sup._note_kill_stop(P, 42)
     sup._note_kill_stop(P, 43)
     sup._clear_one_project_stop(42, P)
-    assert sc.is_stop_requested(P)            # 43 ещё держит
+    assert sc.is_stop_requested(P)  # 43 ещё держит
     _restart()
     fresh = _sup()
     fresh._clear_one_project_stop(43, P)

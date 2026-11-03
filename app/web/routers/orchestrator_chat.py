@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -469,7 +469,7 @@ async def get_autonomy() -> dict[str, object]:
 async def put_autonomy(body: AutonomyIn, request: Request) -> dict[str, object]:
     """Тело — любые из пяти полей ``GET``; ответ — как у ``GET``. Чужое поле или выход за
     пределы — 422. Менять может только человек из интерфейса, как и одобрять карточки (403)."""
-    operator = orch_bridge.human_operator(request.scope)
+    operator = orch_bridge.human_operator(cast(dict, request.scope))
     if operator is None:
         raise HTTPException(status_code=403, detail="operator_token_required")
     return oa.public_view(oa.save(body.model_dump(exclude_none=True), actor=operator.id))

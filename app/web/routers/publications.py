@@ -93,7 +93,7 @@ async def get_publications(project_id: int, session: ProjectSession) -> dict[str
     ).scalar_one_or_none()
     sha = await asyncio.to_thread(_file_sha256, final.path) if final is not None else None
     meta = project.meta if isinstance(project.meta, dict) else {}
-    done = meta.get("published_platforms") if isinstance(meta.get("published_platforms"), dict) else {}
+    done = raw_done if isinstance(raw_done := meta.get("published_platforms"), dict) else {}
     accounts, accounts_error = _accounts()
     caption = caption_of({"topic": project.topic, "slug": project.slug})
     status = getattr(project.status, "value", str(project.status))

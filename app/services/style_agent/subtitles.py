@@ -230,7 +230,7 @@ def extract_subtitles(
             ocr = make_auto_ocr(files[::step][:8])
         per_frame: list[list[dict[str, Any]]] = []
         for fp in files:
-            dets = []
+            dets: list[dict[str, Any]] = []
             try:
                 for box, text, conf in ocr(fp):
                     if conf < MIN_CONF or not text.strip():

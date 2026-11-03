@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Any
+from typing import Any, cast
 
 from app.services.style_agent.schema import passport_value as _pv
 from app.services.style_agent.textfmt import human
@@ -583,7 +583,7 @@ def _consistency(
     dens = _f(passport, "sfx.density") or "sparse"
     unset = ("не задан", "не указан", "неизвест", "not set", "unknown")
     for n in chain:
-        prm = n.get("params") if isinstance(n.get("params"), dict) else {}
+        prm = cast(dict[str, Any], n.get("params") if isinstance(n.get("params"), dict) else {})
         for k in list(prm):
             v = prm[k]
             if (
@@ -700,7 +700,7 @@ def segment_shot_map(passport: dict[str, Any]) -> dict[str, dict[str, Any]]:
             if not isinstance(g, dict):
                 continue
             try:
-                a, b = float(g.get("start")), float(g.get("end"))
+                a, b = float(cast(Any, g.get("start"))), float(cast(Any, g.get("end")))
             except (TypeError, ValueError):
                 continue
             name = str(g.get("name") or "segment")

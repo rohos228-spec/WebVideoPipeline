@@ -35,7 +35,9 @@ def test_node_keys_and_twins_get_numbers():
 
 
 def test_duplicate_parenthetical_collapses():
-    out = humanize_reply("Текущий шаг — `img_pr` («Промты картинок»), дальше `img` (генерация картинок).", KEYMAP)
+    out = humanize_reply(
+        "Текущий шаг — `img_pr` («Промты картинок»), дальше `img` (генерация картинок).", KEYMAP
+    )
     assert out == "Текущий шаг — «Промты картинок», дальше «Мои картинки»."
 
 

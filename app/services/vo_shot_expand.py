@@ -19,7 +19,7 @@ import copy
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -286,8 +286,8 @@ def strip_non_scene_kadry(frame: Any) -> bool:
     Архив идемпотентный: повторный вызов не плодит дубли по id.
     """
     attrs = dict(getattr(frame, "attrs", None) or {})
-    kadry_rows = attrs.get("кадры") if isinstance(attrs.get("кадры"), list) else []
-    shots_rows = attrs.get("shots") if isinstance(attrs.get("shots"), list) else []
+    kadry_rows = cast(list[Any], attrs.get("кадры")) if isinstance(attrs.get("кадры"), list) else []
+    shots_rows = cast(list[Any], attrs.get("shots")) if isinstance(attrs.get("shots"), list) else []
     planned = planned_shots_from_attrs(frame)
     live = [shot for shot in planned if shot_is_active(shot)]
     if not live or kadry_are_scene_shots(live):
@@ -390,7 +390,7 @@ def is_coverage_leftover(frame: Any) -> bool:
 
 
 def coverage_parent_number(frame: Any) -> int | None:
-    raw = _cs(frame).get("coverage_parent_number")
+    raw: Any = _cs(frame).get("coverage_parent_number")
     try:
         n = int(raw)
     except (TypeError, ValueError):
@@ -867,9 +867,9 @@ def _apply_shot_meta(frame: Any, shot: dict[str, Any] | None) -> None:
         ("сцена", "сцена"),
         ("место", "место"),
     ):
-        val = shot.get(src)
-        if val not in (None, ""):
-            extra[dst] = val
+        meta_val = shot.get(src)
+        if meta_val not in (None, ""):
+            extra[dst] = meta_val
     plan = str(shot.get("план") or "").strip()
     if plan:
         extra["крупность"] = plan
@@ -1340,7 +1340,7 @@ def _scene_num(shot: dict[str, Any] | None) -> int | None:
     if not isinstance(shot, dict):
         return None
     try:
-        return int(shot.get("сцена"))
+        return int(cast(Any, shot.get("сцена")))
     except (TypeError, ValueError):
         pass
     return _scene_from_shot_id(str(shot.get("id") or ""))
@@ -1350,7 +1350,7 @@ def frame_scene_number(frame: Any) -> int | None:
     """Номер сцены кадра: camera_subdivide / кадры[0] / id ``1-S3-K1``."""
     cs = _cs(frame)
     try:
-        return int(cs.get("сцена"))
+        return int(cast(Any, cs.get("сцена")))
     except (TypeError, ValueError):
         pass
     planned = planned_shots_from_attrs(frame)
@@ -1451,9 +1451,12 @@ def _ordered_pipeline_frames(frames: list[Any]) -> list[Any]:
     work.sort(
         key=lambda fr: (
             float(
-                getattr(fr, "sort_key", None)
-                if getattr(fr, "sort_key", None) is not None
-                else getattr(fr, "number", 0) or 0
+                cast(
+                    Any,
+                    getattr(fr, "sort_key", None)
+                    if getattr(fr, "sort_key", None) is not None
+                    else getattr(fr, "number", 0) or 0,
+                )
             ),
             int(getattr(fr, "number", 0) or 0),
         )
@@ -1507,13 +1510,13 @@ def _explicit_scene_number(frame: Any) -> int | None:
     """Номер сцены из cs/кадры, не из stamped ``7-S2-K1``."""
     cs = _cs(frame)
     try:
-        return int(cs.get("сцена"))
+        return int(cast(Any, cs.get("сцена")))
     except (TypeError, ValueError):
         pass
     planned = planned_shots_from_attrs(frame)
     if planned:
         try:
-            return int(planned[0].get("сцена"))
+            return int(cast(Any, planned[0].get("сцена")))
         except (TypeError, ValueError):
             pass
     return None
@@ -1785,7 +1788,7 @@ def relink_shot_roles_by_scene(
             scene_no = _explicit_scene_number(parent)
             if scene_no is None and shots:
                 try:
-                    scene_no = int(shots[0].get("сцена"))
+                    scene_no = int(cast(Any, shots[0].get("сцена")))
                 except (TypeError, ValueError):
                     scene_no = scene_n
             chain = {sc["n"]: sc for sc in parse_scene_chain(main_action_text(donor))}
@@ -1968,10 +1971,10 @@ def duplicate_scene_ladder_frames(frames: list[Any]) -> list[Any]:
     by_scene: dict[int, list[list[tuple[int, list[Any]]]]] = {}
     for (_cell, sc), items in ladders.items():
         by_scene.setdefault(int(sc), []).append(items)
-    for groups in by_scene.values():
+    for scene_groups in by_scene.values():
         s_groups: list[list[tuple[int, list[Any]]]] = []
         plain: list[list[tuple[int, list[Any]]]] = []
-        for items in groups:
+        for items in scene_groups:
             has_s = any(
                 _S_LADDER_RE.match(coverage_shot_id(fr) or "") for _idx, members in items for fr in members
             )
@@ -2229,7 +2232,7 @@ def promote_shots_to_vo_cells(frames: list[Any]) -> tuple[int, list[Any]]:
                 shots.append(shot)
             scene_n: int | None = None
             try:
-                scene_n = int(shots[0].get("сцена")) if shots else None
+                scene_n = int(cast(Any, shots[0].get("сцена"))) if shots else None
             except (TypeError, ValueError):
                 scene_n = None
             for pos, fr in enumerate(scene_cells):
@@ -2425,8 +2428,8 @@ async def rebuild_vo_cells_from_shots(
         vo = (getattr(fr, "voiceover_text", None) or "").strip()
         if not vo or getattr(fr, "id", None) is None:
             continue
-        row = existing_vo.get(int(fr.id))
-        if row is None:
+        vo_row = existing_vo.get(int(fr.id))
+        if vo_row is None:
             session.add(
                 FrameText(
                     project_id=project.id,
@@ -2436,8 +2439,8 @@ async def rebuild_vo_cells_from_shots(
                     sort_key=1.0,
                 )
             )
-        elif (row.text or "") != vo:
-            row.text = vo
+        elif (vo_row.text or "") != vo:
+            vo_row.text = vo
     await session.flush()
     report = {
         "cells": n_cells,
@@ -2652,21 +2655,21 @@ def sync_qc_kadry_onto_coverage_frames(frames: list[Any]) -> int:
         # родителя, но не занимает индекс и не подменяет зеркало ребёнка.
         live_planned = [s for s in planned if shot_is_active(s)]
         for i, fr in enumerate(ordered):
-            shot = live_planned[i] if i < len(live_planned) else None
-            if not isinstance(shot, dict):
+            live_shot = live_planned[i] if i < len(live_planned) else None
+            if not isinstance(live_shot, dict):
                 continue
             old_action = str((getattr(fr, "attrs", None) or {}).get("shot01_action") or "")
-            kept = _keep_shorter_door_run(old_action, str(shot.get("действие") or ""))
-            if kept and kept != str(shot.get("действие") or "").strip():
-                shot = dict(shot)
-                shot["действие"] = kept
+            kept = _keep_shorter_door_run(old_action, str(live_shot.get("действие") or ""))
+            if kept and kept != str(live_shot.get("действие") or "").strip():
+                live_shot = dict(live_shot)
+                live_shot["действие"] = kept
             before_plan = str(_cs(fr).get("план") or "")
             before_lay = str((getattr(fr, "attrs", None) or {}).get("раскладка") or "")
-            _apply_shot_meta(fr, shot)
+            _apply_shot_meta(fr, live_shot)
             # Children keep single-shot кадры mirror for report overlays.
             if fr is not parent and is_shot_child(fr):
                 cattrs = dict(getattr(fr, "attrs", None) or {})
-                cattrs["кадры"] = [dict(shot)]
+                cattrs["кадры"] = [dict(live_shot)]
                 # раскладка already set by _apply_shot_meta on attrs
                 fr.attrs = cattrs
                 _flag_attrs(fr)
@@ -2693,9 +2696,10 @@ async def apply_shot_coverage_to_vo_cells(
         pid = int(insp.identity[0]) if insp.identity else None
         if pid is None:
             raise RuntimeError("apply_shot_coverage: project expired without identity")
-        project = await session.get(type(project), pid)
-        if project is None:
+        loaded = await session.get(type(project), pid)
+        if loaded is None:
             raise RuntimeError(f"apply_shot_coverage: project {pid} not found")
+        project = loaded
     pid = int(project.id)
 
     frames = list(

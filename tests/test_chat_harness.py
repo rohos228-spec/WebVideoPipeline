@@ -69,7 +69,9 @@ def test_tool_call_after_text_is_still_a_call(monkeypatch):
 
 def test_call_then_self_answer_is_discarded(monkeypatch):
     """Живой случай: модель пишет JSON вызова и тут же «сама отвечает» — ответ берём после результата."""
-    gpt = _FakeGpt(['{"tool":"news","args":{"query":"Kling"}}Kling AI — это выдумка модели.', "По новостям: X."])
+    gpt = _FakeGpt(
+        ['{"tool":"news","args":{"query":"Kling"}}Kling AI — это выдумка модели.', "По новостям: X."]
+    )
     reply, calls, shown, _ = _run(gpt, monkeypatch)
     assert reply == "По новостям: X." and len(calls) == 1
     assert shown == "По новостям: X."
@@ -84,7 +86,11 @@ def test_broken_json_call_still_recognized():
 
 
 def test_project_tool_text_uses_canvas_titles():
-    meta = {"canvas_graph": {"nodes": [{"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"label": "Работа с GPT"}}]}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [{"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"label": "Работа с GPT"}}]
+        }
+    }
     out = h.humanize_reply("Ошибка в n_excel_gpt_1: нет кадров.", h._canvas_keymap(meta))
     assert out == "Ошибка в «Работа с GPT»: нет кадров."
 
@@ -104,7 +110,10 @@ def test_round_limit(monkeypatch):
 
 def test_unknown_tool_is_plain_text():
     assert h.parse_tool_call('{"tool":"rm_rf","args":{}}') is None
-    assert h.parse_tool_call('```json\n{"tool":"wiki","args":{"query":"ёж"}}\n```') == ("wiki", {"query": "ёж"})
+    assert h.parse_tool_call('```json\n{"tool":"wiki","args":{"query":"ёж"}}\n```') == (
+        "wiki",
+        {"query": "ёж"},
+    )
 
 
 def test_open_url_blocks_internal_addresses():

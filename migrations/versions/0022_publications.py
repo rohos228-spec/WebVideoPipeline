@@ -70,8 +70,9 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.Float(), nullable=False),
             sqlite_autoincrement=True,
         )
-        op.create_index("ux_publications_idem", "publications", ["project_id", "platform", "sha256"],
-                        unique=True)
+        op.create_index(
+            "ux_publications_idem", "publications", ["project_id", "platform", "sha256"], unique=True
+        )
         op.create_index("ix_publications_project", "publications", ["project_id"])
 
     if "publish_approvals" not in tables:
@@ -87,8 +88,9 @@ def upgrade() -> None:
             sa.Column("consumed_at", sa.Float(), nullable=True),
             sqlite_autoincrement=True,
         )
-        op.create_index("ux_publish_approvals_key", "publish_approvals", ["project_id", "platform", "sha256"],
-                        unique=True)
+        op.create_index(
+            "ux_publish_approvals_key", "publish_approvals", ["project_id", "platform", "sha256"], unique=True
+        )
 
     if "publication_manual_actions" not in tables:
         op.create_table(

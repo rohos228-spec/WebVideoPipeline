@@ -17,7 +17,7 @@ Excel остаётся внешним видом: экспорт из этих �
 from __future__ import annotations
 
 import uuid as _uuid_mod
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import func, select
@@ -86,17 +86,6 @@ def resolve_full_voiceover_text(project: Project) -> str:
         if body:
             return " ".join(body.split())
     return ""
-
-
-def frame_is_archived(frame: Any) -> bool:
-    """Архив replace_all_frames: пометка и парковочный номер ≥ 1_000_000."""
-    attrs = getattr(frame, "attrs", None) or {}
-    if isinstance(attrs, dict) and attrs.get("archived"):
-        return True
-    try:
-        return int(getattr(frame, "number", 0) or 0) >= 1_000_000
-    except (TypeError, ValueError):
-        return False
 
 
 def entity_is_archived(entity: Any) -> bool:
@@ -477,7 +466,7 @@ async def insert_frame_after(
     after_key: float | None = None
     want = None if after_frame_id is None else int(after_frame_id)
     if want is None:
-        after_key = float(frames[0].sort_key) if frames else None
+        after_key = float(cast(float, frames[0].sort_key)) if frames else None
     else:
         for i, fr in enumerate(frames):
             if int(fr.id) == want:

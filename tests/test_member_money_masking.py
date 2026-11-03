@@ -13,9 +13,11 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from app.orchestrator.contracts import CheckpointData, OrchEvent, SpendSnapshot
-from app.web.member_money import MemberMoneyMiddleware, is_money_key, mask_amounts, member_safe
+from app.web.member_money import MemberMoneyMiddleware, is_money_key, mask_amounts
 
-_CURRENCY_NEAR_NUMBER = re.compile(r"(\$|US\s?\$|USD|usd|долл)\s?[.,]?\d|\d\s?(\$|USD|usd|долл)", re.IGNORECASE)
+_CURRENCY_NEAR_NUMBER = re.compile(
+    r"(\$|US\s?\$|USD|usd|долл)\s?[.,]?\d|\d\s?(\$|USD|usd|долл)", re.IGNORECASE
+)
 
 
 def _keys(value) -> set[str]:
@@ -47,10 +49,20 @@ def _spend_guard_result() -> dict:
     from app.orchestrator.validators.result import make_result
 
     view = {
-        "spent": {"daily_spent_usd": 312.4, "project_spent_usd": 48.2, "run_spent_usd": 9.1,
-                  "internal_spent_usd": 9.9, "actions_spent_usd": 38.3},
-        "known": {"daily_spent_usd", "project_spent_usd", "run_spent_usd", "internal_spent_usd",
-                  "actions_spent_usd"},
+        "spent": {
+            "daily_spent_usd": 312.4,
+            "project_spent_usd": 48.2,
+            "run_spent_usd": 9.1,
+            "internal_spent_usd": 9.9,
+            "actions_spent_usd": 38.3,
+        },
+        "known": {
+            "daily_spent_usd",
+            "project_spent_usd",
+            "run_spent_usd",
+            "internal_spent_usd",
+            "actions_spent_usd",
+        },
         "caps": {"internal_cap_usd": 10.0},
         "run_id": "plan:1",
         "internal_source": "ledger",
@@ -62,8 +74,16 @@ def _spend_guard_result() -> dict:
     details = {
         "reason": "budget_exhausted",
         "reasons": ["budget_exhausted"],
-        "violations": [sg._violation("budget_exhausted", spent=9.9, cap=10.0, forecast=0.5,
-                                     scope="internal", source="pipeline_scope")],
+        "violations": [
+            sg._violation(
+                "budget_exhausted",
+                spent=9.9,
+                cap=10.0,
+                forecast=0.5,
+                scope="internal",
+                source="pipeline_scope",
+            )
+        ],
         "totals": public["totals"],
         "internal": public["internal"],
         "pipeline_scope_spent_usd": view["pipeline_scope_spent_usd"],
@@ -101,7 +121,9 @@ def test_admin_still_sees_spend_details(monkeypatch) -> None:
     from app.web.routers.orchestrator_chat import _sse
 
     monkeypatch.setattr(plan, "member_view", lambda: False)
-    event = OrchEvent(type="validator_result", seq=1, task_id=1, session_id="main", payload=_spend_guard_result())
+    event = OrchEvent(
+        type="validator_result", seq=1, task_id=1, session_id="main", payload=_spend_guard_result()
+    )
     assert "312.4" in _sse(event)["data"]
 
 
@@ -123,28 +145,67 @@ def test_amounts_masked_on_either_side(text) -> None:
 
 
 def test_money_keys_are_usd_named_plus_chat_set() -> None:
-    for key in ("daily_spent_usd", "budget_usd", "remaining_usd", "cap_usd", "forecast_usd", "usd",
-                "pipeline_scope_spent_usd", "internal_cap_usd", "high_usd", "usd_total"):
+    for key in (
+        "daily_spent_usd",
+        "budget_usd",
+        "remaining_usd",
+        "cap_usd",
+        "forecast_usd",
+        "usd",
+        "pipeline_scope_spent_usd",
+        "internal_cap_usd",
+        "high_usd",
+        "usd_total",
+    ):
         assert is_money_key(key), key
     assert is_money_key("cost_estimate", chat=True) and is_money_key("estimated_cost", chat=True)
     # Не деньги в $: кредиты участника, лимиты в штуках, флаги.
-    for key in ("name", "pass", "blocking", "title", "future_spend", "paid", "risk", "cost", "cost_estimate",
-                "cap", "caps", "max_cap", "remaining", "remaining_steps", "free_credits", "balance_credits",
-                "unknown_cost", "cost_known", "step_cost_declared", "amount_frames", "budget_exhausted",
-                "has_cost", "credits_high", "ceiling_credits", "sound_credits", "cost_recorded"):
+    for key in (
+        "name",
+        "pass",
+        "blocking",
+        "title",
+        "future_spend",
+        "paid",
+        "risk",
+        "cost",
+        "cost_estimate",
+        "cap",
+        "caps",
+        "max_cap",
+        "remaining",
+        "remaining_steps",
+        "free_credits",
+        "balance_credits",
+        "unknown_cost",
+        "cost_known",
+        "step_cost_declared",
+        "amount_frames",
+        "budget_exhausted",
+        "has_cost",
+        "credits_high",
+        "ceiling_credits",
+        "sound_credits",
+        "cost_recorded",
+    ):
         assert not is_money_key(key), key
 
 
 async def test_action_layer_error_detail_is_masked_for_member(member) -> None:
     async def plan(_request):
         message = "Локальный потолок расходов исчерпан: потрачено 48.20 USD, потолок 50.00 USD."
-        return JSONResponse({"detail": {"code": "spend_cap", "message": message, "cap_usd": 50.0}}, status_code=503)
+        return JSONResponse(
+            {"detail": {"code": "spend_cap", "message": message, "cap_usd": 50.0}}, status_code=503
+        )
 
     async def other(_request):
         return JSONResponse({"detail": "потрачено 48.20 USD"})
 
-    app = MemberMoneyMiddleware(Starlette(routes=[Route("/api/action-layer/plan", plan, methods=["POST"]),
-                                                   Route("/api/projects/1", other)]))
+    app = MemberMoneyMiddleware(
+        Starlette(
+            routes=[Route("/api/action-layer/plan", plan, methods=["POST"]), Route("/api/projects/1", other)]
+        )
+    )
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         res = await client.post("/api/action-layer/plan")
         assert res.status_code == 503

@@ -30,7 +30,11 @@ async def test_no_title_in_request_gives_list_without_hint() -> None:
 
 
 async def test_named_project_brings_its_node_roster() -> None:
-    meta = {"canvas_graph": {"nodes": [{"id": "image_prompts", "type": "img_pr", "data": {"label": "Промты картинок"}}]}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [{"id": "image_prompts", "type": "img_pr", "data": {"label": "Промты картинок"}}]
+        }
+    }
     asked = []
 
     async def meta_of(pid):
@@ -50,9 +54,14 @@ async def test_named_project_brings_its_node_roster() -> None:
     reason="в prompts/05_excel_gpt/.file_meta.json новой линии нет title у вариантов", strict=False
 )
 async def test_prompt_request_lists_node_variants_with_titles() -> None:
-    meta = {"canvas_graph": {"nodes": [
-        {"id": "n_image_prompts", "type": "image_prompts", "data": {"label": "Промты картинок"}},
-        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"label": "Работа с GPT"}}]}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_image_prompts", "type": "image_prompts", "data": {"label": "Промты картинок"}},
+                {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"label": "Работа с GPT"}},
+            ]
+        }
+    }
 
     async def meta_of(_pid):
         return meta
@@ -61,7 +70,9 @@ async def test_prompt_request_lists_node_variants_with_titles() -> None:
         return 13
 
     nodes = ProjectNodes(project_of=lambda _t: 4, meta_of=meta_of, frames_of=frames_of)
-    text = await nodes("на ноду работа с GPT, связанную с промтами картинок, поставь промт Сцены: единая грамматика", 1)
+    text = await nodes(
+        "на ноду работа с GPT, связанную с промтами картинок, поставь промт Сцены: единая грамматика", 1
+    )
     assert "node.set_prompt_variant" in text
     assert "- scene_grammar_unified_agent_v1: Сцены: единая грамматика сцен v1.8" in text
 
@@ -97,10 +108,19 @@ async def test_undo_request_gets_snapshot_ids() -> None:
         return 13
 
     async def snapshots_of(_pid):
-        return [{"snapshot_id": 1, "kind": "prompt_slot", "target": {"node_key": "n_excel_gpt_2"},
-                 "before": None, "after": "scene_grammar_unified_agent_v1"}]
+        return [
+            {
+                "snapshot_id": 1,
+                "kind": "prompt_slot",
+                "target": {"node_key": "n_excel_gpt_2"},
+                "before": None,
+                "after": "scene_grammar_unified_agent_v1",
+            }
+        ]
 
-    nodes = ProjectNodes(project_of=lambda _t: 4, meta_of=meta_of, frames_of=frames_of, snapshots_of=snapshots_of)
+    nodes = ProjectNodes(
+        project_of=lambda _t: 4, meta_of=meta_of, frames_of=frames_of, snapshots_of=snapshots_of
+    )
     text = await nodes("верни прежний промт на второй ноде работа с GPT", 1)
     assert "- snapshot_id=1: prompt_slot n_excel_gpt_2, было «по умолчанию»" in text
     assert "snapshot_id=1" not in await nodes("покажи промт", 1)
@@ -116,16 +136,24 @@ def test_numbered_projects_only_after_the_word_project() -> None:
 
 
 def test_longest_title_wins() -> None:
-    items = [{"id": 1, "title": "факты о совах"}, {"id": 4, "title": "2 коротких факта о совах"},
-             {"id": 5, "title": "совы"}]
+    items = [
+        {"id": 1, "title": "факты о совах"},
+        {"id": 4, "title": "2 коротких факта о совах"},
+        {"id": 5, "title": "совы"},
+    ]
     assert [i["id"] for i in named_projects(items, "запусти 2 коротких факта о совах")] == [4]
 
 
 async def test_numbered_projects_get_next_step_from_graph() -> None:
-    meta = {"canvas_graph": {"nodes": [
-        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
-        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
-        {"id": "n_image_prompts", "type": "image_prompts"}]}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
+                {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
+                {"id": "n_image_prompts", "type": "image_prompts"},
+            ]
+        }
+    }
 
     async def items():
         return [{"id": 10, "title": "t10", "status": "enrich_2_ready"}]
@@ -143,10 +171,15 @@ async def test_numbered_projects_get_next_step_from_graph() -> None:
 
 async def test_project_scope_next_step_request_gets_next_step_from_graph() -> None:
     """Вкладка проекта: «запусти следующий шаг» получает step_code, как во «Всей фабрике»."""
-    meta = {"canvas_graph": {"nodes": [
-        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
-        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
-        {"id": "n_image_prompts", "type": "image_prompts"}]}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
+                {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
+                {"id": "n_image_prompts", "type": "image_prompts"},
+            ]
+        }
+    }
 
     async def meta_of(_pid):
         return meta
@@ -165,10 +198,15 @@ async def test_project_scope_next_step_request_gets_next_step_from_graph() -> No
 
 async def test_project_scope_chain_request_gets_no_next_step_line() -> None:
     """«и дальше до …» - цепочка от ноды: строка «следующий шаг по графу» с ней спорила."""
-    meta = {"canvas_graph": {"nodes": [
-        {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
-        {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
-        {"id": "n_image_prompts", "type": "image_prompts"}]}}
+    meta = {
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"slotIndex": 1}},
+                {"id": "n_excel_gpt_2", "type": "excel_gpt", "data": {"slotIndex": 2}},
+                {"id": "n_image_prompts", "type": "image_prompts"},
+            ]
+        }
+    }
 
     async def meta_of(_pid):
         return meta
@@ -180,8 +218,10 @@ async def test_project_scope_chain_request_gets_no_next_step_line() -> None:
         return "enrich_1_ready"
 
     nodes = ProjectNodes(project_of=lambda _t: 6, meta_of=meta_of, frames_of=frames_of, status_of=status_of)
-    for text in ("запусти ноду работа с gpt 2 и дальше до промтов картинок",
-                 "продолжи с ноды работа с gpt 2 только эту ноду"):
+    for text in (
+        "запусти ноду работа с gpt 2 и дальше до промтов картинок",
+        "продолжи с ноды работа с gpt 2 только эту ноду",
+    ):
         assert "step_code=" not in await nodes(text, 1), text
 
 

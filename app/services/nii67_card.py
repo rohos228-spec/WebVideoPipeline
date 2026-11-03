@@ -11,7 +11,7 @@ import copy
 import uuid
 from collections import defaultdict
 from contextvars import ContextVar
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -327,7 +327,7 @@ def normalize_plan(raw: Any) -> dict[str, Any]:
     src = raw if isinstance(raw, dict) else {}
     out = default_plan()
     for door_id in ("door1", "door2"):
-        item = src.get(door_id) if isinstance(src.get(door_id), dict) else {}
+        item = cast(dict[str, Any], src.get(door_id)) if isinstance(src.get(door_id), dict) else {}
         outcome = str(item.get("outcome") or "").strip()
         out[door_id] = {
             "world": _clip(item.get("world"), PLAN_LIMIT),
@@ -385,9 +385,9 @@ def _normalize_card_body(raw: Any) -> dict[str, Any]:
                 continue
             found[str(door_id)] = _normalize_door(str(door_id), item)
     doors = [found.get(door_id) or _default_door(door_id) for door_id in _DOOR_IDS]
-    intro = src.get("intro") if isinstance(src.get("intro"), dict) else {}
-    gg = src.get("gg") if isinstance(src.get("gg"), dict) else {}
-    finale = src.get("finale") if isinstance(src.get("finale"), dict) else {}
+    intro = cast(dict[str, Any], src.get("intro")) if isinstance(src.get("intro"), dict) else {}
+    gg = cast(dict[str, Any], src.get("gg")) if isinstance(src.get("gg"), dict) else {}
+    finale = cast(dict[str, Any], src.get("finale")) if isinstance(src.get("finale"), dict) else {}
     last_save = src.get("last_save")
     if last_save not in {"", "draft", "save"}:
         last_save = ""
@@ -430,7 +430,7 @@ def _normalize_generation(raw: Any) -> dict[str, Any]:
     version = raw.get("version")
     if isinstance(version, int) and not isinstance(version, bool):
         out["version"] = version
-    models = raw.get("models") if isinstance(raw.get("models"), dict) else {}
+    models = cast(dict[str, Any], raw.get("models")) if isinstance(raw.get("models"), dict) else {}
     picked = {key: _clip(models.get(key), SHORT_LIMIT) for key in _GENERATION_MODEL_KEYS}
     picked = {key: value for key, value in picked.items() if value}
     if picked:

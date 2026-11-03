@@ -118,7 +118,7 @@ def parse_direct_reply(reply: str) -> dict[str, Any]:
     for op in ops:
         if not isinstance(op, dict):
             continue
-        fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
+        fields = raw_fields if isinstance(raw_fields := op.get("fields"), dict) else {}
         for key, val in {**op, **fields}.items():
             if key in {"fields", "ops", "actions", "frame_uuid", "uuid"}:
                 continue
@@ -161,28 +161,17 @@ def parse_direct_reply(reply: str) -> dict[str, Any]:
         "сцена": _as_text(data.get("сцена") or data.get("scene") or ""),
         "место": _as_text(data.get("место") or data.get("place") or ""),
         "персонажи": _as_text(data.get("персонажи") or data.get("characters") or ""),
-        "свет": _as_text(
-            data.get("свет") or data.get("light") or data.get("освещение") or ""
-        ),
-        "предметы": _as_text(
-            data.get("предметы") or data.get("props") or data.get("items") or ""
-        ),
+        "свет": _as_text(data.get("свет") or data.get("light") or data.get("освещение") or ""),
+        "предметы": _as_text(data.get("предметы") or data.get("props") or data.get("items") or ""),
         "фон": _as_text(data.get("фон") or data.get("bg") or data.get("background") or ""),
         "смысл": _as_text(data.get("смысл") or data.get("sense") or ""),
         "акцент": _as_text(data.get("акцент") or data.get("accent") or ""),
-        "особенность": _as_text(
-            data.get("особенность") or data.get("feature") or ""
-        ),
+        "особенность": _as_text(data.get("особенность") or data.get("feature") or ""),
         "тип": _as_text(data.get("тип") or data.get("visual_type") or ""),
         "набор": _as_text(data.get("набор") or data.get("set") or ""),
-        "план_родителя": _plan(
-            data.get("план_родителя") or data.get("план") or "", master=True
-        ),
+        "план_родителя": _plan(data.get("план_родителя") or data.get("план") or "", master=True),
         "промт_картинки": _as_text(
-            data.get("промт_картинки")
-            or data.get("image_prompt")
-            or data.get("промт")
-            or ""
+            data.get("промт_картинки") or data.get("image_prompt") or data.get("промт") or ""
         ),
         "кадры": shots,
     }
@@ -214,16 +203,11 @@ def default_parent_prompt(
     faces = who or "персонажи сцены"
     loc = place or "место сцены"
     body = scene or "видно место и кто в кадре"
-    return (
-        f"{plan} план. {loc}. {faces} лицом к камере. {body}. "
-        "Один кадр, не коллаж."
-    )
+    return f"{plan} план. {loc}. {faces} лицом к камере. {body}. Один кадр, не коллаж."
 
 
 def _shot_action(shot: dict[str, Any]) -> str:
-    return _norm(
-        shot.get("действие") or shot.get("action") or shot.get("шаг") or ""
-    )
+    return _norm(shot.get("действие") or shot.get("action") or shot.get("шаг") or "")
 
 
 def _action_tokens(text: str) -> set[str]:
@@ -303,8 +287,6 @@ def infer_light(*texts: Any) -> str:
         if needle in blob:
             return val
     return "дневной"
-
-
 
 
 def attach_shot_coverage(
@@ -392,16 +374,12 @@ def build_kadry(
         gpt_shots = []
     rows = unique_gpt_shots(gpt_shots, parent_action=parent_action)
     op_rows = [
-        {"действие": act, "план": plan}
-        for act, plan in _beats_from_operator(operator_prompt, parent_action)
+        {"действие": act, "план": plan} for act, plan in _beats_from_operator(operator_prompt, parent_action)
     ]
     if len(op_rows) > len(rows):
         rows = op_rows
     if not rows:
-        rows = [
-            {"действие": act, "план": plan}
-            for act, plan in _beats_from_vo(vo, parent_plan)
-        ]
+        rows = [{"действие": act, "план": plan} for act, plan in _beats_from_vo(vo, parent_plan)]
     rows = rows[:MAX_IMPROVE_SHOTS]
     if not rows:
         return []
@@ -433,4 +411,3 @@ def build_kadry(
         }
         out.append(shot)
     return attach_shot_coverage(out, place=place, cell_number=cell_number)
-

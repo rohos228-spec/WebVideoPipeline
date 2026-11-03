@@ -12,9 +12,27 @@ from app.orchestrator.actions import executor  # noqa: E402
 from app.orchestrator.agents import project_nodes  # noqa: E402
 
 ROWS = [
-    {"key": "n_script", "type": "script", "step_code": "script", "label": "Закадровый текст", "type_ru": "Закадровый текст"},
-    {"key": "n_excel_gpt_1", "type": "excel_gpt", "step_code": "excel_gpt", "label": "Работа с GPT", "type_ru": "Работа с GPT"},
-    {"key": "n_excel_gpt_2", "type": "excel_gpt", "step_code": "excel_gpt", "label": "Работа с GPT", "type_ru": "Работа с GPT"},
+    {
+        "key": "n_script",
+        "type": "script",
+        "step_code": "script",
+        "label": "Закадровый текст",
+        "type_ru": "Закадровый текст",
+    },
+    {
+        "key": "n_excel_gpt_1",
+        "type": "excel_gpt",
+        "step_code": "excel_gpt",
+        "label": "Работа с GPT",
+        "type_ru": "Работа с GPT",
+    },
+    {
+        "key": "n_excel_gpt_2",
+        "type": "excel_gpt",
+        "step_code": "excel_gpt",
+        "label": "Работа с GPT",
+        "type_ru": "Работа с GPT",
+    },
 ]
 
 
@@ -28,7 +46,9 @@ def _nodes(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _fill(node_key: str) -> str:
-    return asyncio.run(executor.plan_resolve("node.set_model", {"project_id": 12, "node_key": node_key}))["node_key"]
+    return asyncio.run(executor.plan_resolve("node.set_model", {"project_id": 12, "node_key": node_key}))[
+        "node_key"
+    ]
 
 
 def test_type_and_label_become_the_key() -> None:
@@ -68,7 +88,9 @@ def test_gpt_step_without_node_takes_first_chain_head(monkeypatch: pytest.Monkey
     done.add("n_excel_gpt_1")
     nxt = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt"}))
     assert nxt["node_key"] == "n_excel_gpt_2"
-    same = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt", "node_key": "n_excel_gpt_2"}))
+    same = asyncio.run(
+        executor._fill_gpt_head({"project_id": 26, "step_code": "excel_gpt", "node_key": "n_excel_gpt_2"})
+    )
     assert same["node_key"] == "n_excel_gpt_2"
     other = asyncio.run(executor._fill_gpt_head({"project_id": 26, "step_code": "images"}))
     assert "node_key" not in other
@@ -109,9 +131,11 @@ def test_scene_images_take_project_media_basis(monkeypatch: pytest.MonkeyPatch) 
         async def __aexit__(self, *exc):
             return False
 
-    monkeypatch.setattr(executor.store, "sessions", lambda: (lambda: _Session()))
+    monkeypatch.setattr(executor.store, "sessions", lambda: lambda: _Session())
     monkeypatch.setattr(
-        mm, "_effective_settings", lambda d: {"image_generator": d["image_generator"], "image_resolution": d["image_resolution"]}
+        mm,
+        "_effective_settings",
+        lambda d: {"image_generator": d["image_generator"], "image_resolution": d["image_resolution"]},
     )
     out = asyncio.run(
         executor.plan_resolve(

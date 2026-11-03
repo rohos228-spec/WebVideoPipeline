@@ -35,7 +35,9 @@ def _make_db(path: Path, rows: int = 5) -> Path:
     db.execute("CREATE TABLE legacy (id INTEGER PRIMARY KEY, note TEXT)")
     db.execute("CREATE TABLE spend_ledger (id INTEGER PRIMARY KEY, usd REAL, note TEXT)")
     db.executemany("INSERT INTO legacy(note) VALUES (?)", [(f"n{i}",) for i in range(rows)])
-    db.executemany("INSERT INTO spend_ledger(usd, note) VALUES (?, ?)", [(0.1 * i, f"s{i}") for i in range(rows)])
+    db.executemany(
+        "INSERT INTO spend_ledger(usd, note) VALUES (?, ?)", [(0.1 * i, f"s{i}") for i in range(rows)]
+    )
     db.commit()
     db.close()
     return path
@@ -55,7 +57,9 @@ def test_backup_is_verified_has_manifest_and_separate_journal(tmp_path):
     assert _count(res.path, "legacy") == 5
     assert res.journal_path and ".journal." in res.journal_path.name
     with _open(str(res.journal_path)) as j:
-        assert [r[0] for r in j.execute("SELECT name FROM sqlite_master WHERE type='table'")] == ["spend_ledger"]
+        assert [r[0] for r in j.execute("SELECT name FROM sqlite_master WHERE type='table'")] == [
+            "spend_ledger"
+        ]
         assert j.execute("SELECT count(*) FROM spend_ledger").fetchone()[0] == 5
     assert sm.verify_backup(res.path)["ok"] is True
     assert not list((tmp_path / "backups").glob("*.part"))
@@ -81,7 +85,9 @@ def test_backup_of_missing_or_unreadable_source_raises(tmp_path):
     broken.write_bytes(b"garbage" * 300)
     with pytest.raises(sm.BackupError):
         sm.backup_sqlite(broken)
-    assert not list((tmp_path / "backups").glob("*.bak.db")) and not list((tmp_path / "backups").glob("*.part"))
+    assert not list((tmp_path / "backups").glob("*.bak.db")) and not list(
+        (tmp_path / "backups").glob("*.part")
+    )
 
 
 def test_restore_into_clean_folder_passes_integrity_and_keeps_rows(tmp_path):
@@ -153,7 +159,9 @@ def test_scheduled_backup_reports_failure_instead_of_raising(tmp_path):
 async def test_scheduled_loop_stops_on_event_and_never_raises(tmp_path):
     db = _make_db(tmp_path / "state.db")
     stop = asyncio.Event()
-    task = asyncio.create_task(sm.scheduled_backup_loop([db, tmp_path / "gone.db"], check_every_s=0.05, stop=stop))
+    task = asyncio.create_task(
+        sm.scheduled_backup_loop([db, tmp_path / "gone.db"], check_every_s=0.05, stop=stop)
+    )
     await asyncio.sleep(0.3)
     stop.set()
     await asyncio.wait_for(task, 10)
@@ -163,8 +171,10 @@ async def test_scheduled_loop_stops_on_event_and_never_raises(tmp_path):
 def test_tracker_existing_database_is_copied_before_its_migration(tmp_path):
     path = tmp_path / "tracker.db"
     db = sqlite3.connect(str(path))
-    db.execute("CREATE TABLE api_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, "
-               "provider TEXT NOT NULL, model TEXT NOT NULL)")
+    db.execute(
+        "CREATE TABLE api_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT NOT NULL, "
+        "provider TEXT NOT NULL, model TEXT NOT NULL)"
+    )
     db.execute("INSERT INTO api_calls(timestamp, provider, model) VALUES ('t', 'kie', 'm')")
     db.commit()
     applied = tracker_schema.migrate_tracker_db(db)
@@ -193,10 +203,16 @@ def test_tracker_backup_failure_stops_the_migration(tmp_path, monkeypatch):
 
     def boom(*a, **k):
         raise sm.BackupError("диск полон")
+
     monkeypatch.setattr(sm, "backup_sqlite", boom)
     with pytest.raises(sm.BackupError):
         tracker_schema.migrate_tracker_db(db)
-    assert db.execute("SELECT name FROM sqlite_master WHERE name=?", (tracker_schema.MIGRATIONS_TABLE,)).fetchone() is None
+    assert (
+        db.execute(
+            "SELECT name FROM sqlite_master WHERE name=?", (tracker_schema.MIGRATIONS_TABLE,)
+        ).fetchone()
+        is None
+    )
     db.close()
 
 

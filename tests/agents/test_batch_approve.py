@@ -39,7 +39,9 @@ def _set(project: int, model: str = "gpt-5-mini") -> PlanStep:
 
 
 def _cards(runtime: Any, session: str) -> list[dict]:
-    return [dict(event.payload) for event in runtime.bus.replay(session, 0) if event.type == "approval_required"]
+    return [
+        dict(event.payload) for event in runtime.bus.replay(session, 0) if event.type == "approval_required"
+    ]
 
 
 def _calls(actions: _Registry, name: str) -> list[dict]:
@@ -210,7 +212,12 @@ def test_group_card_sums_cost_and_tags_warnings_with_project() -> None:
     assert card["cost_text"] == "около $1.00 за 2 проекта"
     assert card["warnings"] == ["проект #1: мало кадров"]
     assert card["destructive_effects"] == ["проект #2: перезапишет картинки"]
-    assert card["group"] == {"positions": [3, 4], "projects": [1, 2], "fingerprint": "mark", "plan_ids": {"3": "p1"}}
+    assert card["group"] == {
+        "positions": [3, 4],
+        "projects": [1, 2],
+        "fingerprint": "mark",
+        "plan_ids": {"3": "p1"},
+    }
     previews[1] = {"cost": {"known": False}}
     unknown = approval_steps.group_card(steps, [3, 4], views, previews, "mark")
     assert "cost_estimate" not in unknown
@@ -219,7 +226,14 @@ def test_group_card_sums_cost_and_tags_warnings_with_project() -> None:
 
 @pytest.mark.parametrize(
     ("count", "text"),
-    [(1, "1 проект"), (2, "2 проекта"), (5, "5 проектов"), (11, "11 проектов"), (21, "21 проект"), (24, "24 проекта")],
+    [
+        (1, "1 проект"),
+        (2, "2 проекта"),
+        (5, "5 проектов"),
+        (11, "11 проектов"),
+        (21, "21 проект"),
+        (24, "24 проекта"),
+    ],
 )
 def test_projects_ru(count: int, text: str) -> None:
     assert approval_steps.projects_ru(count) == text

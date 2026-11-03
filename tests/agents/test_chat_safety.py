@@ -40,10 +40,16 @@ def _assistant_texts(session: str) -> list[str]:
         # Соединение движка здесь — SQLAlchemy (app/orchestrator/db/engine.py): text() и :имя.
         from sqlalchemy import text
 
-        rows = conn.execute(
-            text("SELECT content FROM orch_messages WHERE session_id = :sid AND role = 'assistant' ORDER BY id"),
-            {"sid": session},
-        ).mappings().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT content FROM orch_messages WHERE session_id = :sid AND role = 'assistant' ORDER BY id"
+                ),
+                {"sid": session},
+            )
+            .mappings()
+            .all()
+        )
     finally:
         conn.close()
     return [row["content"] for row in rows]
@@ -145,8 +151,9 @@ async def test_queue_refuses_before_planning(token: str, mode) -> None:
 @pytest.mark.asyncio
 async def test_interrupt_is_not_turned_into_refusal(token: str) -> None:
     del token
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner([]))
+    rt = build_runtime(
+        actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(), planner=FixedPlanner([])
+    )
     set_runtime(rt)
     try:
         await rt.queue.accept("safety-int", "отключи лимиты", mode=MessageMode.interrupt)
@@ -160,8 +167,9 @@ async def test_interrupt_is_not_turned_into_refusal(token: str) -> None:
 @pytest.mark.asyncio
 async def test_empty_plan_is_neutral_without_card(token: str) -> None:
     del token
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner([]))
+    rt = build_runtime(
+        actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(), planner=FixedPlanner([])
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("safety-empty", "сделай что-нибудь", project_id=1)
@@ -172,8 +180,11 @@ async def test_empty_plan_is_neutral_without_card(token: str) -> None:
         assert _events(rt, "safety-empty", "approval_required") == []
         assert _events(rt, "safety-empty", "task_failed") == []
         assert _events(rt, "safety-empty", "agent_status")[-1].payload["reason"] == "empty_plan"
-        summary = [e.payload["text"] for e in _events(rt, "safety-empty", "message")
-                   if e.payload.get("kind") == "task_summary"]
+        summary = [
+            e.payload["text"]
+            for e in _events(rt, "safety-empty", "message")
+            if e.payload.get("kind") == "task_summary"
+        ]
         assert len(summary) == 1 and summary[0].startswith("Не понял, что сделать.")
         assert "Не получилось" not in summary[0]
     finally:
@@ -189,30 +200,51 @@ class _ReasonPlanner(FixedPlanner):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("goal", "reason", "expected"), [
-    ("удали проект 2", "В каталоге нет действия для удаления проекта; уточните, что сделать вместо этого.",
-     "Этого чат пока не умеет. Удалить проект можно в списке проектов слева: меню у проекта → «Удалить»."),
-    ("переименуй проект 2", "Нет действия для переименования проекта в каталоге.", "Этого чат пока не умеет."),
-])
-async def test_missing_action_is_said_plainly_not_not_understood(token: str, goal: str, reason: str,
-                                                                 expected: str) -> None:
+@pytest.mark.parametrize(
+    ("goal", "reason", "expected"),
+    [
+        (
+            "удали проект 2",
+            "В каталоге нет действия для удаления проекта; уточните, что сделать вместо этого.",
+            "Этого чат пока не умеет. Удалить проект можно в списке проектов слева: меню у проекта → «Удалить».",
+        ),
+        (
+            "переименуй проект 2",
+            "Нет действия для переименования проекта в каталоге.",
+            "Этого чат пока не умеет.",
+        ),
+    ],
+)
+async def test_missing_action_is_said_plainly_not_not_understood(
+    token: str, goal: str, reason: str, expected: str
+) -> None:
     """Просьба ясна, но действия нет: «Этого чат пока не умеет», без «Не понял» и без «каталога»."""
     del token
     session = "safety-missing-" + str(abs(hash(goal)))
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=_ReasonPlanner(reason))
+    rt = build_runtime(
+        actions=MockActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=_ReasonPlanner(reason),
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task(session, goal, project_id=2)
         await rt.supervisor.wait(task_id, timeout=5)
-        summary = [e.payload["text"] for e in _events(rt, session, "message")
-                   if e.payload.get("kind") == "task_summary"]
+        summary = [
+            e.payload["text"]
+            for e in _events(rt, session, "message")
+            if e.payload.get("kind") == "task_summary"
+        ]
         assert summary == [expected]
         assert "каталог" not in summary[0] and "Не понял" not in summary[0]
         assert _events(rt, session, "approval_required") == []
         # Значок над ответом: «ответил», а не «нужно уточнение».
-        ends = [e.payload.get("reason") for e in _events(rt, session, "agent_status")
-                if e.payload.get("agent") == "supervisor" and e.payload.get("reason")]
+        ends = [
+            e.payload.get("reason")
+            for e in _events(rt, session, "agent_status")
+            if e.payload.get("agent") == "supervisor" and e.payload.get("reason")
+        ]
         assert ends[-1] == "answered"
     finally:
         set_runtime(None)
@@ -222,8 +254,9 @@ async def test_missing_action_is_said_plainly_not_not_understood(token: str, goa
 @pytest.mark.parametrize("reason", ["plan_sanity", "critic_reject", "unknown_cost", "critic_escalation"])
 async def test_plan_block_without_steps_never_opens_card(token: str, reason: str) -> None:
     del token
-    rt = build_runtime(actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner([]))
+    rt = build_runtime(
+        actions=MockActions(), validators=MockValidators(), router=ScriptedRouter(), planner=FixedPlanner([])
+    )
     set_runtime(rt)
     session = f"safety-block-{reason.replace('_', '-')}"
     try:
@@ -253,14 +286,16 @@ async def test_card_lists_steps_with_cost_and_risk(token: str) -> None:
         await rt.supervisor.wait(task_id, timeout=5)
         payload = _events(rt, "safety-card", "approval_required")[-1].payload
         assert payload["reason"] == "plan_sanity"
-        assert payload["steps"] == [{
-            "title": "Запустить шаг на ноде «Работа с GPT»",
-            "action": "node.run_step",
-            "params_text": "проект #4",
-            "paid": True,
-            "risk": "medium",
-            "text": "Запустить шаг на ноде «Работа с GPT» — проект #4",
-        }]
+        assert payload["steps"] == [
+            {
+                "title": "Запустить шаг на ноде «Работа с GPT»",
+                "action": "node.run_step",
+                "params_text": "проект #4",
+                "paid": True,
+                "risk": "medium",
+                "text": "Запустить шаг на ноде «Работа с GPT» — проект #4",
+            }
+        ]
         assert payload["cost_text"] == approval_steps.UNKNOWN_COST_TEXT
         assert payload["risk"] == "medium"
         assert actions.calls == []
@@ -278,8 +313,9 @@ def test_free_plan_cost_text() -> None:
 def test_step_view_soft_hide_and_paid_cost() -> None:
     hide = PlanStep(action="montage.delete_frame", params={"project_id": 1, "frame_number": 3})
     run = PlanStep(action="step.run_step", params={"project_id": 1, "step_code": "video"}, paid=True)
-    views = approval_steps.plan_steps([hide, run], MockActions(risks={"montage.delete_frame": "medium",
-                                                                      "step.run_step": "high"}))
+    views = approval_steps.plan_steps(
+        [hide, run], MockActions(risks={"montage.delete_frame": "medium", "step.run_step": "high"})
+    )
     assert views[0]["title"] == "Мягко скрыть кадр"
     assert views[0]["params_text"] == "кадр 3; проект #1"
     assert views[0]["paid"] is False and views[0]["risk"] == "medium"
@@ -296,13 +332,22 @@ def test_step_view_soft_hide_and_paid_cost() -> None:
 
 
 def test_rejected_summary_is_one_short_line() -> None:
-    facts = TaskFacts(goal="видео", status="failed", error="rejected",
-                      steps=[StepNote("project.status", "Статус проекта", ok=True, text="идёт")])
+    facts = TaskFacts(
+        goal="видео",
+        status="failed",
+        error="rejected",
+        steps=[StepNote("project.status", "Статус проекта", ok=True, text="идёт")],
+    )
     assert deterministic_text(facts) == "Отменено по вашему решению. Ничего не изменено."
-    changed = TaskFacts(goal="видео", status="failed", error="rejected",
-                        steps=[StepNote("node.set_model", "Сменить модель ноды", ok=True, readonly=False)])
-    assert deterministic_text(changed) == ("Отменено по вашему решению. До отмены успели выполнить: "
-                                           "«Сменить модель ноды».")
+    changed = TaskFacts(
+        goal="видео",
+        status="failed",
+        error="rejected",
+        steps=[StepNote("node.set_model", "Сменить модель ноды", ok=True, readonly=False)],
+    )
+    assert deterministic_text(changed) == (
+        "Отменено по вашему решению. До отмены успели выполнить: «Сменить модель ноды»."
+    )
 
 
 @pytest.mark.asyncio
@@ -311,11 +356,18 @@ async def test_reject_card_posts_one_short_message(token: str) -> None:
     actions = MockActions(risks={"project.status": "none", "step.run_step": "high"})
     plan = [
         PlanStep(action="project.status", params={"project_id": 4}),
-        PlanStep(action="step.run_step", params={"project_id": 4, "step_code": "video"}, paid=True,
-                 mutating=True, risk="high", estimated_cost=1.0),
+        PlanStep(
+            action="step.run_step",
+            params={"project_id": 4, "step_code": "video"},
+            paid=True,
+            mutating=True,
+            risk="high",
+            estimated_cost=1.0,
+        ),
     ]
-    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(plan))
+    rt = build_runtime(
+        actions=actions, validators=MockValidators(), router=ScriptedRouter(), planner=FixedPlanner(plan)
+    )
     set_runtime(rt)
     session = "safety-reject"
     try:
@@ -344,10 +396,17 @@ async def test_deny_on_risk_card_cancels_like_reject(token: str) -> None:
 
     del token
     actions = MockActions(risks={"montage.split_scene": "high"})
-    plan = [PlanStep(action="montage.split_scene", params={"project_id": 4, "frame_id": 237},
-                     mutating=True, risk="high")]
-    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(plan))
+    plan = [
+        PlanStep(
+            action="montage.split_scene",
+            params={"project_id": 4, "frame_id": 237},
+            mutating=True,
+            risk="high",
+        )
+    ]
+    rt = build_runtime(
+        actions=actions, validators=MockValidators(), router=ScriptedRouter(), planner=FixedPlanner(plan)
+    )
     set_runtime(rt)
     session = "safety-deny"
     try:

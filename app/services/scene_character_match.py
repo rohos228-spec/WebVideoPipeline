@@ -135,9 +135,7 @@ def format_character_labels(rows: list[dict[str, str]]) -> str:
     return ", ".join(parts)
 
 
-async def load_character_registry(
-    session: AsyncSession, project_id: int
-) -> list[Entity]:
+async def load_character_registry(session: AsyncSession, project_id: int) -> list[Entity]:
     from app.services.db_v2 import entity_is_archived
 
     rows = list(
@@ -157,9 +155,7 @@ async def load_character_registry(
     return [row for row in rows if not entity_is_archived(row)]
 
 
-def intersect_codes_with_registry(
-    raw: str, entities: list[Entity]
-) -> list[dict[str, str]]:
+def intersect_codes_with_registry(raw: str, entities: list[Entity]) -> list[dict[str, str]]:
     """Коды из GPT/паспорта оставляем только если они есть в реестре."""
     wanted = {m.lower() for m in _CODE_RE.findall(raw or "")}
     if not wanted:

@@ -29,8 +29,15 @@ async def test_cancel_last_during_running_task_asks_classifier(token: str) -> No
         validators=MockValidators(),
         router=router,
         planner=FixedPlanner(
-            [PlanStep(action="mock_sleep", params={"_block": True, "_seconds": 30}, expected="wait",
-                      paid=False, mutating=False)]
+            [
+                PlanStep(
+                    action="mock_sleep",
+                    params={"_block": True, "_seconds": 30},
+                    expected="wait",
+                    paid=False,
+                    mutating=False,
+                )
+            ]
         ),
     )
     set_runtime(rt)

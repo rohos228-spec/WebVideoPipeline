@@ -459,9 +459,7 @@ async def save_scene_image_upload(
         name = f"frame_{frame_number:03d}_{short}{suffix}"
     dest = scenes / name
     dest.write_bytes(content)
-    await finalize_scene_image(
-        session, project, frame_number, shot=shot, new_path=dest, slot=slot
-    )
+    await finalize_scene_image(session, project, frame_number, shot=shot, new_path=dest, slot=slot)
     return dest
 
 
@@ -700,9 +698,7 @@ async def swap_shot_media(
     return result
 
 
-def _find_shot_image(
-    scenes_dir: Path, frame_number: int, shot: int, slot: str = ""
-) -> Path | None:
+def _find_shot_image(scenes_dir: Path, frame_number: int, shot: int, slot: str = "") -> Path | None:
     if is_parent_slot(slot):
         return find_parent_still_image(scenes_dir, frame_number)
     if shot == 2:

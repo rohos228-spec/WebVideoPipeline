@@ -23,8 +23,7 @@ def _project(status: ProjectStatus, active: str) -> SimpleNamespace:
         {"id": "n_items", "type": "items", "position": {"x": 0}, "data": {}},
         {"id": "n_excel_gpt_1", "type": "excel_gpt", "position": {"x": 100}, "data": {"slotIndex": 1}},
         {"id": "n_excel_gpt_2", "type": "excel_gpt", "position": {"x": 200}, "data": {"slotIndex": 2}},
-        {"id": "n_excel_gpt_fw", "type": "excel_gpt", "position": {"x": 300},
-         "data": {"slotOverflow": True}},
+        {"id": "n_excel_gpt_fw", "type": "excel_gpt", "position": {"x": 300}, "data": {"slotOverflow": True}},
     ]
     return SimpleNamespace(
         id=14,
@@ -72,9 +71,7 @@ async def test_prepare_enriching_2_with_slot1_key_starts_slot2_node(monkeypatch)
         async def flush(self):
             return None
 
-    ok = await auto_advance._prepare_node_run_for_status(
-        _Session(), p, ProjectStatus.enriching_2
-    )
+    ok = await auto_advance._prepare_node_run_for_status(_Session(), p, ProjectStatus.enriching_2)
     assert ok is True
     assert seen == ["n_excel_gpt_2"]
     assert p.meta["active_excel_gpt_node_key"] == "n_excel_gpt_2"

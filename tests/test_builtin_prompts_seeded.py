@@ -124,11 +124,15 @@ async def test_hero_style_is_read_from_the_store(db) -> None:
 
     from app.orchestrator.steps.generate_hero import _read_hero_style
 
+    style = (
+        "мой стиль из базы: мягкий акварельный свет, тёплая палитра, чистые контуры, "
+        "единый облик персонажа на всех кадрах"
+    )
     async with db() as s:
-        await prompt_store.save(s, "hero_style", "default", "мой стиль из базы", scope=PromptScope())
+        await prompt_store.save(s, "hero_style", "default", style, scope=PromptScope())
 
     project = SimpleNamespace(id=1, prompt_overrides={"hero_style": "default"}, meta={})
-    assert _read_hero_style(project) == "мой стиль из базы"
+    assert _read_hero_style(project) == style
 
 
 @pytest.mark.asyncio

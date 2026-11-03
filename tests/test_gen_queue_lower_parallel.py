@@ -55,8 +55,7 @@ async def test_lowering_parallel_keeps_running_steps(session, monkeypatch) -> No
     p3 = await _add(session, 3, ProjectStatus.splitting)
     await _add(session, 4, ProjectStatus.plan_ready)
     assert await gq.gen_queue_reconcile(session) == 0
-    for p, st in ((p1, ProjectStatus.planning), (p2, ProjectStatus.scripting),
-                  (p3, ProjectStatus.splitting)):
+    for p, st in ((p1, ProjectStatus.planning), (p2, ProjectStatus.scripting), (p3, ProjectStatus.splitting)):
         await session.refresh(p)
         assert p.status is st
 
@@ -167,6 +166,7 @@ async def test_dequeue_saves_user_stop_before_queue_file(session, real_queue) ->
 
     session.commit = _commit  # type: ignore[method-assign]
     import app.services.sidebar_layout as sl_mod
+
     orig = sl_mod.set_gen_queue
     sl_mod.set_gen_queue = _set
     try:
@@ -207,8 +207,7 @@ async def test_tick_does_not_start_project_stopped_during_tick(session, monkeypa
     monkeypatch.setattr("app.services.gen_queue._start_or_advance_project", _start)
     monkeypatch.setattr("app.services.gen_queue.gen_queue_reconcile", _zero)
     # Тик прочитал очередь [1, 2] до стопа.
-    monkeypatch.setattr("app.services.gen_queue.get_gen_queue",
-                        _first_then_real([1, 2], sl.get_gen_queue))
+    monkeypatch.setattr("app.services.gen_queue.get_gen_queue", _first_then_real([1, 2], sl.get_gen_queue))
     assert await gq.gen_queue_tick(session) == 0
     assert started == []
 
@@ -363,14 +362,14 @@ async def test_chat_start_keeps_chat_number(session, real_queue) -> None:
     _chat_owned(p, "sess-a")
     p.meta = {**p.meta, "user_stop": True}
     await session.flush()
-    with pytest.raises(Exception):  # шаг не существует: важно только снятие стопа до старта
+    with pytest.raises(ValueError, match="unknown step code"):  # важно только снятие стопа до старта
         await start_step(session, p, "no_such_step", explicit_ui_start=True, keep_chat_owner=True)
     assert not (p.meta or {}).get("user_stop")
     assert gq.queued_by_chat(p, "sess-a")
     assert not (p.meta or {}).get(USER_STOP_CLEARED_AT_KEY)
     # ▶ человека в Studio (без keep_chat_owner) — номер переходит к человеку.
     p.meta = {**p.meta, "user_stop": True}
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="unknown step code"):
         await start_step(session, p, "no_such_step", explicit_ui_start=True)
     assert not gq.queued_by_chat(p) and (p.meta or {}).get(USER_STOP_CLEARED_AT_KEY)
 
@@ -434,9 +433,11 @@ async def test_preempt_by_chat_keeps_chat_number(session, real_queue, monkeypatc
     from app.services import project_steps
     from app.services.project_control import USER_STOP_CLEARED_AT_KEY
 
-    for target, name in (("app.services.step_cancel", "kill_active_generation"),
-                         ("app.services.step_cancel", "clear_stop"),
-                         ("app.services.xlsx_flow_locks", "clear_xlsx_flow_locks")):
+    for target, name in (
+        ("app.services.step_cancel", "kill_active_generation"),
+        ("app.services.step_cancel", "clear_stop"),
+        ("app.services.xlsx_flow_locks", "clear_xlsx_flow_locks"),
+    ):
         monkeypatch.setattr(f"{target}.{name}", lambda *a, **k: None)
 
     async def _noop(*_a, **_k):
@@ -516,7 +517,7 @@ async def test_recheck_spares_chat_start_after_stop(session, real_queue) -> None
     p.meta = {**p.meta, "user_stop": True}
     await session.commit()
     since = time.time() - 1
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="unknown step code"):
         await start_step(session, p, "no_such_step", explicit_ui_start=True, keep_chat_owner=True)
     p.status = ProjectStatus.planning
     await session.commit()

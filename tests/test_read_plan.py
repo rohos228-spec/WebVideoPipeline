@@ -76,7 +76,13 @@ def _overview_note():
         "total": 2,
         "shown": 2,
         "projects": [
-            {"id": 7, "title": "Сова", "status_ru": "на паузе", "pause_reason": "ждёт проверки", "error": None},
+            {
+                "id": 7,
+                "title": "Сова",
+                "status_ru": "на паузе",
+                "pause_reason": "ждёт проверки",
+                "error": None,
+            },
             {"id": 4, "title": "Лиса", "status_ru": "готов", "pause_reason": None, "error": None},
         ],
         "text_ru": "Проектов: 2; показано 2, идут сейчас 0, требуют внимания 1. #7 «Сова»: на паузе. #4 «Лиса»: готов.",

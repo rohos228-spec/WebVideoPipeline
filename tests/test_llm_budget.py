@@ -373,8 +373,17 @@ async def test_run_cap_stops_step_gpt_only_with_spend_since_start(db, monkeypatc
     budget["started_at"] = start.isoformat(timespec="seconds")
     pid = await _add_project(db, meta={spend_guard.CHAIN_BUDGET_META: budget})
     async with db() as s:  # дорогой вызов ДО старта запуска не считается
-        s.add(LlmCall(project_id=pid, node_key="n", logical_call_id="l", model="m", cost_usd=5.0, result="ok",
-                      created_at=(start - timedelta(hours=1)).replace(tzinfo=None)))
+        s.add(
+            LlmCall(
+                project_id=pid,
+                node_key="n",
+                logical_call_id="l",
+                model="m",
+                cost_usd=5.0,
+                result="ok",
+                created_at=(start - timedelta(hours=1)).replace(tzinfo=None),
+            )
+        )
         await s.commit()
     await ledger.check_budget(pid)
     await _add_call(db, pid, 0.31)

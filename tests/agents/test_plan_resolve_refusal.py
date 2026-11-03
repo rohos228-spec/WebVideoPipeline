@@ -23,8 +23,13 @@ async def test_supervisor_turns_resolve_refusal_into_answer(token: str) -> None:
 
     plan = [PlanStep(action="project.patch_settings", params={"project_id": 1, "title": "x"}, mutating=True)]
     actions = _Refusing(risks={"project.patch_settings": "low"})
-    rt = build_runtime(actions=actions, validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(plan), critic=ScriptedCritic(["approve"] * 3))
+    rt = build_runtime(
+        actions=actions,
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(plan),
+        critic=ScriptedCritic(["approve"] * 3),
+    )
     set_runtime(rt)
     try:
         task_id = await rt.supervisor.start_task("refuse-settings", "переименуй проект 1 в x")

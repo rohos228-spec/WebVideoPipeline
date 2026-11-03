@@ -17,16 +17,20 @@ PARALLEL_QUESTION = "сколько проектов можно крутить �
 def _assistant_texts(session_id: str) -> list[str]:
     conn = connect()
     try:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT content FROM orch_messages
                 WHERE session_id = :sid AND role = 'assistant'
                 ORDER BY id
                 """
-            ),
-            {"sid": session_id},
-        ).mappings().fetchall()
+                ),
+                {"sid": session_id},
+            )
+            .mappings()
+            .fetchall()
+        )
     finally:
         conn.close()
     return [str(row["content"]) for row in rows]
@@ -59,7 +63,13 @@ def _empty_response(**extra) -> LLMResponse:
 
 @pytest.mark.parametrize(
     ("count", "phrase"),
-    [(1, "до 1 проекта"), (4, "до 4 проектов"), (10, "до 10 проектов"), (11, "до 11 проектов"), (21, "до 21 проекта")],
+    [
+        (1, "до 1 проекта"),
+        (4, "до 4 проектов"),
+        (10, "до 10 проектов"),
+        (11, "до 11 проектов"),
+        (21, "до 21 проекта"),
+    ],
 )
 def test_parallel_limit_answer_uses_runtime_streams(monkeypatch, count: int, phrase: str) -> None:
     monkeypatch.setattr("app.services.gen_queue.worker_max_parallel", lambda: count)

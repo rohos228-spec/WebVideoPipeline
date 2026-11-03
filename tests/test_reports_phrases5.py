@@ -8,15 +8,36 @@
 
 from __future__ import annotations
 
+pytest_plugins = ["tests.action_layer_support"]
+
+import pytest
+
 from app.models import Frame
 from app.orchestrator.agents.summarizer import download_links, known_text
+from app.services import prompt_library as pl
 from app.services.action_layer import report_gpt as rg
 from app.services.action_layer.builtin_group import register_group_actions
 from app.services.action_layer.builtin_insight import register_insight
 from app.services.action_layer.spec import ActionRegistry
-from tests.action_layer_support import env  # noqa: F401
-from tests.test_action_layer_reports import (  # noqa: F401
-    REPLY, RUNS, FakeCtx, _meta, _routes, _seed, _write_reply, prompts, specs)
+from tests.test_action_layer_reports import REPLY, RUNS, FakeCtx, _meta, _routes, _seed, _write_reply
+
+
+@pytest.fixture
+def specs():
+    reg = ActionRegistry()
+    register_insight(reg)
+    return reg
+
+
+@pytest.fixture
+def prompts(monkeypatch):
+    monkeypatch.setattr(pl, "excel_gpt_prompt_exists", lambda name: name in ("razmetka", "geroi"))
+    monkeypatch.setattr(
+        pl,
+        "load_file_meta",
+        lambda step: {"razmetka": {"title": "Разметка кадров"}, "geroi": {"title": "Персонажи"}},
+    )
+
 
 SECOND = """```json
 {"ops": [{"target": "frame", "frame_uuid": "uuid-1", "fields": {"image_prompt": "рыжий кот"}},
@@ -26,31 +47,51 @@ SECOND = """```json
 
 def test_overwrite_text_names_fields_taken_over_by_the_second_gpt_node() -> None:
     nodes = [
-        {"label": "Работа с GPT 1", "node_key": "a", "frames": {"1": ["image_prompt", "place"], "2": ["image_prompt"]},
-         "fields": ["image_prompt", "place"]},
-        {"label": "Работа с GPT 2", "node_key": "b", "frames": {"1": ["image_prompt"], "2": ["image_prompt"],
-                                                                "3": ["voiceover_text"]},
-         "fields": ["image_prompt", "voiceover_text"]},
+        {
+            "label": "Работа с GPT 1",
+            "node_key": "a",
+            "frames": {"1": ["image_prompt", "place"], "2": ["image_prompt"]},
+            "fields": ["image_prompt", "place"],
+        },
+        {
+            "label": "Работа с GPT 2",
+            "node_key": "b",
+            "frames": {"1": ["image_prompt"], "2": ["image_prompt"], "3": ["voiceover_text"]},
+            "fields": ["image_prompt", "voiceover_text"],
+        },
         {"label": "Работа с GPT 3", "node_key": "c", "frames": {}, "fields": []},
     ]
     text = rg.overwrite_text(nodes)
     lines = text.splitlines()
     assert "Работа с GPT 1" in lines[1] and "чужих полей не перезаписала" in lines[1]
-    assert lines[2] == ("- Работа с GPT 2 перезаписала поля, записанные «Работа с GPT 1»: "
-                        "промт картинки (кадров 2).")
+    assert lines[2] == (
+        "- Работа с GPT 2 перезаписала поля, записанные «Работа с GPT 1»: промт картинки (кадров 2)."
+    )
     assert "Работа с GPT 3: пока ничего не записала" in lines[3]
-
 
 
 def test_overwrite_text_same_label_nodes_still_overwrite() -> None:
     """Две ноды с одним названием — разные ноды: перезапись видна, как в колонке html."""
     nodes = [
-        {"label": "Работа с GPT", "node_key": "a", "frames": {"1": ["image_prompt"]}, "fields": ["image_prompt"]},
-        {"label": "Работа с GPT", "node_key": "b", "frames": {"1": ["image_prompt"]}, "fields": ["image_prompt"]},
+        {
+            "label": "Работа с GPT",
+            "node_key": "a",
+            "frames": {"1": ["image_prompt"]},
+            "fields": ["image_prompt"],
+        },
+        {
+            "label": "Работа с GPT",
+            "node_key": "b",
+            "frames": {"1": ["image_prompt"]},
+            "fields": ["image_prompt"],
+        },
     ]
     lines = rg.overwrite_text(nodes).splitlines()
-    assert lines[2] == ("- Работа с GPT перезаписала поля, записанные «Работа с GPT» (другая нода с тем же "
-                        "названием): промт картинки (кадров 1).")
+    assert lines[2] == (
+        "- Работа с GPT перезаписала поля, записанные «Работа с GPT» (другая нода с тем же "
+        "названием): промт картинки (кадров 1)."
+    )
+
 
 async def test_report_nodes_text_says_what_the_second_gpt_node_overwrote(env, specs, prompts) -> None:
     meta = _meta()
@@ -60,8 +101,10 @@ async def test_report_nodes_text_says_what_the_second_gpt_node_overwrote(env, sp
     ctx = FakeCtx(_routes(pid, slug, meta, RUNS))
     chat = await specs.get("report.nodes").executor(ctx, {"project_id": pid})
     # Вопрос в чате читает markdown отчёта: ответ о перезаписи в нём, а не «не указано».
-    assert "Работа с GPT 2 перезаписала поля, записанные «Работа с GPT 1»: промт картинки (кадров 1)" \
+    assert (
+        "Работа с GPT 2 перезаписала поля, записанные «Работа с GPT 1»: промт картинки (кадров 1)"
         in chat["markdown"]
+    )
     # Итог задачи читает text_ru: ответ о перезаписи и там.
     assert "Работа с GPT 2 перезаписала поля, записанные «Работа с GPT 1»" in chat["text_ru"]
 
@@ -105,9 +148,12 @@ async def test_shots_report_without_group_report_builds_frames_report_with_links
     meta = _meta()
     pid, slug = await _seed(env, meta=meta)
     async with env.factory() as s:
-        frame = (await s.execute(Frame.__table__.select().where(Frame.project_id == pid,
-                                                                 Frame.number == 1))).first()
-        await s.execute(Frame.__table__.update().where(Frame.id == frame.id).values(image_prompt="кот на кухне"))
+        frame = (
+            await s.execute(Frame.__table__.select().where(Frame.project_id == pid, Frame.number == 1))
+        ).first()
+        await s.execute(
+            Frame.__table__.update().where(Frame.id == frame.id).values(image_prompt="кот на кухне")
+        )
         await s.commit()
     ctx = FakeCtx(_routes(pid, slug, meta, RUNS))  # /shots-report нет → 404
     out = await reg.get("group.shots_report").executor(ctx, {"project_id": pid})

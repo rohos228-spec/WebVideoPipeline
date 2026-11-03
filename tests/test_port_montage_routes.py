@@ -112,9 +112,7 @@ async def test_split_route_and_undo_keep_numbers(
     from app.services.vo_shot_expand import is_shot_child
 
     frames = await _frames(session)
-    out = await project_ops.montage_board_split_scenes(
-        91, {"frame_id": int(frames[2].id)}, session
-    )
+    out = await project_ops.montage_board_split_scenes(91, {"frame_id": int(frames[2].id)}, session)
     # Ответ — те поля, что читает splitMontageScene на фронте.
     assert out["ok"] is True
     assert (out["left_number"], out["right_number"]) == (1, 2)

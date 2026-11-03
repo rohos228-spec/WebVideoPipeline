@@ -73,17 +73,27 @@ async def _seed_run(*, node_status=NodeRunStatus.pending, node_key="n_plan", pro
         wf = Workflow(name=f"wf-{uuid.uuid4().hex[:8]}", is_default=False, nodes=[], edges=[])
         s.add(wf)
         await s.flush()
-        project = Project(slug=f"ml-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.new,
-                          meta=project_meta or {})
+        project = Project(
+            slug=f"ml-{uuid.uuid4().hex[:8]}", topic="t", status=ProjectStatus.new, meta=project_meta or {}
+        )
         s.add(project)
         await s.flush()
-        run = WorkflowRun(project_id=project.id, workflow_id=wf.id, status=WorkflowRunStatus.running,
-                          nodes_snapshot=nodes, edges_snapshot=[])
+        run = WorkflowRun(
+            project_id=project.id,
+            workflow_id=wf.id,
+            status=WorkflowRunStatus.running,
+            nodes_snapshot=nodes,
+            edges_snapshot=[],
+        )
         s.add(run)
         await s.flush()
         s.add(NodeRun(workflow_run_id=run.id, node_key=node_key, node_type="plan", status=node_status))
-        return {"project_id": project.id, "run_id": run.id, "node_key": node_key,
-                "graph": revisions.graph_version(nodes, [])}
+        return {
+            "project_id": project.id,
+            "run_id": run.id,
+            "node_key": node_key,
+            "graph": revisions.graph_version(nodes, []),
+        }
 
 
 # --- статусы занятости ------------------------------------------------------
@@ -126,18 +136,33 @@ async def _seed_group(node_status, *, mode="observe") -> dict:
     async with app_db.session_scope() as s:
         run = await s.get(WorkflowRun, seed["run_id"])
         run.nodes_snapshot = nodes
-        s.add(ExecutionControl(execution_id=execution_id, project_id=seed["project_id"],
-                               workflow_run_id=seed["run_id"], node_keys=[seed["node_key"]],
-                               graph_version=graph, mode=mode, observer_state="active",
-                               cursors={}, gaps=[]))
+        s.add(
+            ExecutionControl(
+                execution_id=execution_id,
+                project_id=seed["project_id"],
+                workflow_run_id=seed["run_id"],
+                node_keys=[seed["node_key"]],
+                graph_version=graph,
+                mode=mode,
+                observer_state="active",
+                cursors={},
+                gaps=[],
+            )
+        )
     return {**seed, "graph": graph, "execution_id": execution_id}
 
 
 async def _enable(seed):
     return await actions_v1.ActionSupervisor(app_db.SessionLocal).enable(
-        project_id=seed["project_id"], execution_id=seed["execution_id"], group_id="grp",
-        node_keys=[seed["node_key"]], graph_version=seed["graph"], initiator="test",
-        rationale="группа", request_limit=3)
+        project_id=seed["project_id"],
+        execution_id=seed["execution_id"],
+        group_id="grp",
+        node_keys=[seed["node_key"]],
+        graph_version=seed["graph"],
+        initiator="test",
+        rationale="группа",
+        request_limit=3,
+    )
 
 
 @pytest.mark.parametrize("status", [NodeRunStatus.queued, NodeRunStatus.running])
@@ -153,8 +178,13 @@ async def test_enable_then_close_idle_group():
     try:
         result = await _enable(seed)
         assert result["enabled"] is True
-        closed = await supervisor.close(project_id=seed["project_id"], execution_id=seed["execution_id"],
-                                        initiator="test", rationale="хватит", idempotency_key="close-1")
+        closed = await supervisor.close(
+            project_id=seed["project_id"],
+            execution_id=seed["execution_id"],
+            initiator="test",
+            rationale="хватит",
+            idempotency_key="close-1",
+        )
         assert closed["enabled"] is False
     finally:
         actions_v1.clear_permission(seed["project_id"])
@@ -169,8 +199,13 @@ async def test_close_refuses_while_node_queued():
             node = await s.scalar(select(NodeRun).where(NodeRun.workflow_run_id == seed["run_id"]))
             node.status = NodeRunStatus.queued
         with pytest.raises(ValueError, match="cannot revoke while a managed node is queued/running"):
-            await supervisor.close(project_id=seed["project_id"], execution_id=seed["execution_id"],
-                                   initiator="test", rationale="хватит", idempotency_key="close-1")
+            await supervisor.close(
+                project_id=seed["project_id"],
+                execution_id=seed["execution_id"],
+                initiator="test",
+                rationale="хватит",
+                idempotency_key="close-1",
+            )
     finally:
         actions_v1.clear_permission(seed["project_id"])
 
@@ -185,16 +220,29 @@ def test_prepare_has_no_project_session_argument():
 
 
 def _request(seed, **over):
-    return {"idempotency_key": "launch-1", "workflow_run_id": seed["run_id"], "graph_version": seed["graph"],
-            "node_keys": [seed["node_key"]], "strategies": ["retry_same"], "request_limit": 3,
-            "rationale": "один шаг", **over}
+    return {
+        "idempotency_key": "launch-1",
+        "workflow_run_id": seed["run_id"],
+        "graph_version": seed["graph"],
+        "node_keys": [seed["node_key"]],
+        "strategies": ["retry_same"],
+        "request_limit": 3,
+        "rationale": "один шаг",
+        **over,
+    }
 
 
 @pytest.fixture
 def _launch_config(monkeypatch):
-    cfg = {"version": 1, "mode": "synthetic", "online_enabled": True, "endpoint": "http://127.0.0.1/x",
-           "decision": {"catalog_id": "gpt-kie"}, "profiles": {},
-           "allowed_actions": ["retry_same", "read_events", "read_contract", "finish"]}
+    cfg = {
+        "version": 1,
+        "mode": "synthetic",
+        "online_enabled": True,
+        "endpoint": "http://127.0.0.1/x",
+        "decision": {"catalog_id": "gpt-kie"},
+        "profiles": {},
+        "allowed_actions": ["retry_same", "read_events", "read_contract", "finish"],
+    }
     monkeypatch.setattr(decision_config, "runtime_config", lambda: cfg)
     monkeypatch.setattr(decision_config, "check_route", lambda config, url: None)
     return cfg
@@ -204,8 +252,9 @@ async def test_prepare_creates_launch_from_one_session(tmp_path, _launch_config)
     seed = await _seed_run()
     observer = _observer(tmp_path)
     try:
-        row, replay = await managed_launch.prepare(observer, project_id=seed["project_id"],
-                                                   request=_request(seed), initiator="test")
+        row, replay = await managed_launch.prepare(
+            observer, project_id=seed["project_id"], request=_request(seed), initiator="test"
+        )
         assert replay is False
         assert row.entry_node == seed["node_key"]
         assert row.status == "dispatching"
@@ -218,8 +267,9 @@ async def test_prepare_creates_launch_from_one_session(tmp_path, _launch_config)
         assert control.enabled is True and control.held is False
         # Статус проекта запуск не трогает: проецировать «из базы проекта» нечего.
         assert project.status == ProjectStatus.new
-        again, replay = await managed_launch.prepare(observer, project_id=seed["project_id"],
-                                                     request=_request(seed), initiator="test")
+        again, replay = await managed_launch.prepare(
+            observer, project_id=seed["project_id"], request=_request(seed), initiator="test"
+        )
         assert replay is True and again.launch_id == row.launch_id
     finally:
         actions_v1.clear_permission(seed["project_id"])
@@ -228,8 +278,9 @@ async def test_prepare_creates_launch_from_one_session(tmp_path, _launch_config)
 async def test_prepare_refuses_active_node(tmp_path, _launch_config):
     seed = await _seed_run(node_status=NodeRunStatus.waiting_hitl)
     with pytest.raises(ValueError, match="active node or HITL must settle first"):
-        await managed_launch.prepare(_observer(tmp_path), project_id=seed["project_id"],
-                                     request=_request(seed), initiator="test")
+        await managed_launch.prepare(
+            _observer(tmp_path), project_id=seed["project_id"], request=_request(seed), initiator="test"
+        )
     async with app_db.SessionLocal() as s:
         assert (await s.scalars(select(managed_launch.ManagedLaunch))).all() == []
 
@@ -237,15 +288,20 @@ async def test_prepare_refuses_active_node(tmp_path, _launch_config):
 async def test_prepare_refuses_user_stop(tmp_path, _launch_config):
     seed = await _seed_run(project_meta={"user_stop": True})
     with pytest.raises(ValueError, match="user_stop is active"):
-        await managed_launch.prepare(_observer(tmp_path), project_id=seed["project_id"],
-                                     request=_request(seed), initiator="test")
+        await managed_launch.prepare(
+            _observer(tmp_path), project_id=seed["project_id"], request=_request(seed), initiator="test"
+        )
 
 
 async def test_prepare_refuses_changed_graph(tmp_path, _launch_config):
     seed = await _seed_run()
     with pytest.raises(ValueError, match="graph revision changed"):
-        await managed_launch.prepare(_observer(tmp_path), project_id=seed["project_id"],
-                                     request=_request(seed, graph_version="other"), initiator="test")
+        await managed_launch.prepare(
+            _observer(tmp_path),
+            project_id=seed["project_id"],
+            request=_request(seed, graph_version="other"),
+            initiator="test",
+        )
 
 
 # --- забор билета восстановления одной сессией -----------------------------
@@ -256,30 +312,67 @@ async def _seed_ticket(seed, *, graph_version=None) -> dict:
     async with app_db.session_scope() as s:
         project = await s.get(Project, seed["project_id"])
         revision = await actions_recovery.input_revision(s, project, seed["node_key"])
-        s.add(ActionExecutionControl(execution_id=execution_id, project_id=seed["project_id"],
-                                     workflow_run_id=seed["run_id"], group_id="g",
-                                     node_keys=[seed["node_key"]], graph_version=seed["graph"],
-                                     enabled=True, held=False, initiator="test", rationale="test"))
+        s.add(
+            ActionExecutionControl(
+                execution_id=execution_id,
+                project_id=seed["project_id"],
+                workflow_run_id=seed["run_id"],
+                group_id="g",
+                node_keys=[seed["node_key"]],
+                graph_version=seed["graph"],
+                enabled=True,
+                held=False,
+                initiator="test",
+                rationale="test",
+            )
+        )
         action_id = str(uuid.uuid4())
         new_attempt = str(uuid.uuid4())
-        s.add(RecoveryAction(action_id=action_id, execution_id=execution_id, project_id=seed["project_id"],
-                             incident_id=str(uuid.uuid4()), node_key=seed["node_key"],
-                             source_attempt_id=str(uuid.uuid4()), new_attempt_id=new_attempt,
-                             idempotency_key="k1",
-                             preconditions={"graph_version": graph_version or seed["graph"],
-                                            "input_revision": revision, "action_type": "retry_same"},
-                             budget_state={}, result={}, verification_result={}, status="queued"))
-        s.add(ActionRecord(action_id=action_id, execution_id=execution_id, project_id=seed["project_id"],
-                           action_kind="node_recovery", node_key=seed["node_key"], attempt_id=new_attempt,
-                           initiator="test", rationale="test", idempotency_key="k1",
-                           status="queued", verification={}))
+        s.add(
+            RecoveryAction(
+                action_id=action_id,
+                execution_id=execution_id,
+                project_id=seed["project_id"],
+                incident_id=str(uuid.uuid4()),
+                node_key=seed["node_key"],
+                source_attempt_id=str(uuid.uuid4()),
+                new_attempt_id=new_attempt,
+                idempotency_key="k1",
+                preconditions={
+                    "graph_version": graph_version or seed["graph"],
+                    "input_revision": revision,
+                    "action_type": "retry_same",
+                },
+                budget_state={},
+                result={},
+                verification_result={},
+                status="queued",
+            )
+        )
+        s.add(
+            ActionRecord(
+                action_id=action_id,
+                execution_id=execution_id,
+                project_id=seed["project_id"],
+                action_kind="node_recovery",
+                node_key=seed["node_key"],
+                attempt_id=new_attempt,
+                initiator="test",
+                rationale="test",
+                idempotency_key="k1",
+                status="queued",
+                verification={},
+            )
+        )
     return {"execution_id": execution_id, "action_id": action_id, "new_attempt": new_attempt}
 
 
 async def _ticket(ticket):
     async with app_db.SessionLocal() as s:
-        return (await s.get(RecoveryAction, ticket["action_id"]),
-                await s.get(ActionRecord, ticket["action_id"]))
+        return (
+            await s.get(RecoveryAction, ticket["action_id"]),
+            await s.get(ActionRecord, ticket["action_id"]),
+        )
 
 
 async def test_claim_survives_worker_rollback(tmp_path):
@@ -288,8 +381,14 @@ async def test_claim_survives_worker_rollback(tmp_path):
     try:
         async with app_db.SessionLocal() as worker:
             project = await worker.get(Project, seed["project_id"])
-            got = await actions_recovery.claim(_observer(tmp_path), worker, project, seed["node_key"],
-                                               "fresh-attempt", execution_id=ticket["execution_id"])
+            got = await actions_recovery.claim(
+                _observer(tmp_path),
+                worker,
+                project,
+                seed["node_key"],
+                "fresh-attempt",
+                execution_id=ticket["execution_id"],
+            )
             assert got == ticket["new_attempt"]
             project.meta = {**(project.meta or {}), "worker_wrote": True}
             await worker.flush()
@@ -307,8 +406,14 @@ async def test_claim_without_ticket_keeps_attempt_id(tmp_path):
     seed = await _seed_run(node_status=NodeRunStatus.failed)
     async with app_db.SessionLocal() as worker:
         project = await worker.get(Project, seed["project_id"])
-        got = await actions_recovery.claim(_observer(tmp_path), worker, project, seed["node_key"],
-                                           "fresh-attempt", execution_id=str(uuid.uuid4()))
+        got = await actions_recovery.claim(
+            _observer(tmp_path),
+            worker,
+            project,
+            seed["node_key"],
+            "fresh-attempt",
+            execution_id=str(uuid.uuid4()),
+        )
     assert got == "fresh-attempt"
 
 
@@ -318,8 +423,14 @@ async def test_claim_refuses_changed_graph(tmp_path):
     async with app_db.SessionLocal() as worker:
         project = await worker.get(Project, seed["project_id"])
         with pytest.raises(RuntimeError, match="revisions changed before claim"):
-            await actions_recovery.claim(_observer(tmp_path), worker, project, seed["node_key"],
-                                         "fresh-attempt", execution_id=ticket["execution_id"])
+            await actions_recovery.claim(
+                _observer(tmp_path),
+                worker,
+                project,
+                seed["node_key"],
+                "fresh-attempt",
+                execution_id=ticket["execution_id"],
+            )
     row, _record = await _ticket(ticket)
     assert row.status == "queued"
 
@@ -333,8 +444,14 @@ async def test_claim_refuses_fast_when_worker_holds_write(tmp_path):
         await worker.flush()  # запись ушла в SQLite, транзакция открыта
         started = time.monotonic()
         with pytest.raises(RuntimeError, match="without pending writes"):
-            await actions_recovery.claim(_observer(tmp_path), worker, project, seed["node_key"],
-                                         "fresh-attempt", execution_id=ticket["execution_id"])
+            await actions_recovery.claim(
+                _observer(tmp_path),
+                worker,
+                project,
+                seed["node_key"],
+                "fresh-attempt",
+                execution_id=ticket["execution_id"],
+            )
         # Отказ сразу, без ожидания busy_timeout второго писателя.
         assert time.monotonic() - started < 5
         await worker.rollback()
@@ -352,8 +469,14 @@ async def test_claim_reads_only_committed_state_after_worker_reads(tmp_path):
             await worker.scalars(select(NodeRun).where(NodeRun.workflow_run_id == seed["run_id"]))
             assert await actions_recovery._holds_sqlite_write(worker) is False
             started = time.monotonic()
-            await actions_recovery.claim(_observer(tmp_path), worker, project, seed["node_key"],
-                                         "fresh-attempt", execution_id=ticket["execution_id"])
+            await actions_recovery.claim(
+                _observer(tmp_path),
+                worker,
+                project,
+                seed["node_key"],
+                "fresh-attempt",
+                execution_id=ticket["execution_id"],
+            )
             assert time.monotonic() - started < 5
         row, _record = await _ticket(ticket)
         assert row.status == "claimed"

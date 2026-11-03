@@ -164,8 +164,8 @@ def aggregate_categorical(values: list[Any], n_total: int, *, min_support: float
 
 
 def aggregate_dist(values: list[dict[str, Any]], n_total: int) -> dict[str, Any] | None:
-    dists = [schema._normalize_dist(v) for v in values]
-    dists = [d for d in dists if d]
+    raw_dists = [schema._normalize_dist(v) for v in values]
+    dists = [d for d in raw_dists if d]
     if not dists:
         return None
     keys = sorted({k for d in dists for k in d})
@@ -676,9 +676,9 @@ def aggregate_patterns(videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
     n = max(1, len(videos))
     out = []
     for p in merged.values():
-        k = len(set(p["videos"]))
-        p["support"] = f"{k}/{n}"
-        p["confidence"] = "high" if k >= 3 else ("medium" if k == 2 else "low")
+        n_videos = len(set(p["videos"]))
+        p["support"] = f"{n_videos}/{n}"
+        p["confidence"] = "high" if n_videos >= 3 else ("medium" if n_videos == 2 else "low")
         p["examples"] = p["examples"][:12]
         out.append(p)
     out.sort(key=lambda p: (-len(set(p["videos"])), not p["signature"], p["name"]))
@@ -859,7 +859,7 @@ def fallback_mapping(passport: dict[str, Any]) -> dict[str, Any]:
         segs = pv("narrative.segments") or []
         seg_names = [
             (
-                f"{g.get('name')} {int(round(float(g.get('share')) * 100))}%"
+                f"{g.get('name')} {int(round(float(g['share']) * 100))}%"
                 if isinstance(g, dict) and g.get("share") not in (None, "")
                 else str(g.get("name") if isinstance(g, dict) else g)
             )
@@ -1024,7 +1024,7 @@ STYLIZED_WEIGHT = 5.0
 
 
 def _visual_reply_texts(videos: list[dict[str, Any]]) -> str:
-    parts = []
+    parts: list[str] = []
     for v in videos:
         vis = (v.get("agents") or {}).get("visual") or {}
         parts.extend(str(vis.get(k) or "") for k in ("line", "subjects", "composition", "light", "world"))

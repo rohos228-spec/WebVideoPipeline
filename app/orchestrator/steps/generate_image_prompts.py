@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import select
@@ -85,9 +85,7 @@ async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
     )
 
 
-async def _scene_fingerprint(
-    session: AsyncSession, frames: list[Frame], numbers: set[int]
-) -> str:
+async def _scene_fingerprint(session: AsyncSession, frames: list[Frame], numbers: set[int]) -> str:
     """Слепок входа сцен для кадров ``numbers`` (поля кадра + их строки Scene)."""
     from app.models import Scene
     from app.services import img_pr_batches as ipb
@@ -96,11 +94,7 @@ async def _scene_fingerprint(
     scene_ids = {fr.scene_id for fr in picked if fr.scene_id}
     scenes: list = []
     if scene_ids:
-        scenes = list(
-            (await session.execute(select(Scene).where(Scene.id.in_(scene_ids))))
-            .scalars()
-            .all()
-        )
+        scenes = list((await session.execute(select(Scene).where(Scene.id.in_(scene_ids)))).scalars().all())
     return ipb.scene_input_fingerprint(picked, scenes)
 
 
@@ -115,7 +109,7 @@ async def _raise_if_no_source_unchanged(
     from app.services import img_pr_batches as ipb
 
     meta = project.meta if isinstance(project.meta, dict) else {}
-    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+    fs = cast(dict[str, Any], meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {})
     guard = fs.get(ipb.NO_SOURCE_GUARD_KEY)
     if not isinstance(guard, dict):
         return
@@ -375,18 +369,22 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             from app.services.img_pr_batches import ImgPrNoSourceData
 
             no_source = isinstance(e, ImgPrNoSourceData)
-            if no_source and no_source_skip and not no_source_skip <= set(e.frame_numbers):
+            ns_err = cast(ImgPrNoSourceData, e)
+            if no_source and no_source_skip and not no_source_skip <= set(ns_err.frame_numbers):
                 # 2-я попытка: свои «нет данных» + пропущенные с 1-й — одна пауза на все.
-                e = ImgPrNoSourceData(sorted(set(e.frame_numbers) | no_source_skip), apply_ops=e.apply_ops)
+                ns_err = ImgPrNoSourceData(
+                    sorted(set(ns_err.frame_numbers) | no_source_skip), apply_ops=ns_err.apply_ops
+                )
+                e = ns_err
                 last_err = e
             only_no_source = False
-            if no_source and e.apply_ops:
+            if no_source and ns_err.apply_ops:
                 # Готовые промты остальных кадров (прогон + чекпоинт) — в базу до
                 # решения о повторе: иначе 2-я попытка видит их пустыми и снова
                 # платно спрашивает кадры «нет данных».
                 from app.services.node_write_contract import filter_ops_for_node
 
-                good_ops = filter_ops_for_node(list(e.apply_ops), node_kind="img_pr")
+                good_ops = filter_ops_for_node(list(ns_err.apply_ops), node_kind="img_pr")
                 if good_ops:
                     await _apply_img_pr_ops_once(project.id, good_ops)
                     # Промты уже в базе — чекпоинт своё отработал. Иначе кадр, который
@@ -406,7 +404,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 try:
                     await session.refresh(project)
                     still = _frames_needing_image_prompt(await _reload_frames(session, project.id))
-                    only_no_source = {fr.number for fr in still} <= set(e.frame_numbers)
+                    only_no_source = {fr.number for fr in still} <= set(ns_err.frame_numbers)
                 except Exception as reload_err:  # noqa: BLE001
                     logger.warning(
                         "[#{}] img_pr: reload after no-source failed: {}",
@@ -414,17 +412,17 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                         reload_err,
                     )
             if no_source and not only_no_source:
-                no_source_skip |= set(e.frame_numbers)
+                no_source_skip |= set(ns_err.frame_numbers)
             if attempt >= 2 or only_no_source:
                 if no_source:
                     # Свой код ошибки (error_catalog: img_pr_no_scene_data) и
                     # короткий текст для человека — без обёртки с именами шагов.
                     # Слепок входа сцен: по нему следующий запуск не зовёт модель зря.
                     try:
-                        e.context["scene_fingerprint"] = await _scene_fingerprint(
+                        ns_err.context["scene_fingerprint"] = await _scene_fingerprint(
                             session,
                             await _reload_frames(session, project.id),
-                            set(e.frame_numbers),
+                            set(ns_err.frame_numbers),
                         )
                     except Exception as fp_err:  # noqa: BLE001
                         logger.warning(

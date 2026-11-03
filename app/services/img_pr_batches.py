@@ -12,7 +12,7 @@ import re
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from loguru import logger
 
@@ -349,7 +349,7 @@ def no_source_uuids_in_reply(reply: str, *, respect_allow: bool = True) -> set[s
     for op in raw:
         if not isinstance(op, dict):
             continue
-        fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
+        fields = raw_fields if isinstance(raw_fields := op.get("fields"), dict) else {}
         merged = {**{k: op[k] for k in _PROMPT_FIELD_KEYS if k in op}, **fields}
         if _op_is_no_source_data(_shot1_prompt_of(merged), _shot2_prompt_of(merged), respect_allow=False):
             uid = uuid_of_op(op)
@@ -674,7 +674,7 @@ def upstream_scene_step_ru(meta: Any) -> str:
         meta = meta if isinstance(meta, dict) else {}
         img_key = find_canvas_node_key_by_type(meta, "image_prompts")
         if img_key:
-            preds = overflow_excel_gpt_predecessors(SimpleNamespace(meta=meta), img_key)
+            preds = overflow_excel_gpt_predecessors(cast(Any, SimpleNamespace(meta=meta)), img_key)
             if preds:
                 return node_label_ru(meta, preds[0]) or _FALLBACK_SCENE_STEP_RU
     except Exception as e:  # noqa: BLE001

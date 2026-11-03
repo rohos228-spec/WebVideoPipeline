@@ -44,48 +44,6 @@ FAST_SLEEP_MINUTES = 3
 FAST_QUICK_SLEEP_MINUTES = 1
 
 
-@dataclass(frozen=True)
-class WaitProfile:
-    name: str
-    fails_per_cycle: int
-    max_cycles: int
-    sleep_minutes: int
-    quick_sleep_minutes: int
-    abandon_on_fatal_config: bool
-
-    @property
-    def max_total_fails(self) -> int:
-        return self.fails_per_cycle * self.max_cycles
-
-
-def wait_profile(project: Any | None = None) -> WaitProfile:
-    import os
-    name = ""
-    if project is not None:
-        meta = getattr(project, "meta", None)
-        if isinstance(meta, dict):
-            name = str(meta.get("step_failure_profile") or "").strip().lower()
-    if name not in WAIT_PROFILE_NAMES:
-        name = (os.environ.get(WAIT_PROFILE_ENV) or "").strip().lower()
-    if name == WAIT_PROFILE_FAST:
-        return WaitProfile(
-            WAIT_PROFILE_FAST,
-            FAST_FAILS_PER_CYCLE,
-            FAST_MAX_CYCLES,
-            FAST_SLEEP_MINUTES,
-            FAST_QUICK_SLEEP_MINUTES,
-            True,
-        )
-    return WaitProfile(
-        WAIT_PROFILE_SAFE,
-        FAILS_PER_CYCLE,
-        MAX_CYCLES,
-        SLEEP_MINUTES,
-        XLSX_SHEET_FORMAT_SLEEP_MINUTES,
-        False,
-    )
-
-
 WAIT_PROFILE_ENV = "STEP_FAILURE_WAIT_PROFILE"
 WAIT_PROFILE_SAFE = "safe"
 WAIT_PROFILE_FAST = "fast"
@@ -722,8 +680,8 @@ def resume_place_without_origin(project: Project) -> ProjectStatus | None:
     последним упавшим шагом без следа сбоя. None - места не знаем.
     """
     meta = project.meta if isinstance(project.meta, dict) else {}
-    fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
-    totals = fs.get("total_fails") if isinstance(fs.get("total_fails"), dict) else {}
+    fs = raw_fs if isinstance(raw_fs := meta.get("step_failure"), dict) else {}
+    totals = raw_totals if isinstance(raw_totals := fs.get("total_fails"), dict) else {}
 
     def _running(raw: Any) -> ProjectStatus | None:
         try:

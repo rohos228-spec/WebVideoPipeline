@@ -564,9 +564,10 @@ async def _run_operator_api_real(
 
         from app.contracts import APPLY_OPS, extract_json_payload
         from app.contracts.apply_ops import APPLY_OPS_ALLOW_EMPTY
+        from app.contracts.base import LlmContract
         from app.contracts.policy import run_with_contract
 
-        contract = APPLY_OPS_ALLOW_EMPTY if allow_empty_ops else APPLY_OPS
+        contract: LlmContract[Any] = APPLY_OPS_ALLOW_EMPTY if allow_empty_ops else APPLY_OPS
         first_reply = reply_text or ""
         # Retry без xlsx — иначе модель снова упирается в «нет файла».
         retry_paths = [p for p in input_paths if p.suffix.lower() not in {".xlsx", ".xlsm", ".xls"}]

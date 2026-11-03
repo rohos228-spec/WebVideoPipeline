@@ -44,8 +44,10 @@ def test_missing_source_data_is_hollow(text: str) -> None:
 
 # --- таблица ревью: формы, которые раньше проходили в оплату, и сцены, которые должны остаться ---
 
-LOCK = (" STYLE: Archival Noir Watercolor Grunge Dossier Poster Illustration, dark watercolor wash, "
-        "distressed printmaking, halftone dots, charcoal shadow masses.") * 4
+LOCK = (
+    " STYLE: Archival Noir Watercolor Grunge Dossier Poster Illustration, dark watercolor wash, "
+    "distressed printmaking, halftone dots, charcoal shadow masses."
+) * 4
 
 # (текст, пустой ли промт). Каждая строка проверяется и без стиля, и со стилевым замком.
 TABLE = [

@@ -81,8 +81,10 @@ class _Launch:
 
 
 def _plan(projects: list[int]) -> list[PlanStep]:
-    reads = [PlanStep(action="project.status", params={"project_id": p}, risk="none", parallel_group="reads")
-             for p in projects]
+    reads = [
+        PlanStep(action="project.status", params={"project_id": p}, risk="none", parallel_group="reads")
+        for p in projects
+    ]
     runs = [
         PlanStep(
             action=_RUN,
@@ -135,7 +137,9 @@ def _runtime(actions: _Launch) -> Any:
 
 
 def _cards(runtime: Any, session: str) -> list[dict]:
-    return [dict(event.payload) for event in runtime.bus.replay(session, 0) if event.type == "approval_required"]
+    return [
+        dict(event.payload) for event in runtime.bus.replay(session, 0) if event.type == "approval_required"
+    ]
 
 
 async def _until(predicate: Any, what: str, limit: float = 5.0) -> None:
@@ -148,9 +152,9 @@ async def _until(predicate: Any, what: str, limit: float = 5.0) -> None:
 
 
 async def _start_all(runtime: Any) -> dict[str, int]:
-    started = await asyncio.gather(*(
-        runtime.supervisor.start_task(_SESSIONS[key], f"запусти проекты {key}") for key in _PLANS
-    ))
+    started = await asyncio.gather(
+        *(runtime.supervisor.start_task(_SESSIONS[key], f"запусти проекты {key}") for key in _PLANS)
+    )
     tasks = dict(zip(_PLANS, started, strict=True))
     for task_id in tasks.values():
         await runtime.supervisor.wait(task_id, timeout=5)

@@ -24,16 +24,26 @@ _READS = ("project.status", "diag.incidents", "logs.tail")
 
 class _FactActions(MockActions):
     def __init__(self, fail: set[str] | None = None) -> None:
-        super().__init__(risks={name: "none" for name in (*_READS, "diag.node_failure", "step.get_run_cost_basis")})
+        super().__init__(
+            risks={name: "none" for name in (*_READS, "diag.node_failure", "step.get_run_cost_basis")}
+        )
         self.fail = fail or set()
 
     async def execute(self, name, params, task_ctx):
         self.calls.append({"name": name, "params": dict(params), "ctx": dict(task_ctx)})
         failed = name in self.fail
         body = {"error": "журнал недоступен"} if failed else {"text_ru": f"факт {name}"}
-        return {"ok": not failed, "status": "failed" if failed else "ok", "data": body, "result": body,
-                "cost": 0.0, "warnings": [], "error": "журнал недоступен" if failed else None,
-                "change_id": None, "cc_change_id": None}
+        return {
+            "ok": not failed,
+            "status": "failed" if failed else "ok",
+            "data": body,
+            "result": body,
+            "cost": 0.0,
+            "warnings": [],
+            "error": "журнал недоступен" if failed else None,
+            "change_id": None,
+            "cc_change_id": None,
+        }
 
 
 class _SanityValidators(MockValidators):
@@ -62,14 +72,20 @@ class _RecordingPlanner:
 
 class _BlockedRouter(ScriptedRouter):
     async def call(self, *args, **kwargs):
-        raise PaidCallBlocked(BLOCK_KILL_SWITCH, "Платный вызов 52pay заблокирован аварийным рубильником. "
-                                                 "Запрос не отправлялся.", provider="52pay")
+        raise PaidCallBlocked(
+            BLOCK_KILL_SWITCH,
+            "Платный вызов 52pay заблокирован аварийным рубильником. Запрос не отправлялся.",
+            provider="52pay",
+        )
 
 
 class _BlockedPlanner:
     async def make_plan(self, goal, context="", **kwargs):
-        raise PaidCallBlocked(BLOCK_KILL_SWITCH, "Платный вызов 52pay заблокирован аварийным рубильником. "
-                                                 "Запрос не отправлялся.", provider="52pay")
+        raise PaidCallBlocked(
+            BLOCK_KILL_SWITCH,
+            "Платный вызов 52pay заблокирован аварийным рубильником. Запрос не отправлялся.",
+            provider="52pay",
+        )
 
 
 def _reads(project_id: int = 4) -> list[PlanStep]:
@@ -94,10 +110,16 @@ def _stored(session: str) -> list[str]:
         # Соединение движка здесь — SQLAlchemy (app/orchestrator/db/engine.py): text() и :имя.
         from sqlalchemy import text
 
-        rows = conn.execute(
-            text("SELECT content FROM orch_messages WHERE session_id = :sid AND role = 'assistant' ORDER BY id"),
-            {"sid": session},
-        ).mappings().all()
+        rows = (
+            conn.execute(
+                text(
+                    "SELECT content FROM orch_messages WHERE session_id = :sid AND role = 'assistant' ORDER BY id"
+                ),
+                {"sid": session},
+            )
+            .mappings()
+            .all()
+        )
     finally:
         conn.close()
     return [row["content"] for row in rows]
@@ -113,8 +135,12 @@ async def _run(rt, session: str, goal: str, project_id: int | None = 4) -> int:
 @pytest.mark.asyncio
 async def test_read_only_task_ends_with_summary_of_facts(token: str) -> None:
     del token
-    rt = build_runtime(actions=_FactActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(_reads()))
+    rt = build_runtime(
+        actions=_FactActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(_reads()),
+    )
     try:
         task_id = await _run(rt, "sum-reads", "почему встал шаг картинок? покажи ошибки из логов")
         assert rt.tasks.get(task_id)["status"] == TaskStatus.done.value
@@ -137,8 +163,13 @@ async def test_summary_retells_facts_through_model_with_summarizer_role(token: s
     del token
     router = ScriptedRouter()
     router.script = ["Шаг картинок встал: Kie ответил ошибкой 500, в логах три таких строки."]
-    rt = build_runtime(actions=_FactActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(_reads()), summarizer=TaskSummarizer(router))
+    rt = build_runtime(
+        actions=_FactActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(_reads()),
+        summarizer=TaskSummarizer(router),
+    )
     try:
         await _run(rt, "sum-model", "почему встал шаг картинок?")
         text = _summaries(rt, "sum-model")[0]["text"]
@@ -155,8 +186,13 @@ async def test_summary_retells_facts_through_model_with_summarizer_role(token: s
 @pytest.mark.asyncio
 async def test_summary_falls_back_to_facts_when_model_is_blocked(token: str) -> None:
     del token
-    rt = build_runtime(actions=_FactActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=FixedPlanner(_reads()), summarizer=TaskSummarizer(_BlockedRouter()))
+    rt = build_runtime(
+        actions=_FactActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(_reads()),
+        summarizer=TaskSummarizer(_BlockedRouter()),
+    )
     try:
         await _run(rt, "sum-blocked", "что с проектом")
         text = _summaries(rt, "sum-blocked")[0]["text"]
@@ -169,8 +205,12 @@ async def test_summary_falls_back_to_facts_when_model_is_blocked(token: str) -> 
 @pytest.mark.asyncio
 async def test_failed_read_step_is_explained(token: str) -> None:
     del token
-    rt = build_runtime(actions=_FactActions(fail={"logs.tail"}), validators=MockValidators(),
-                       router=ScriptedRouter(), planner=FixedPlanner(_reads()))
+    rt = build_runtime(
+        actions=_FactActions(fail={"logs.tail"}),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(_reads()),
+    )
     try:
         task_id = await _run(rt, "sum-fail-step", "покажи ошибки из логов")
         assert rt.tasks.get(task_id)["status"] == TaskStatus.failed.value
@@ -188,7 +228,9 @@ async def test_validator_errors_go_back_to_planner_and_fixed_plan_runs(token: st
     good = [PlanStep(action="step.get_run_cost_basis", params={"project_id": 4, "step_code": "img"})]
     planner = _RecordingPlanner([bad, good])
     actions = _FactActions()
-    rt = build_runtime(actions=actions, validators=_SanityValidators(), router=ScriptedRouter(), planner=planner)
+    rt = build_runtime(
+        actions=actions, validators=_SanityValidators(), router=ScriptedRouter(), planner=planner
+    )
     try:
         task_id = await _run(rt, "sum-revise", "запусти генерацию картинок для этого проекта")
         assert rt.tasks.get(task_id)["status"] == TaskStatus.done.value
@@ -205,7 +247,9 @@ async def test_validator_rejection_after_two_revisions_tells_user(token: str) ->
     bad = [PlanStep(action="step.get_run_cost_basis", params={"project_id": 4, "step_code": "images"})]
     planner = _RecordingPlanner([bad])
     actions = _FactActions()
-    rt = build_runtime(actions=actions, validators=_SanityValidators(), router=ScriptedRouter(), planner=planner)
+    rt = build_runtime(
+        actions=actions, validators=_SanityValidators(), router=ScriptedRouter(), planner=planner
+    )
     try:
         task_id = await _run(rt, "sum-reject", "запусти генерацию картинок для этого проекта")
         row = rt.tasks.get(task_id)
@@ -228,8 +272,12 @@ async def test_unknown_action_gets_a_revision_before_block(token: str) -> None:
     from app.orchestrator.agents.wiring import ActionsBridge, ModuleActions
 
     planner = _RecordingPlanner([[PlanStep(action="images.generate", params={"project_id": 4})]])
-    rt = build_runtime(actions=ActionsBridge(ModuleActions(live_actions)), validators=MockValidators(),
-                       router=ScriptedRouter(), planner=planner)
+    rt = build_runtime(
+        actions=ActionsBridge(ModuleActions(live_actions)),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=planner,
+    )
     try:
         task_id = await _run(rt, "sum-unknown", "сделай картинки")
         assert rt.tasks.get(task_id)["error"] == "not_in_whitelist"
@@ -243,8 +291,12 @@ async def test_unknown_action_gets_a_revision_before_block(token: str) -> None:
 @pytest.mark.asyncio
 async def test_planner_blocked_by_paid_gate_reports_reason(token: str) -> None:
     del token
-    rt = build_runtime(actions=_FactActions(), validators=MockValidators(), router=ScriptedRouter(),
-                       planner=_BlockedPlanner())
+    rt = build_runtime(
+        actions=_FactActions(),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=_BlockedPlanner(),
+    )
     try:
         task_id = await _run(rt, "sum-gate", "что с проектом")
         assert rt.tasks.get(task_id)["error"] == "drive_failed"
@@ -282,12 +334,18 @@ class _LongActions(_FactActions):
 @pytest.mark.asyncio
 async def test_step_finished_carries_short_summary_and_message_has_task_id(token: str) -> None:
     del token
-    rt = build_runtime(actions=_LongActions(fail={"diag.incidents"}), validators=MockValidators(),
-                       router=ScriptedRouter(), planner=FixedPlanner(_reads()))
+    rt = build_runtime(
+        actions=_LongActions(fail={"diag.incidents"}),
+        validators=MockValidators(),
+        router=ScriptedRouter(),
+        planner=FixedPlanner(_reads()),
+    )
     try:
         task_id = await _run(rt, "sum-steps", "покажи ошибки из логов")
         events = rt.bus.replay("sum-steps", 0)
-        finished = {event.payload["action"]: event.payload for event in events if event.type == "step_finished"}
+        finished = {
+            event.payload["action"]: event.payload for event in events if event.type == "step_finished"
+        }
         assert finished["project.status"]["summary"] == plain_ru("факт project.status")
         failed = finished["diag.incidents"]["summary"]
         assert failed.startswith("Не получилось «") and failed.endswith("журнал недоступен.")
@@ -308,17 +366,30 @@ def test_step_summary_for_change_without_text() -> None:
 
 
 def test_deterministic_text_for_change_names_rollback() -> None:
-    facts = TaskFacts(goal="поменяй модель", status="done", steps=[
-        StepNote("node.set_model", "Сменить модель ноды", ok=True, text="модель gpt-5.6-sol", readonly=False,
-                 undo={"action": "history.rollback", "snapshot_ids": [7]}),
-    ])
+    facts = TaskFacts(
+        goal="поменяй модель",
+        status="done",
+        steps=[
+            StepNote(
+                "node.set_model",
+                "Сменить модель ноды",
+                ok=True,
+                text="модель gpt-5.6-sol",
+                readonly=False,
+                undo={"action": "history.rollback", "snapshot_ids": [7]},
+            ),
+        ],
+    )
     text = deterministic_text(facts)
     assert text.startswith("Готово. Что сделано:")
     assert "Сменить модель ноды: модель gpt-5.6-sol" in text
     # Подсказка — фраза, которую планёр понимает, без номеров снимков.
     assert "«верни как было»" in text and "снимк" not in text
-    plain = deterministic_text(TaskFacts(goal="x", status="done", steps=[
-        StepNote("node.set_param", "Параметр", ok=True, readonly=False)]))
+    plain = deterministic_text(
+        TaskFacts(
+            goal="x", status="done", steps=[StepNote("node.set_param", "Параметр", ok=True, readonly=False)]
+        )
+    )
     assert "Снимка для автоматического отката" in plain
 
 
@@ -335,11 +406,13 @@ def test_catalog_lists_enum_values_and_step_names() -> None:
     spec = registry.find("step.get_run_cost_basis")
     row = catalog_entry(spec)
     assert "img" in row["v"]["step_code"] and "images" not in row["v"]["step_code"]
-    block = ActionCatalog(max_catalog=24, specs=lambda: [spec, registry.find("project.status")],
-                          project_of=lambda _t: None).block("сколько стоит запуск шага картинок")
+    block = ActionCatalog(
+        max_catalog=24, specs=lambda: [spec, registry.find("project.status")], project_of=lambda _t: None
+    ).block("сколько стоит запуск шага картинок")
     assert '"step.get_run_cost_basis"' in block
     assert "img = Картинки" in block and "img_pr = Промты картинок" in block
     assert "«картинки» — step_code=img" in block
-    status_only = ActionCatalog(max_catalog=24, specs=lambda: [registry.find("project.status")],
-                                project_of=lambda _t: None).block("статус")
+    status_only = ActionCatalog(
+        max_catalog=24, specs=lambda: [registry.find("project.status")], project_of=lambda _t: None
+    ).block("статус")
     assert "step_code" not in status_only

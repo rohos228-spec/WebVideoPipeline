@@ -26,7 +26,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -300,7 +300,7 @@ def requested_frame_count(project: Any) -> int | None:
     split = ((meta.get("node_step_params") or {}).get("split") or {}) if isinstance(meta, dict) else {}
     for key in ("frames_count", "frame_count"):
         try:
-            n = int(float(split.get(key)))
+            n = int(float(cast(Any, split.get(key))))
         except (TypeError, ValueError):
             continue
         if 2 <= n <= 60:
@@ -478,7 +478,7 @@ def vo_cells(frames: list[Any]) -> list[dict]:
 
     cells = group_vo_cells([_frame_dict(fr) for fr in frames])
     by_uuid = {getattr(fr, "uuid", None): fr for fr in frames}
-    out = []
+    out: list[dict[str, Any]] = []
     for c in cells:
         parent = by_uuid.get(c.get("parent_uuid"))
         out.append(
@@ -722,7 +722,7 @@ def _covers(finding: dict, fixes: list[dict]) -> bool:
 def feedback_text(report: dict[str, Any]) -> str:
     """Что сказать модели при повторе шага: находки проверки содержания."""
     lines = [
-        f"Проверка результата шага «{STEP_RU.get(report.get('step'), report.get('step'))}» нашла ошибки:"
+        f"Проверка результата шага «{STEP_RU.get(cast(str, report.get('step')), report.get('step'))}» нашла ошибки:"
     ]
     for f in report.get("findings") or []:
         lines.append(f"- {f.get('title_ru')}: {f.get('detail_ru')}")
@@ -730,7 +730,7 @@ def feedback_text(report: dict[str, Any]) -> str:
 
 
 def summary_text(report: dict[str, Any]) -> str:
-    step_ru = STEP_RU.get(report.get("step"), report.get("step"))
+    step_ru = STEP_RU.get(cast(str, report.get("step")), report.get("step"))
     # Вопрос про промты: итог по героям — первым, даже если нашлось расхождение закадра.
     heroes = ""
     if report.get("step") == "img_pr":
@@ -741,7 +741,9 @@ def summary_text(report: dict[str, Any]) -> str:
             else "Герои в промтах картинок совпадают с персонажами кадров."
         )
     if report.get("ok"):
-        return " ".join(p for p in (heroes, f"Шаг «{step_ru}»: проверка содержания прошла, расхождений нет.") if p)
+        return " ".join(
+            p for p in (heroes, f"Шаг «{step_ru}»: проверка содержания прошла, расхождений нет.") if p
+        )
     parts = [p for p in (heroes,) if p]
     parts.append(f"Шаг «{step_ru}»: проверка содержания нашла ошибки (находок: {len(report['findings'])}).")
     ordered = sorted(report["findings"], key=lambda f: f.get("check") != "prompt_characters")

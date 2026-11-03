@@ -12,16 +12,20 @@ from app.orchestrator.db.migrations import connect
 def _user_modes(session_id: str) -> list[str | None]:
     conn = connect()
     try:
-        rows = conn.execute(
-            text(
-                """
+        rows = (
+            conn.execute(
+                text(
+                    """
                 SELECT mode FROM orch_messages
                 WHERE session_id = :sid AND role = 'user'
                 ORDER BY id
                 """
-            ),
-            {"sid": session_id},
-        ).mappings().fetchall()
+                ),
+                {"sid": session_id},
+            )
+            .mappings()
+            .fetchall()
+        )
     finally:
         conn.close()
     return [row["mode"] for row in rows]

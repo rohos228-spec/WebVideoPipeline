@@ -46,13 +46,6 @@ _SCRIPT_FRAMES_QC_NODE_SUFFIXES = (
     "_fw_style",
     "_fw_report",
 )
-# Код-ноды группы (без GPT): отчёт и «Стиль». Не GPT-шаг, без TEMP kie.
-_SCRIPT_FRAMES_QC_CODE_SUFFIXES = ("_fw_report", "_fw_style")
-
-
-def _nid_is_script_frames_qc_code(nid: str) -> bool:
-    raw = str(nid or "").strip()
-    return any(raw.endswith(suf) or f"{suf}_" in raw for suf in _SCRIPT_FRAMES_QC_CODE_SUFFIXES)
 
 
 def canvas_has_script_frames_qc(project_or_meta: Any) -> bool:
@@ -80,50 +73,6 @@ def canvas_has_script_frames_qc(project_or_meta: Any) -> bool:
         if any(nid.endswith(suf) for suf in _SCRIPT_FRAMES_QC_NODE_SUFFIXES):
             return True
     return False
-
-
-_SCRIPT_FRAMES_QC_GPT_SUFFIXES = tuple(
-    s for s in _SCRIPT_FRAMES_QC_NODE_SUFFIXES if s not in _SCRIPT_FRAMES_QC_CODE_SUFFIXES
-)
-
-
-def _nid_is_script_frames_qc_gpt(nid: str) -> bool:
-    """GPT-ноды группы (без отчёта и «Стиля»). Учитывает суффикс ``_2`` при коллизии id."""
-    raw = str(nid or "").strip()
-    if not raw or _nid_is_script_frames_qc_code(raw):
-        return False
-    return any(raw.endswith(suf) or f"{suf}_" in raw for suf in _SCRIPT_FRAMES_QC_GPT_SUFFIXES)
-
-
-def is_script_frames_qc_gpt_node(
-    project_or_meta: Any,
-    *,
-    node_key: str | None = None,
-) -> bool:
-    """Текущая нода — GPT-шаг группы ``script_frames_qc`` (не отчёт / не «Стиль»)."""
-    nk = str(node_key or "").strip()
-    if _nid_is_script_frames_qc_gpt(nk):
-        return True
-    if _nid_is_script_frames_qc_code(nk):
-        return False
-    meta = project_or_meta
-    if meta is not None and not isinstance(meta, dict):
-        meta = getattr(meta, "meta", None)
-    if not isinstance(meta, dict):
-        return False
-    from app.services.vibecode_catalog import find_canvas_node
-
-    node = find_canvas_node(meta, node_key=nk or None)
-    if not isinstance(node, dict):
-        return False
-    nid = str(node.get("id") or "")
-    if _nid_is_script_frames_qc_gpt(nid):
-        return True
-    if _nid_is_script_frames_qc_code(nid):
-        return False
-    data = node.get("data") if isinstance(node.get("data"), dict) else {}
-    gid = str((data or {}).get("groupId") or "").split("#", 1)[0].strip()
-    return gid == SCRIPT_FRAMES_QC_GROUP_ID
 
 
 @dataclass(frozen=True)

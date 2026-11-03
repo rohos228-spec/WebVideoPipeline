@@ -70,7 +70,11 @@ def test_non_montage_and_references_untouched() -> None:
     ref = {"project_id": 4, "frame_id": "$s1.right_id"}
     assert _fill("montage.split_scene", ref) == ref
     merge = {"project_id": 4, "left_frame_id": 3, "right_frame_id": 4}
-    assert _fill("montage.merge_scenes", merge) == {"project_id": 4, "left_frame_id": 235, "right_frame_id": 236}
+    assert _fill("montage.merge_scenes", merge) == {
+        "project_id": 4,
+        "left_frame_id": 235,
+        "right_frame_id": 236,
+    }
 
 
 def test_card_shows_board_numbers_not_row_ids() -> None:
@@ -97,11 +101,29 @@ def test_improve_and_generate_scene_go_to_card_not_deletion_ban() -> None:
 
 
 def test_improve_scene_image_limit_covers_scene_still_and_frames() -> None:
-    out = _fill("montage.improve_scene", {"project_id": 4, "frame_id": 3, "max_image_ops": 2,
-                                          "prompt": "улучши", "image_generator": "x", "image_resolution": "2k"})
+    out = _fill(
+        "montage.improve_scene",
+        {
+            "project_id": 4,
+            "frame_id": 3,
+            "max_image_ops": 2,
+            "prompt": "улучши",
+            "image_generator": "x",
+            "image_resolution": "2k",
+        },
+    )
     assert out["frame_id"] == 235 and out["max_image_ops"] == 5  # сцена 3–6: still + 4 кадра
-    big = _fill("montage.improve_scene", {"project_id": 4, "frame_id": 9, "max_image_ops": 7,
-                                          "prompt": "улучши", "image_generator": "x", "image_resolution": "2k"})
+    big = _fill(
+        "montage.improve_scene",
+        {
+            "project_id": 4,
+            "frame_id": 9,
+            "max_image_ops": 7,
+            "prompt": "улучши",
+            "image_generator": "x",
+            "image_resolution": "2k",
+        },
+    )
     assert big["max_image_ops"] == 7
 
 
@@ -110,4 +132,7 @@ def test_done_text_says_images_did_not_start() -> None:
 
     body = {"improved": True, "applied": False, "reason": "операций картинок 3 больше заявленных 2"}
     text = known_text("montage.improve_scene", body)
-    assert text.startswith("Готово: ") and "Картинки не запущены: операций картинок 3 больше заявленных 2." in text
+    assert (
+        text.startswith("Готово: ")
+        and "Картинки не запущены: операций картинок 3 больше заявленных 2." in text
+    )

@@ -62,15 +62,22 @@ def test_build_ops_skips_ready() -> None:
 
 
 def _frame() -> SimpleNamespace:
-    return SimpleNamespace(number=1, uuid="u", animation_prompt="", meaning="",
-                           image_prompt="STYLE: x. Сюжет: дверь вагона.", voiceover_text="дверь")
+    return SimpleNamespace(
+        number=1,
+        uuid="u",
+        animation_prompt="",
+        meaning="",
+        image_prompt="STYLE: x. Сюжет: дверь вагона.",
+        voiceover_text="дверь",
+    )
 
 
 def test_project_aspect_follows_project_then_canvas_node_then_default() -> None:
     proj = SimpleNamespace(aspect_ratio="16_9", meta={}, image_generator=None)
     assert project_aspect_slug(proj) == "16:9"
     assert "aspect 16:9" in compose_local_animation_prompt(  # type: ignore[arg-type]
-        _frame(), aspect=project_aspect_slug(proj))
+        _frame(), aspect=project_aspect_slug(proj)
+    )
     node = {"id": "v", "type": "videos", "data": {"aspectRatio": "1:1"}}
     proj.meta = {"canvas_graph": {"nodes": [node], "edges": []}}
     assert project_aspect_slug(proj) == "1:1"
@@ -78,6 +85,5 @@ def test_project_aspect_follows_project_then_canvas_node_then_default() -> None:
     from app.services.vibecode_catalog import resolve_node_media_settings
 
     # Без формата в проекте - тот же Studio-дефолт, что у шагов картинок.
-    assert project_aspect_slug(bare) == resolve_node_media_settings(
-        bare, node_type="images")["aspect_slug"]
+    assert project_aspect_slug(bare) == resolve_node_media_settings(bare, node_type="images")["aspect_slug"]
     assert project_aspect_slug(None) == "9:16"

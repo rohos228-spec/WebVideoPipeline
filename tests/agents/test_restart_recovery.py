@@ -411,7 +411,11 @@ async def test_restart_planning_does_not_execute_until_critic_approves(token: st
             for call in validators.calls
         )
         assert runtime.tasks.get(rejected)["status"] == TaskStatus.waiting_approval.value
-        held = [event for event in runtime.bus.replay("restart-plan-reject", 0) if event.type == "approval_required"]
+        held = [
+            event
+            for event in runtime.bus.replay("restart-plan-reject", 0)
+            if event.type == "approval_required"
+        ]
         assert held[-1].payload["reason"] == "critic_reject"
     finally:
         set_runtime(None)

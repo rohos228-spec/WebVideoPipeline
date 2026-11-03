@@ -6,8 +6,8 @@ import pytest
 
 pytest.importorskip("app.orchestrator.actions")
 
-from app.orchestrator.agents.runtime import build_runtime, set_runtime  # noqa: E402
 from app.orchestrator.agents.planner import unreadable_plan  # noqa: E402
+from app.orchestrator.agents.runtime import build_runtime, set_runtime  # noqa: E402
 from app.orchestrator.agents.summarizer import (  # noqa: E402
     WAITING_OTHER,
     TaskFacts,
@@ -42,14 +42,20 @@ def _events(rt, session: str, kind: str) -> list:
 
 
 def _runtime(router: ScriptedRouter, planner=None, actions=None):
-    rt = build_runtime(actions=actions or MockActions(), validators=MockValidators(), router=router,
-                       planner=planner or _CountingPlanner())
+    rt = build_runtime(
+        actions=actions or MockActions(),
+        validators=MockValidators(),
+        router=router,
+        planner=planner or _CountingPlanner(),
+    )
     set_runtime(rt)
     return rt
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", ["привет", "ок", "спасибо", "?", "помоги", "что ты умеешь?", "хз что делать"])
+@pytest.mark.parametrize(
+    "text", ["привет", "ок", "спасибо", "?", "помоги", "что ты умеешь?", "хз что делать"]
+)
 async def test_small_talk_answers_without_a_task(token: str, text: str) -> None:
     del token
     router = ScriptedRouter()
@@ -119,7 +125,9 @@ def test_stop_reply_says_what_was_stopped() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", ["отмени последнее действие", "отмени последнюю правку", "верни как было", "откати"])
+@pytest.mark.parametrize(
+    "text", ["отмени последнее действие", "отмени последнюю правку", "верни как было", "откати"]
+)
 async def test_undo_phrases_reach_planning_not_interrupt(token: str, text: str) -> None:
     del token
     router = ScriptedRouter()
@@ -145,15 +153,20 @@ def test_router_rule_alone_would_swallow_undo() -> None:
     assert classify_deterministic("стоп").mode is MessageMode.interrupt
 
 
-@pytest.mark.parametrize("text", [
-    "Уточните, что именно вернуть: проект, ноду или промт, и укажите project_id и node_key.",
-    "GPT 5.6 Sol дороже, а действие node.set_model_costly отсутствует в каталоге.",
-    "В каталоге нет действия для удаления проекта 2.",
-    "Нет подходящего action.",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Уточните, что именно вернуть: проект, ноду или промт, и укажите project_id и node_key.",
+        "GPT 5.6 Sol дороже, а действие node.set_model_costly отсутствует в каталоге.",
+        "В каталоге нет действия для удаления проекта 2.",
+        "Нет подходящего action.",
+    ],
+)
 def test_raw_planner_reason_is_never_shown(text: str) -> None:
     assert raw_reason(text)
-    facts = TaskFacts(goal="верни как было", status=TaskStatus.cancelled.value, error="empty_plan", detail=text)
+    facts = TaskFacts(
+        goal="верни как было", status=TaskStatus.cancelled.value, error="empty_plan", detail=text
+    )
     shown = deterministic_text(facts)
     assert shown.startswith("Не понял, что сделать.") and text not in shown
     for word in ("project_id", "node", "каталог", "action", "Не получилось"):
@@ -163,7 +176,9 @@ def test_raw_planner_reason_is_never_shown(text: str) -> None:
 def test_plain_planner_question_is_kept() -> None:
     why = "В каком проекте сменить модель на GPT 5.6 Sol?"
     assert not raw_reason(why)
-    shown = deterministic_text(TaskFacts(goal="смени модель", status="cancelled", error="empty_plan", detail=why))
+    shown = deterministic_text(
+        TaskFacts(goal="смени модель", status="cancelled", error="empty_plan", detail=why)
+    )
     assert shown.splitlines() == [
         "Не понял, что сделать.",
         why,
@@ -177,10 +192,17 @@ def test_rejection_is_not_a_failure_text() -> None:
     assert text == "Отменено по вашему решению. Ничего не изменено."
 
 
-@pytest.mark.parametrize("text", [
-    "стоп, отмени последнее", "стоп отмени последнее", "остановись и отмени последнее", "стоп undo",
-    "отмени последнюю задачу", "отмена последнего запуска",
-])
+@pytest.mark.parametrize(
+    "text",
+    [
+        "стоп, отмени последнее",
+        "стоп отмени последнее",
+        "остановись и отмени последнее",
+        "стоп undo",
+        "отмени последнюю задачу",
+        "отмена последнего запуска",
+    ],
+)
 def test_explicit_stop_beats_undo(text: str) -> None:
     # Иначе «стоп …» уходит в план отката, а идущая задача не останавливается.
     assert classify_deterministic(text).mode is MessageMode.interrupt, text
@@ -190,8 +212,17 @@ def test_explicit_stop_beats_undo(text: str) -> None:
 async def test_stop_with_undo_cancels_running_task(token: str) -> None:
     del token
     actions = MockActions()
-    planner = FixedPlanner([PlanStep(action="mock_sleep", params={"_block": True, "_seconds": 30},
-                                     expected="wait", paid=False, mutating=False)])
+    planner = FixedPlanner(
+        [
+            PlanStep(
+                action="mock_sleep",
+                params={"_block": True, "_seconds": 30},
+                expected="wait",
+                paid=False,
+                mutating=False,
+            )
+        ]
+    )
     rt = _runtime(ScriptedRouter(), planner, actions)
     session = "talk-stop-undo"
     try:
@@ -207,8 +238,9 @@ async def test_stop_with_undo_cancels_running_task(token: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("text", "kind"), [("учти что проект 5 вертикальный", "steer_idle"),
-                                            ("аварийный стоп", "stop")])
+@pytest.mark.parametrize(
+    ("text", "kind"), [("учти что проект 5 вертикальный", "steer_idle"), ("аварийный стоп", "stop")]
+)
 async def test_steer_and_kill_without_a_task_still_answer(token: str, text: str, kind: str) -> None:
     del token
     rt = _runtime(ScriptedRouter())
@@ -225,8 +257,13 @@ async def test_steer_and_kill_without_a_task_still_answer(token: str, text: str,
 
 
 def _paid_step() -> PlanStep:
-    return PlanStep(action="paid_mock", params={"_wait": True, "_change_id": "chg-paid", "_cost": 1},
-                    expected="paid", paid=True, mutating=True)
+    return PlanStep(
+        action="paid_mock",
+        params={"_wait": True, "_change_id": "chg-paid", "_cost": 1},
+        expected="paid",
+        paid=True,
+        mutating=True,
+    )
 
 
 @pytest.mark.asyncio
@@ -247,8 +284,11 @@ async def test_stop_on_unknown_paid_outcome_does_not_point_to_a_gone_card(token:
         assert rt.supervisor.stop_closes_card(task_id)
         await rt.queue.accept(session, "стоп")
         await rt.queue.drain(timeout=5)
-        stops = [event.payload["text"] for event in _events(rt, session, "message")
-                 if event.payload.get("kind") == "stop"]
+        stops = [
+            event.payload["text"]
+            for event in _events(rt, session, "message")
+            if event.payload.get("kind") == "stop"
+        ]
         assert stops[-1].startswith("Останавливаю задачу чата") and "«Отклонить»" not in stops[-1]
     finally:
         set_runtime(None)
@@ -263,7 +303,7 @@ async def test_ok_while_card_waits_reminds_about_buttons(token: str) -> None:
         task_id = await rt.supervisor.start_task(session, "платный", project_id=13)
         await rt.supervisor.wait(task_id, timeout=5)
         assert rt.tasks.get(task_id)["status"] == TaskStatus.waiting_approval.value
-        for text in ("ок", "\U0001F44D"):
+        for text in ("ок", "\U0001f44d"):
             await rt.queue.accept(session, text)
             await rt.queue.drain(timeout=5)
             assert _events(rt, session, "message")[-1].payload["text"] == CARD_WAITING_TEXT
@@ -274,7 +314,7 @@ async def test_ok_while_card_waits_reminds_about_buttons(token: str) -> None:
 
 
 def test_emoji_is_agreement_not_a_help_request() -> None:
-    assert small_talk_reply("\U0001F44D") == OK_TEXT
+    assert small_talk_reply("\U0001f44d") == OK_TEXT
     assert small_talk_reply("?") == HELP_TEXT and small_talk_reply("...") == HELP_TEXT
 
 
@@ -314,7 +354,9 @@ def test_waiting_card_note_survives_raw_reason() -> None:
 def test_asked_approval_reason_gives_one_instruction() -> None:
     from app.orchestrator.agents.supervisor import _ASKED_APPROVAL
 
-    shown = deterministic_text(TaskFacts(goal="x", status="cancelled", error="empty_plan", detail=_ASKED_APPROVAL))
+    shown = deterministic_text(
+        TaskFacts(goal="x", status="cancelled", error="empty_plan", detail=_ASKED_APPROVAL)
+    )
     assert "Причина:" not in shown and shown.count("например") == 1
 
 

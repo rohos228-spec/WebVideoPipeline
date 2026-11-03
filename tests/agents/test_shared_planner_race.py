@@ -69,7 +69,9 @@ class _GatedRouter(ScriptedRouter):
         self.waiting = 0
         self.seen_tasks: list[Any] = []
 
-    async def call(self, tier: str, messages: list[dict[str, Any]], stream: bool = False, **kwargs: Any) -> LLMResponse:
+    async def call(
+        self, tier: str, messages: list[dict[str, Any]], stream: bool = False, **kwargs: Any
+    ) -> LLMResponse:
         user = " ".join(str(item.get("content") or "") for item in messages if item.get("role") == "user")
         self.seen_tasks.append(kwargs.get("task_id"))
         self.waiting += 1
@@ -162,8 +164,9 @@ async def test_code_built_undo_plan_flag_stays_with_its_task(token: str) -> None
     """
     del token
     gate = asyncio.Event()
-    undo_step = PlanStep(action="project.patch_settings", params={"project_id": 5, "x": 1},
-                         mutating=True, risk="medium")
+    undo_step = PlanStep(
+        action="project.patch_settings", params={"project_id": 5, "x": 1}, mutating=True, risk="medium"
+    )
 
     async def _undo(goal: str, task_id: Any) -> Any:
         await gate.wait()
@@ -238,13 +241,16 @@ async def test_model_plan_is_not_marked_code_built_by_a_concurrent_undo() -> Non
     async def _undo(goal: str, task_id: Any) -> Any:
         if "верни" in goal:
             await gate_undo.wait()
-            return SimpleNamespace(steps=[{"action": "project.patch_settings", "params": {"project_id": 5}}],
-                                   reason="r")
+            return SimpleNamespace(
+                steps=[{"action": "project.patch_settings", "params": {"project_id": 5}}], reason="r"
+            )
         return None
 
     planner = RouterPlanner(_Router(), undo=_undo)
     store: dict = {}
-    task_b = asyncio.create_task(_snap(planner, store, 2, planner.make_plan("цель-Б статус", task_id=2, run_id="r2")))
+    task_b = asyncio.create_task(
+        _snap(planner, store, 2, planner.make_plan("цель-Б статус", task_id=2, run_id="r2"))
+    )
     await asyncio.sleep(0.05)
     task_a = asyncio.create_task(_snap(planner, store, 1, planner.make_plan("верни как было", task_id=1)))
     await asyncio.sleep(0.01)
@@ -259,7 +265,9 @@ async def test_model_plan_is_not_marked_code_built_by_a_concurrent_undo() -> Non
 
 @pytest.mark.asyncio
 async def test_undo_answer_resets_parse_failed_left_by_a_previous_call() -> None:
-    planner = RouterPlanner(_GatedRouter({}), undo=lambda goal, task_id: SimpleNamespace(steps=[], reason="нечего"))
+    planner = RouterPlanner(
+        _GatedRouter({}), undo=lambda goal, task_id: SimpleNamespace(steps=[], reason="нечего")
+    )
     planner.last_parse_failed = True
     store: dict = {}
     assert await _snap(planner, store, 3, planner.make_plan("верни как было", task_id=3)) == []
@@ -306,8 +314,13 @@ async def test_cancelled_planner_call_is_not_charged_a_neighbours_cost(token: st
     planner = RouterPlanner(router)
     neighbour = _reply(_PLAN_A).model_copy(update={"cost_usd": 5.0})
     router.last_response = neighbour
-    runtime = build_runtime(actions=MockActions(), validators=MockValidators(), router=router,
-                            planner=planner, critic=ScriptedCritic(["approve"]))
+    runtime = build_runtime(
+        actions=MockActions(),
+        validators=MockValidators(),
+        router=router,
+        planner=planner,
+        critic=ScriptedCritic(["approve"]),
+    )
     set_runtime(runtime)
     try:
         task_id = await runtime.supervisor.start_task("cost-cancel", "цель-А")
@@ -315,7 +328,7 @@ async def test_cancelled_planner_call_is_not_charged_a_neighbours_cost(token: st
         runtime.supervisor._runs[task_id].cancel()
         try:
             await runtime.supervisor.wait(task_id, timeout=5)
-        except (asyncio.CancelledError, asyncio.TimeoutError):
+        except (TimeoutError, asyncio.CancelledError):
             pass
         assert float(runtime.tasks.get(task_id)["spend_internal"] or 0) < 5.0
     finally:

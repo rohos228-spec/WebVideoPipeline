@@ -506,7 +506,7 @@ def touch_prompt_meta(step_code: str, name: str, size: int) -> float:
 
 def touch_prompt_meta_at(step_code: str, name: str, saved_at: float, size: int) -> None:
     meta = load_file_meta(step_code)
-    prev = meta.get(name) if isinstance(meta.get(name), dict) else {}
+    prev = raw_prev if isinstance(raw_prev := meta.get(name), dict) else {}
     meta[name] = {**prev, "saved_at": saved_at, "size": size}  # keep title/description
     _save_file_meta(step_code, meta)
 

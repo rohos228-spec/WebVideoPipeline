@@ -192,8 +192,8 @@ def normalize_vo_span(raw: Any, full: str = "") -> dict[str, Any] | None:
         return None
     text = _norm(str(raw.get("text") or raw.get("закадр") or ""))
     try:
-        start = int(raw.get("start") if raw.get("start") is not None else raw.get("from") or 0)
-        end = int(raw.get("end") if raw.get("end") is not None else raw.get("to") or 0)
+        start = int(raw_start if (raw_start := raw.get("start")) is not None else raw.get("from") or 0)
+        end = int(raw_end if (raw_end := raw.get("end")) is not None else raw.get("to") or 0)
     except (TypeError, ValueError):
         start, end = 0, 0
     source = _norm(full)

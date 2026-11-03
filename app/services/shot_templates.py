@@ -145,7 +145,7 @@ def split_scene_action_beats(text: str) -> list[str]:
     body = _META_ACTION_RE.sub(" ", body)
     body = " ".join(body.split())
     chunks = [p.strip(" ,.;:—-") for p in _BEAT_SPLIT_RE.split(body) if p and p.strip()]
-    beats: list[str] = []
+    beats = []
     for chunk in chunks:
         piece = " ".join(chunk.split())
         piece = re.sub(r"(?i)^как\s+", "", piece).strip()

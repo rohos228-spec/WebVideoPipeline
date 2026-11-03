@@ -129,7 +129,7 @@ def extract_main_action_from_reply(reply: str, frame_uuid: str = "") -> str:
         for op in ops:
             if not isinstance(op, dict):
                 continue
-            fields = op.get("fields") if isinstance(op.get("fields"), dict) else {}
+            fields = raw_fields if isinstance(raw_fields := op.get("fields"), dict) else {}
             action = str(
                 fields.get("главное_действие")
                 or fields.get("main_action")
@@ -167,9 +167,7 @@ def apply_cell_passport(
 
 
 def load_action_prompt() -> str:
-    path = resolve_excel_gpt_prompt_path(
-        ACTION_PROMPT_NAME, group_id=ACTION_PROMPT_GROUP
-    )
+    path = resolve_excel_gpt_prompt_path(ACTION_PROMPT_NAME, group_id=ACTION_PROMPT_GROUP)
     return path.read_text(encoding="utf-8")
 
 
@@ -181,9 +179,7 @@ def _bits_payload(parent: Frame) -> list[dict[str, Any]]:
             {
                 "порядок": item.get("порядок"),
                 "якорь": str(item.get("якорь") or "").strip(),
-                "изменение": str(
-                    item.get("изменение") or item.get("глагол") or ""
-                ).strip(),
+                "изменение": str(item.get("изменение") or item.get("глагол") or "").strip(),
             }
         )
     return [row for row in out if row["якорь"]]
@@ -271,18 +267,10 @@ def build_action_generate_prompt(
             " Пиши только по нему, остальной закадр ячейки не трогай."
         )
     payload = json.dumps(cell, ensure_ascii=False, indent=2)
-    return (
-        "## задача оператора\n"
-        f"{task}\n\n"
-        f"{rules.rstrip()}\n\n"
-        "Вход — одна VO-ячейка:\n"
-        f"{payload}\n"
-    )
+    return f"## задача оператора\n{task}\n\n{rules.rstrip()}\n\nВход — одна VO-ячейка:\n{payload}\n"
 
 
-async def _map_character_labels(
-    session: AsyncSession, project_id: int, raw: str
-) -> str:
+async def _map_character_labels(session: AsyncSession, project_id: int, raw: str) -> str:
     text = (raw or "").strip()
     if not text:
         return ""
@@ -290,21 +278,14 @@ async def _map_character_labels(
         from app.models import Entity
 
         ents = list(
-            (
-                await session.execute(
-                    select(Entity).where(Entity.project_id == project_id)
-                )
-            )
-            .scalars()
-            .all()
+            (await session.execute(select(Entity).where(Entity.project_id == project_id))).scalars().all()
         )
     except Exception:  # noqa: BLE001
         return text
     names = {
         str(getattr(e, "code", "") or "").strip(): str(getattr(e, "name", "") or "").strip()
         for e in ents
-        if str(getattr(e, "type", "") or "") == "character"
-        and str(getattr(e, "code", "") or "").strip()
+        if str(getattr(e, "type", "") or "") == "character" and str(getattr(e, "code", "") or "").strip()
     }
     if not names:
         return text
@@ -352,9 +333,7 @@ async def generate_cell_scene_action(
         missing = [n for n in wanted if n not in known]
         if missing:
             raise RuntimeError(
-                "в ячейке нет сцен "
-                + ", ".join(str(n) for n in missing)
-                + " — сначала сгенерируйте цепь"
+                "в ячейке нет сцен " + ", ".join(str(n) for n in missing) + " — сначала сгенерируйте цепь"
             )
 
     applied = apply_cell_passport(parent, frames, passport)
@@ -429,9 +408,7 @@ async def generate_cell_scene_action(
         mode=mode,
     )
     reply = await gpt_ask_fresh(prompt, timeout=timeout, project_id=int(project.id))
-    extracted = extract_main_action_from_reply(
-        reply, str(getattr(parent, "uuid", "") or "")
-    )
+    extracted = extract_main_action_from_reply(reply, str(getattr(parent, "uuid", "") or ""))
     patch_chain = _chain_rows(extracted)
     if not patch_chain:
         raise ValueError("GPT не вернул сцены в форме N. место — шаг")
@@ -693,9 +670,7 @@ async def generate_cell_scene_with_images(
         chain_src = (operator_prompt or "").strip() or main_action_text(parent)
         if not chain_src:
             raise RuntimeError(gen_error or "последовательность кадров пустая") from exc
-        report = await apply_coverage_scene_action(
-            session, project, parent, frames, chain_src, grow=grow
-        )
+        report = await apply_coverage_scene_action(session, project, parent, frames, chain_src, grow=grow)
         await session.flush()
         result = {
             "ok": True,
@@ -735,9 +710,9 @@ async def generate_cell_scene_with_images(
     parent, members = scene_group(frames, frame)
     visible = _visible_cell_members(parent, members)
     kadry = None
-    report = result.get("report")
-    if isinstance(report, dict):
-        raw_kadry = report.get("kadry") or report.get("shots")
+    gen_report = result.get("report")
+    if isinstance(gen_report, dict):
+        raw_kadry = gen_report.get("kadry") or gen_report.get("shots")
         if isinstance(raw_kadry, list):
             kadry = [s for s in raw_kadry if isinstance(s, dict)]
     if not result.get("image_ops"):

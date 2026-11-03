@@ -28,8 +28,15 @@ async def test_incident_notice_is_the_project_clients_row(pg) -> None:  # noqa: 
     a, b = pg["a"].user_id, pg["b"].user_id
     chat_notice.reset()
     mark = uuid.uuid4().hex[:8]
-    row = SimpleNamespace(details={"title": "Нужно решение"}, severity="error", type="watchdog_stalled",
-                          project_id=None, incident_id=f"inc-pg-{mark}", execution_id=f"ex-{mark}", tenant_id=a)
+    row = SimpleNamespace(
+        details={"title": "Нужно решение"},
+        severity="error",
+        type="watchdog_stalled",
+        project_id=None,
+        incident_id=f"inc-pg-{mark}",
+        execution_id=f"ex-{mark}",
+        tenant_id=a,
+    )
     assert current_tenant() is None  # фоновый проход
     status = await chat_notice.incident(row, f"Сторож: зависла работа ({mark})")
     assert status == "written"

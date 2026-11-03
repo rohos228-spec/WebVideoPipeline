@@ -474,7 +474,11 @@ async def test_chat_action_reports_findings_and_phrases(monkeypatch):
 
     monkeypatch.setattr(ccd, "_load", load)
     out = await ccd._diag_content_checks(SimpleNamespace(), {"project_id": 26})
-    assert out["clean"] is False and "ok" not in out and out["fix_options"][0]["action"] == "shot.edit_cell_voiceover"
+    assert (
+        out["clean"] is False
+        and "ok" not in out
+        and out["fix_options"][0]["action"] == "shot.edit_cell_voiceover"
+    )
     assert "«рано» вместо «поздно»" in out["text_ru"] and "После шага «разбивка на кадры»" in out["text_ru"]
     assert out["suggested_phrase"].startswith("в проекте 26 поставь закадр кадра 3")
     from app.orchestrator.actions.executor import _refusal
@@ -569,7 +573,9 @@ def test_voiceover_edits_after_other_step_are_not_auto():
         "check": "vo_concat",
         "title_ru": "Закадр кадров не сходится",
         "frames": [4],
-        "fixes": [{"uuid": "u4", "number": 4, "text": "Первый: во время охоты сова полагается не только на зрение."}],
+        "fixes": [
+            {"uuid": "u4", "number": 4, "text": "Первый: во время охоты сова полагается не только на зрение."}
+        ],
     }
     after_prompts = cc.fix_options({"step": "img_pr", "findings": [finding]}, 10)
     edits = [f for f in after_prompts if f["action"] == "shot.edit_cell_voiceover"]

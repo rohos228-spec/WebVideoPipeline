@@ -804,7 +804,9 @@ async def run_split_xlsx(
             # Склейка верна, не сошлось только число кадров: берём ответ модели,
             # находку «число кадров» запишет проверка после шага (content_checks).
             logger.warning("split_db: число кадров не как в сценарии — ответ принят: {}", str(e)[:200])
-            return _split_result(proj_xlsx, f"[frame_count_mismatch] {e}", concat_ok["frames"], vo_text, degraded=False)
+            return _split_result(
+                proj_xlsx, f"[frame_count_mismatch] {e}", concat_ok["frames"], vo_text, degraded=False
+            )
         blocks = split_voiceover_locally(vo_text)
         blocks = [b.strip() for b in blocks if b.strip()]
         if len(blocks) < 2:
