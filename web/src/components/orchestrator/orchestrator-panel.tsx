@@ -1863,40 +1863,6 @@ export function OrchestratorPanel({ projectId }: Props) {
               <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300 shrink-0">
                 AI Director
               </span>
-              {(() => {
-                const topic = project?.topic?.trim();
-                const displayTitle = topic || currentSession?.title || "Основной чат";
-                return (
-                  <div
-                    onClick={() => {
-                      if (projectId != null) {
-                        window.dispatchEvent(
-                          new CustomEvent("canvas-select-node", { detail: { nodeKey: "n_topic" } })
-                        );
-                      }
-                    }}
-                    className={cn(
-                      "hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-medium transition-all min-w-0 max-w-[320px] lg:max-w-[420px] select-none ml-1",
-                      topic
-                        ? "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-200 hover:text-white cursor-pointer active:scale-95 shadow-sm"
-                        : "bg-white/[0.04] hover:bg-white/[0.08] border border-white/10 text-white/70 hover:text-white cursor-default"
-                    )}
-                    title={
-                      topic
-                        ? `Тема проекта: «${topic}» (кликните, чтобы открыть ноду темы)`
-                        : currentSession?.title || "Основной чат"
-                    }
-                  >
-                    <Clapperboard className="h-3 w-3 shrink-0 text-emerald-400" />
-                    {topic && (
-                      <span className="text-[10px] uppercase font-mono tracking-wider text-emerald-400/80 shrink-0">
-                        Тема:
-                      </span>
-                    )}
-                    <span className="truncate">«{displayTitle}»</span>
-                  </div>
-                );
-              })()}
             </div>
           </div>
 
