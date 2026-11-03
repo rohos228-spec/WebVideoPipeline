@@ -150,6 +150,21 @@ export function studioChatSession(projectId: number | null): string {
   return projectId != null ? `studio-p${projectId}` : "studio-factory";
 }
 
+const SHOWN_MIN_PX = 40;
+
+/** К последней реплике; есть открытая карточка подтверждения — к ней (новая — всегда к её верху). */
+function scrollToLatest(el: HTMLElement, grew: boolean): void {
+  const cards = el.querySelectorAll<HTMLElement>("[data-testid='orch-approval']");
+  const card = cards.length > 0 ? cards[cards.length - 1] : null;
+  if (!card) {
+    el.scrollTop = el.scrollHeight;
+    return;
+  }
+  const top = card.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8;
+  const bottom = el.scrollHeight - el.clientHeight;
+  el.scrollTop = grew ? top : Math.min(bottom, top);
+}
+
 export function StudioOrchestratorChat({ projectId, scope }: { projectId: number | null; scope: ChatScope }) {
   const [settled, setSettled] = useState(false);
   useEffect(() => {
@@ -219,16 +234,24 @@ function ChatPane({
     if (!el) return;
     const grew = openCount > approvalsSeen.current;
     approvalsSeen.current = openCount;
-    const cards = el.querySelectorAll<HTMLElement>("[data-testid='orch-approval']");
-    const card = cards.length > 0 ? cards[cards.length - 1] : null;
-    if (!card) {
-      el.scrollTop = el.scrollHeight;
-      return;
-    }
-    const top = card.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 8;
-    const bottom = el.scrollHeight - el.clientHeight;
-    el.scrollTop = grew ? top : Math.min(bottom, top);
+    scrollToLatest(el, grew);
   }, [messageCount, lastText, notices.notices.length, openCount]);
+
+  // Лента грузится и в свёрнутой панели: там у неё нулевая высота, прокрутка вниз ничего не
+  // делает, и при раскрытии человек видел самые старые карточки. Раскрыли — встаём на последнее.
+  const needsToken = chat.needsToken;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let prev = el.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const height = el.clientHeight;
+      if (prev < SHOWN_MIN_PX && height >= SHOWN_MIN_PX) scrollToLatest(el, false);
+      prev = height;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [needsToken]);
 
   const task = currentTaskOf(chat.state.tasks);
   const tasksLabel = tasksTabLabel(chat.state.tasks);
