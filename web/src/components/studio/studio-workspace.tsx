@@ -704,17 +704,7 @@ export function StudioWorkspace({
               canvasActions.onOpenHitlReview(nodeKey, nodeType);
               return true;
             }
-            const kind = hitlKindForNodeType(nodeType);
-            if (kind) {
-              const pending = (hitlList.data ?? []).find(
-                (h) => h.kind === kind && h.decision === "pending",
-              );
-              if (pending) {
-                suppressStudioOpenUntil.current = Date.now() + 1000;
-                canvasActions.onOpenHitlReview(nodeKey, nodeType);
-                return true;
-              }
-            }
+            // Устаревший авто-попап HitlModal убран — согласование идёт через диалог ИИ-агента
             // Old side-sheet auto-open on select removed; single click expands inline.
             onSelectNode(nodeKey);
             return false;
@@ -793,20 +783,7 @@ export function StudioWorkspace({
           nodeLabel={getNodeSpec(aiCtx.nodeType).label}
         />
       )}
-      {projectId != null && (
-        <HitlModal
-          hitlId={hitlModalId}
-          projectId={projectId}
-          open={hitlModalOpen}
-          onOpenChange={(o) => {
-            setHitlModalOpen(o);
-            if (!o) {
-              setHitlModalId(null);
-              suppressStudioOpenUntil.current = Date.now() + 500;
-            }
-          }}
-        />
-      )}
+      {/* Устаревшее модальное окно HitlModal отключено — все согласования ведутся в чате ИИ-агента */}
       {projectId != null && aiReview && (
         <NodeAiReviewDialog
           open
