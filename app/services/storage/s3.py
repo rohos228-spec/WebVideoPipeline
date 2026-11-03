@@ -136,6 +136,8 @@ class S3Storage:
         params: dict[str, Any] = {"Bucket": self.bucket, "Key": key}
         if download_name:
             params["ResponseContentDisposition"] = f'attachment; filename="{download_name}"'
+        else:
+            params["ResponseCacheControl"] = "public, max-age=31536000, immutable"
         try:
             return str(
                 self.client().generate_presigned_url("get_object", Params=params, ExpiresIn=int(ttl_sec))

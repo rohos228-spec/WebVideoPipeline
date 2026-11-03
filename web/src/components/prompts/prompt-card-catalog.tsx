@@ -704,14 +704,14 @@ export function NodeCatalogPanel({
               className={cn(
                 "flex h-9 items-center justify-center gap-1.5 text-[13px] tracking-[0.08em] uppercase transition-colors",
                 detailItem.id === activeId
-                  ? "bg-emerald-500 font-bold text-black shadow-[0_0_12px_rgba(16,185,129,0.4)]"
-                  : "bg-[#141417] text-zinc-200 hover:bg-[#1b1b1f] hover:text-white",
+                  ? "bg-[#141417] font-semibold text-white"
+                  : "bg-[#141417] text-zinc-300 hover:bg-[#1b1b1f] hover:text-white",
               )}
             >
               {detailItem.id === activeId ? (
                 <>
-                  <Check className="h-4 w-4 stroke-[3]" />
-                  <span>Активен</span>
+                  <Check className="h-4 w-4 stroke-[2.5] text-emerald-400" />
+                  <span className="text-white">Активен</span>
                 </>
               ) : (
                 "Сделать активным"

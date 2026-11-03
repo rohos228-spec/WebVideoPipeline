@@ -12,11 +12,11 @@ const N = (t: string) => `/prompt-bg/node/${t}.webp`;
  * Пустой src = заготовка-плейсхолдер. Индексы 1..12 используются по всей странице.
  */
 export const HOME_IMAGES: Record<number, { src: string; label: string }> = {
-  1: { src: "", label: "Hero · концепт контент-завода" },
+  1: { src: "/home/hero-1.webp", label: "Hero · Мультфильмы" },
   2: { src: "", label: "Витрина · главный кадр" },
-  3: { src: "", label: "Hero · кадр 2" },
+  3: { src: "/home/hero-2.webp", label: "Hero · Сериалы" },
   4: { src: "", label: "Витрина · кадр" },
-  5: { src: "", label: "Hero · кадр 3" },
+  5: { src: "/home/hero-3.webp", label: "Hero · Кинематограф" },
   6: { src: "", label: "Витрина · кадр" },
   7: { src: "", label: "Лента · кадр" },
   8: { src: "", label: "Витрина · кадр" },
@@ -25,6 +25,30 @@ export const HOME_IMAGES: Record<number, { src: string; label: string }> = {
   11: { src: "", label: "Лента · кадр" },
   12: { src: "", label: "Лента · кадр" },
 };
+
+export const FORMAT_IMAGES: Record<number, { src: string; label: string }> = {
+  1: { src: "", label: "Мультсериалы" },
+  2: { src: "", label: "Shorts и Reels" },
+  3: { src: "", label: "Объясняющие видео" },
+  4: { src: "", label: "Истории и документалки" },
+  5: { src: "", label: "Факты и подборки" },
+  6: { src: "", label: "Любой свой формат" },
+};
+
+function FormatSlot({ i, className = "", style }: { i: number; className?: string; style?: React.CSSProperties }) {
+  const it = FORMAT_IMAGES[i];
+  if (it?.src) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={it.src} alt="" className={`object-cover ${className}`} style={style} />;
+  }
+  return (
+    <div className={`flex flex-col items-center justify-center gap-2 border border-white/[0.09] bg-[#0d1314] text-white/30 ${className}`} style={style}>
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21" /></svg>
+      <span className="text-sm">Изображение 16:9</span>
+      <span className="text-xs text-white/20">Формат #{i} · {it?.label}</span>
+    </div>
+  );
+}
 
 function Slot({ i, className = "", style }: { i: number; className?: string; style?: React.CSSProperties }) {
   const it = HOME_IMAGES[i];
@@ -358,7 +382,7 @@ export function HomeLanding({ fontClass = "" }: { fontClass?: string }) {
           {FORMATS.map(([t, d], i) => (
             <Reveal key={t} delay={i * 70}>
               <div className="overflow-hidden rounded-3xl bg-white/[0.03] ring-1 ring-white/[0.07]">
-                <Slot i={((i * 2 + 1) % 12) + 1} className="aspect-video w-full" />
+                <FormatSlot i={i + 1} className="aspect-video w-full" />
                 <div className="p-7"><div className="text-2xl font-medium">{t}</div><p className="mt-3 text-lg leading-relaxed text-white/55">{d}</p></div>
               </div>
             </Reveal>

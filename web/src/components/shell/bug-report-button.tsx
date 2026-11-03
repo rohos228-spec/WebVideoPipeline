@@ -98,16 +98,17 @@ export function BugReportButton({
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
+      <button
+        type="button"
         onClick={() => setOpen(true)}
-        className="h-7 px-2 gap-1.5 border border-red-500/80 bg-red-500/10 text-xs text-red-200 hover:border-red-400 hover:bg-red-500/20 shadow-[0_0_8px_rgba(239,68,68,0.35)] ring-1 ring-red-500/40 select-none transition-all"
+        className="group flex w-[56px] flex-col items-center justify-center py-2 text-zinc-400 transition hover:text-white"
         title="Багрепорт: описание + логи → папка баги/ + скачать .md"
       >
-        <Bug className="h-3.5 w-3.5" />
-        Баг
-      </Button>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg transition group-hover:bg-white/[0.06]">
+          <Bug className="h-[18px] w-[18px]" />
+        </div>
+        <span className="mt-1 text-[10px] font-medium leading-none tracking-tight">Баг</span>
+      </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto border-rose-400/20">
