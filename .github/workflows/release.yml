@@ -216,6 +216,9 @@ jobs:
           tar -czf - prompts/ | ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" \
             -- "tar -xzf - -C $VPS_PATH && chmod -R a+rX $VPS_PATH/prompts"
 
+          # Очистка неиспользуемых docker-образов на VPS перед загрузкой нового
+          ssh -o BatchMode=yes "${VPS_USER}@${VPS_HOST}" -- "docker image prune -af || true"
+
           if [ "${{ github.ref_name }}" = "test" ]; then
             remote_cmd=$(printf 'cd %q && STUDIO_V2_IMAGE=%q ./deploy.sh v2' \
               "$VPS_PATH" "${IMAGE}@${DIGEST}")

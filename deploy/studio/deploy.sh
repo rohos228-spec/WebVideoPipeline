@@ -108,6 +108,9 @@ cmd_deploy() {
   echo "деплой ($svc): бэкап базы"
   cmd_backup "$env_file"
 
+  echo "деплой ($svc): очистка неиспользуемых docker-образов для освобождения диска"
+  docker image prune -af >/dev/null 2>&1 || true
+
   echo "деплой ($svc): тянем образы"
   docker compose --env-file "$env_file" pull --quiet "$svc"
 
