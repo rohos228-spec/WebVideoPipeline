@@ -94,3 +94,11 @@ fcd5f50a80cd5289eab57d90e30673eacf2c821e:tests/test_excel_gpt_slot_chain.py:gene
 # generic-api-key цепляется за KEY= без значения — не секрет. Feature + squash.
 36b5a1d02b7286db89fb84aaaac8eb105f2ad262:.env.example:generic-api-key:60
 eae6bcb02f1583ac949f5537b7343d2f0865f527:.env.example:generic-api-key:60
+
+# 2026-11-04 слияние PR #160 (оркестратор, автономия): ложные срабатывания в коммитах PR 160:
+# Учебные тестовые фикстуры и имена таблиц/колонок alembic/SQL, не являющиеся ключами:
+dc72f1403d7dadf0ca88d96999eeeef6d7edc745:tests/test_action_layer_node_edit.py:generic-api-key:606
+dc72f1403d7dadf0ca88d96999eeeef6d7edc745:tests/test_action_layer_node_edit.py:generic-api-key:609
+d3fa261b732f559dbc29e2e3b1be6770416ec7d4:tests/agents/test_chat_task_summary.py:generic-api-key:277
+672e6531715b27c4b16b64945e3a8a50b33853cd:tests/test_backup_db.py:generic-api-key:172
+d336aa572a5c9a1f69ecff1e6e2cc5a1bd10f1b4:app/services/decision_v1.py:generic-api-key:702
