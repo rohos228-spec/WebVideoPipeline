@@ -1115,7 +1115,7 @@ MODELS: list[dict[str, Any]] = [
                 ["auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"], "auto"
             ),
             _res(_RES_IMG, "1K"),
-            _f("output_format", "Формат", "select", options=["jpg", "png"], default="jpg"),
+            _f("output_format", "Формат", "select", options=["png", "jpg"], default="png"),
         ],
         "pricing": {
             "unit": "gen",
