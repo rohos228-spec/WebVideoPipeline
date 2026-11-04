@@ -118,14 +118,6 @@ FRAME_DELETE_HINT = (
 )
 
 
-# Разбивки сцен на доске этой линии нет (executor._HELD_UNTIL_R2): объясняем, а не «не умею».
-_SPLIT_SCENE = re.compile(r"(?:отдел|раздел|разбе|разби|расклей)\w*[^.?!]{0,40}сцен", re.IGNORECASE)
-SPLIT_SCENE_HINT = (
-    "Разделять сцены в этой версии доски монтажа нельзя: такой функции на доске нет. "
-    "Объединить сцены можно, напишите «объедини сцены кадров 13 и 14»."
-)
-
-
 # «Удали кадр 5 в проекте 12»: план пустой, и человек получал «Не понял, что сделать».
 _DELETE_VERB = re.compile(r"(?<![а-я])(?:удал|сотр|стер)|(?<![а-я])убер\w*.{0,30}совсем")
 _BOARD_THING = re.compile(r"кадр|сцен|шот|картин|видео")
@@ -148,8 +140,6 @@ def missing_action_text(reason: str, goal: str = "") -> str:
         return ""
     if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):
         return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
-    if _SPLIT_SCENE.search(goal or ""):
-        return f"{NOT_SUPPORTED} {SPLIT_SCENE_HINT}"
     why = _other_reasons(reason)
     return f"{NOT_SUPPORTED} {why}" if why else NOT_SUPPORTED
 
@@ -816,6 +806,7 @@ _KNOWN_TEXT = {
     "projects.overview": _overview_text,
     "project.status": _own_text,
     "diag.node_failure": _own_text,
+    "diag.content_checks": _own_text,
     "group.shots_report": _own_text,
     "step.run_step": _own_text,
     "publish.send": _own_text,
@@ -837,7 +828,12 @@ def _montage_done_text(action: str, body: dict[str, Any]) -> str:
         return ""
     frame = body.get("frame_number") or body.get("number")
     where = f" (кадр {frame})" if frame not in (None, "") else ""
-    return f"Готово: {step_title(action).rstrip('.')}{where}."
+    done = f"Готово: {step_title(action).rstrip('.')}{where}."
+    reason = str(body.get("reason") or "").strip()
+    if body.get("applied") is False and reason:
+        # «Улучши сцену»: сцена переписана, а картинки не стартовали — «Готово» без этого врёт.
+        return f"{done} Картинки не запущены: {reason.rstrip('.')}."
+    return done
 
 
 def known_text(action: str, body: dict[str, Any]) -> str:
@@ -1431,6 +1427,31 @@ def _squash(text: str) -> str:
     return re.sub(r"[\s>*_`#«»\"]+", "", text).lower()
 
 
+_QUOTE = re.compile(r"«([^«»]+)»")
+
+
+def drop_goal_quote(text: str, goal: str) -> str:
+    """Цитата самой просьбы («проверь промты картинок в проекте 26») в конце итога — не совет.
+
+    Предложение, где кроме цитаты почти ничего нет, уходит целиком; иначе — только цитата.
+    """
+    asked = _squash(goal or "")
+    if not asked:
+        return text
+    out: list[str] = []
+    for line in text.splitlines():
+        kept: list[str] = []
+        for part in _SENTENCE.split(line):
+            if not any(_squash(q) == asked for q in _QUOTE.findall(part)):
+                kept.append(part)
+                continue
+            rest = _QUOTE.sub(lambda m: "" if _squash(m.group(1)) == asked else m.group(0), part)
+            if len(re.sub(r"[\W_]+", "", rest)) >= 25:
+                kept.append(re.sub(r"\s+([,.:;!?])", r"\1", " ".join(rest.split())))
+        out.append(" ".join(kept).rstrip())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
 def ensure_prompt_quoted(text: str, facts: TaskFacts) -> str:
     """Модель пересказала промт вместо цитаты: дописываем показанный текст цитатой сами."""
     items, more = prompt_quotes(facts)
@@ -1556,6 +1577,11 @@ class TaskSummarizer:
         text = cleaned
         if not text:
             return fallback
+        if _squash(text) == _squash(facts.goal):
+            # «сверь промты картинок с героями в проекте 12» в кавычках — сама просьба, не итог.
+            logger.info("orch summary is the request itself, code text used")
+            return fallback
+        text = drop_goal_quote(text, facts.goal) or fallback
         text = ensure_prompt_quoted(text, facts)
         # Модель могла уже вставить ссылку со своей подписью: сравниваем по адресу, не по строке.
         links = [

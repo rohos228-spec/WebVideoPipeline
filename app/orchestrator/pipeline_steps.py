@@ -339,6 +339,14 @@ _STEP_BY_CODE["items"] = StepDef(
 for _slot in range(1, MAX_ENRICH_SLOTS + 1):
     _code = f"enrich_{_slot}"
     _STEP_BY_CODE[_code] = _enrich_slot_step(_slot)
+_STEP_BY_CODE["publish"] = StepDef(
+    -1,
+    "publish",
+    "Публикация",
+    ProjectStatus.publishing,
+    ProjectStatus.published,
+    ProjectStatus.assembled,
+)
 
 
 def step_by_code(code: str) -> StepDef | None:
@@ -346,16 +354,29 @@ def step_by_code(code: str) -> StepDef | None:
 
 
 def step_by_running_status(running_status: ProjectStatus) -> StepDef | None:
+    """StepDef по running-статусу: сначала sub-step'ы, затем весь реестр, затем шаги меню.
+
+    sfx_plan/sfx_gen/publish есть только в `_STEP_BY_CODE` (в линейном меню их нет);
+    без них откат при ошибке/отмене ⏹ на sfx_planning/generating_sfx/publishing
+    не находил шаг (перенос фикса «отмена SFX» из движка, 559407f3).
+    """
     for code in (
         "hero",
         "items",
         "audio",
         "scene_d",
         "scene_asm",
+        "sfx_plan",
+        "sfx_gen",
         *(f"enrich_{i}" for i in range(1, MAX_ENRICH_SLOTS + 1)),
     ):
         sd = _STEP_BY_CODE.get(code)
         if sd is not None and sd.running_status is running_status:
+            return sd
+    for sd in _STEP_BY_CODE.values():
+        if sd.code in ("objects", "enrich"):
+            continue
+        if sd.running_status is running_status:
             return sd
     for sd in STEPS:
         if sd.code in ("objects", "enrich"):
@@ -382,6 +403,7 @@ def step_icon(step: StepDef, project_status: ProjectStatus) -> str:
         return "✅"
     return "⬜"
 
+
 def is_step_runnable(step: StepDef, project_status: ProjectStatus) -> bool:
     """Можно ли запустить шаг сейчас: достигнут его prerequisite (или его нет).
 
@@ -391,4 +413,3 @@ def is_step_runnable(step: StepDef, project_status: ProjectStatus) -> bool:
     if step.requires is None:
         return True
     return status_order(project_status) >= status_order(step.requires)
-

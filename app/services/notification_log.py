@@ -95,7 +95,7 @@ def scope_key() -> str:
 def engine() -> Engine:
     """База приложения: Postgres по ``DATABASE_URL`` или файл ``_db_path()``.
 
-    На Postgres таблицы создаёт alembic (ревизия 0018); на SQLite их по-прежнему
+    На Postgres таблицы создаёт alembic (ревизия 0021); на SQLite их по-прежнему
     создаёт первый писатель — ``ensure_sqlite_schema``.
     """
     from app.orchestrator.db.engine import get_engine

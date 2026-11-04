@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 from loguru import logger
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from app.services.plan_shot2 import (
     SHOT2_VIDEO_PROMPT_ATTR,
     disk_has_shot2_video,
     find_shot2_image,
+    is_parent_still_filename,
     read_shot2_columns,
 )
 
@@ -49,10 +51,18 @@ _WEBP_TAG = b"WEBP"
 
 
 def newest_frame_image_path(scenes_dir: Path, frame_number: int) -> Path | None:
-    """Самый свежий PNG shot_01 для кадра (без ``_s2_`` в имени)."""
+    """Самый свежий файл изображения shot_01 для кадра (без ``_s2_`` в имени)."""
     if not scenes_dir.is_dir():
         return None
-    candidates = [p for p in scenes_dir.glob(f"frame_{frame_number:03d}_*.png") if "_s2_" not in p.name]
+    candidates = [
+        p
+        for p in scenes_dir.glob(f"frame_{frame_number:03d}_*.*")
+        if (
+            p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}
+            and "_s2_" not in p.name
+            and not is_parent_still_filename(p.name)
+        )
+    ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
@@ -112,9 +122,25 @@ def disk_has_valid_shot2_image(scenes_dir: Path, frame_number: int) -> bool:
     return path is not None and is_valid_scene_image(path)
 
 
-def frame_needs_shot1_image(fr: Frame, scenes_dir: Path) -> bool:
-    """Кадр должен пройти outsee: есть промт, нет валидного PNG на диске."""
-    if is_skippable_empty_prompt(fr.image_prompt or ""):
+def frame_image_prompt_text(fr: Frame, frames: list[Frame] | None = None) -> str:
+    """Промт кадра для outsee: свой, иначе промт VO-родителя у K2/K3."""
+    from app.services.vo_shot_expand import effective_image_prompt
+
+    return effective_image_prompt(fr, frames)
+
+
+def frame_needs_shot1_image(fr: Frame, scenes_dir: Path, frames: list[Frame] | None = None) -> bool:
+    """Кадр должен пройти outsee: есть промт, нет валидного PNG на диске.
+
+    Дочерние шоты (K2/K3) — отдельные кадры со своим куском закадра.
+    Им нужна своя картинка, не shot2 родителя. Пустой свой image_prompt
+    не отменяет очередь, если у родителя промт уже есть.
+    """
+    if is_skippable_empty_prompt(frame_image_prompt_text(fr, frames)):
+        return False
+    from app.services.vo_shot_expand import is_coverage_leftover
+
+    if is_coverage_leftover(fr):
         return False
     if fr.status is FrameStatus.image_approved:
         return False
@@ -147,8 +173,12 @@ async def scan_missing_frames(session: AsyncSession, project: Project) -> list[i
     scenes_dir = project.data_dir / "scenes"
     missing: list[int] = []
     total_with_prompt = 0
+    from app.services.vo_shot_expand import is_coverage_leftover
+
     for fr in frames:
-        if is_skippable_empty_prompt(fr.image_prompt or ""):
+        if is_coverage_leftover(fr):
+            continue
+        if is_skippable_empty_prompt(frame_image_prompt_text(fr, cast(list[Frame], frames))):
             continue
         total_with_prompt += 1
         if not disk_has_valid_frame_image(scenes_dir, fr.number):
@@ -165,7 +195,9 @@ async def scan_missing_frames(session: AsyncSession, project: Project) -> list[i
 
 
 async def scan_missing_shot2_frames(session: AsyncSession, project: Project) -> list[int]:
-    """Кадры с промтом shot_02 в xlsx, но без ``frame_NNN_s2_*.png`` на диске."""
+    """Кадры с промтом shot_02 (xlsx или attrs), но без ``frame_NNN_s2_*.png``."""
+    from app.services.vo_shot_expand import is_shot_child
+
     frames = (
         (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
         .scalars()
@@ -173,14 +205,32 @@ async def scan_missing_shot2_frames(session: AsyncSession, project: Project) -> 
     )
     xlsx_path = project.data_dir / "project.xlsx"
     by_num = read_shot2_columns(xlsx_path) if xlsx_path.is_file() else {}
+    by_uuid = {str(fr.uuid or ""): fr for fr in frames if fr.uuid}
     scenes_dir = project.data_dir / "scenes"
     missing: list[int] = []
     expected = 0
     for fr in frames:
-        info = by_num.get(fr.number)
-        if info is None or not info.has_shot2:
+        attrs = dict(fr.attrs or {})
+        if str(attrs.get(SHOT2_STATUS_ATTR) or "") == "skipped":
             continue
-        if not disk_has_valid_frame_image(scenes_dir, fr.number):
+        info = by_num.get(fr.number)
+        prompt = ""
+        if info is not None and info.has_shot2:
+            prompt = info.prompt or ""
+        if is_skippable_empty_prompt(prompt):
+            prompt = str(attrs.get(SHOT2_PROMPT_ATTR) or "").strip()
+        if is_skippable_empty_prompt(prompt):
+            continue
+        if is_shot_child(fr):
+            cs = attrs.get("camera_subdivide")
+            parent_uid = ""
+            if isinstance(cs, dict):
+                parent_uid = str(cs.get("parent_uuid") or "")
+            parent = by_uuid.get(parent_uid)
+            parent_no = parent.number if parent is not None else None
+            if parent_no is None or not disk_has_valid_frame_image(scenes_dir, parent_no):
+                continue
+        elif not disk_has_valid_frame_image(scenes_dir, fr.number):
             continue
         expected += 1
         if not disk_has_valid_shot2_image(scenes_dir, fr.number):

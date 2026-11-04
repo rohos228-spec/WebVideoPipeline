@@ -106,10 +106,16 @@ TENANT_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/api/auth/password",
     "/api/billing/",
     "/api/chat",
+    # Чат оркестратора — для каждого клиента студии. Его история, планы,
+    # одобрения, журнал действий и откат закрыты RLS (ревизия 0023), имя
+    # сессии внутри движка несёт арендатора (`app/services/orch_tenancy.py`).
+    # Инструменты студии под этими префиксами (реестр резервов, общие отчёты)
+    # закрыты ролью в самом роутере: `engine_access.require_engine_admin`.
     "/api/orchestrator/chat",
     "/api/orchestrator/chat/",
     "/api/action-layer/",
     "/api/change-control/",
+    # Лента уведомлений под чатом: строки арендатора (RLS, ORCH_RAW_TENANT_TABLES).
     "/api/chat-notices",
     # Промты УЧАСТНИКА: пишут в его область с изоляцией по tenant_id, читают его
     # переопределение.

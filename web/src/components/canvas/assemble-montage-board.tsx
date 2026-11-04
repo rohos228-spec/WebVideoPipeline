@@ -1100,7 +1100,7 @@ function VoiceoverCell({
             ? "text-amber-200 hover:bg-amber-500/15"
             : "text-white/30 hover:bg-rose-500/15 hover:text-rose-200",
         )}
-        title={frame.удалён ? "Вернуть кадр в ленту" : "Пометить кадр"}
+        title={frame.удалён ? "Вернуть кадр в ленту" : "Удалить кадр"}
         disabled={busy}
         onClick={onDelete}
       >
@@ -3184,7 +3184,9 @@ export function AssembleMontageBoard({
   const handleDeleteFrame = async (fr: MontageBoardFrame) => {
     if (!projectId) return;
     const ok = window.confirm(
-      `Пометить кадр #${fr.number}? Он останется в ленте, его можно вернуть.`,
+      // Бэкенд удаляет строку кадра с текстами и промтами (montage_board_frames.delete_montage_frame);
+      // картинка и клип уходят в old/scenes. Ручки «вернуть» нет — обещать возврат нельзя.
+      `Удалить кадр #${fr.number}? Его тексты и промты удалятся, картинка и клип уйдут в папку old/scenes проекта.`,
     );
     if (!ok) return;
     setFrameEditBusy(true);
@@ -3200,7 +3202,7 @@ export function AssembleMontageBoard({
       persistQueue(next, true);
       await api.deleteMontageFrame(projectId, fr.frame_id);
       refreshBoard();
-      toast.success(`Кадр #${fr.number} помечен. Его можно вернуть.`);
+      toast.success(`Кадр #${fr.number} удалён. Картинка и клип лежат в old/scenes.`);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
     } finally {
@@ -4568,7 +4570,7 @@ export function AssembleMontageBoard({
                                     title={
                                       fr.удалён
                                         ? `Вернуть кадр #${fr.number}`
-                                        : `Пометить кадр #${fr.number}`
+                                        : `Удалить кадр #${fr.number}`
                                     }
                                     disabled={frameEditBusy}
                                     onClick={() =>

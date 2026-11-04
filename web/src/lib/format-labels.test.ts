@@ -48,3 +48,16 @@ test("a run without node_runs does not throw", () => {
   assert.equal(formatRunOverlayLabel(run), "#2 · пауза");
   assert.deepEqual(nodeRunsFromPayload(run), []);
 });
+
+test("workflow and node run statuses are in Russian", () => {
+  assert.equal(formatRunOverlayLabel({ id: 26, status: "waiting_hitl" }), "#26 · ждёт проверки");
+  assert.equal(formatRunOverlayLabel({ id: 27, status: "done" }), "#27 · готово");
+  assert.equal(formatRunOverlayLabel({ id: 28, status: "queued" }), "#28 · в очереди");
+  assert.equal(formatRunOverlayLabel({ id: 29, status: "skipped" }), "#29 · пропущен");
+});
+
+test("running run of a paused project reads as paused", () => {
+  assert.equal(formatRunOverlayLabel({ id: 30, status: "running" }, "paused"), "#30 · пауза");
+  assert.equal(formatRunOverlayLabel({ id: 30, status: "running" }, "scripting"), "#30 · работает");
+  assert.equal(formatRunOverlayLabel({ id: 30, status: "done" }, "paused"), "#30 · готово");
+});

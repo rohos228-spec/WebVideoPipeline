@@ -62,10 +62,12 @@ def build_duration_params_block(project: Project, step_code: str, *, header: str
     if isinstance(briefing, dict) and briefing:
         extra_lines = []
         if step_code == "plan":
+            if briefing.get("scenario_type"):
+                extra_lines.append(f"Тип сценария: {briefing['scenario_type']}")
+            if briefing.get("hero_description"):
+                extra_lines.append(f"Главный герой: {briefing['hero_description']}")
             if briefing.get("target_frames"):
                 extra_lines.append(f"Целевое количество сцен/кадров: {briefing['target_frames']}")
-            if briefing.get("scenario_type"):
-                extra_lines.append(f"Жанр и структура сценария: {briefing['scenario_type']}")
             if briefing.get("aspect_ratio"):
                 extra_lines.append(f"Формат кадра (соотношение сторон): {briefing['aspect_ratio']}")
             if briefing.get("structure"):
@@ -187,6 +189,8 @@ def build_split_params_block(project: Project) -> str:
             extra.append(f"Темп склеек: {briefing['structure']}")
         if briefing.get("transitions"):
             extra.append(f"Стиль переходов: {briefing['transitions']}")
+        if briefing.get("montage"):
+            extra.append(f"Монтаж: {briefing['montage']}")
         if extra:
             res += "\n" + "\n".join(extra)
     return res
@@ -272,6 +276,38 @@ def assemble_bgm_level_from_meta(meta: dict) -> int | None:
 
 def assemble_bgm_level_for_project(project: Project) -> int | None:
     return assemble_bgm_level_from_meta(getattr(project, "meta", None) or {})
+
+
+_TOP_STYLE_KEYS = ("img_pr_style_id", "img_style", "image_style", "visual_style", "style")
+
+
+def build_briefing_media_block(project: Project, step_code: str) -> str:
+    """Ответы брифинга для промтов картинок (img_pr) и анимации (anim_pr).
+
+    Стиль картинок из брифинга идёт только если у проекта нет своего стиля
+    (паспорт агента стиля или выбранный стиль сильнее ответа в брифинге).
+    """
+    meta = getattr(project, "meta", None) or {}
+    briefing = meta.get("briefing") if isinstance(meta, dict) else None
+    if not isinstance(briefing, dict) or not briefing:
+        return ""
+    lines: list[str] = []
+    if step_code == "anim_pr":
+        if briefing.get("animation_style"):
+            lines.append(f"Стиль анимации: {briefing['animation_style']}")
+        if briefing.get("visual_style"):
+            lines.append(f"Визуальный стиль ролика: {briefing['visual_style']}")
+        if briefing.get("transitions"):
+            lines.append(f"Переходы: {briefing['transitions']}")
+        if briefing.get("montage"):
+            lines.append(f"Монтаж: {briefing['montage']}")
+    elif step_code == "img_pr":
+        has_own_style = any(str(meta.get(k) or "").strip() for k in _TOP_STYLE_KEYS)
+        if briefing.get("visual_style") and not has_own_style:
+            lines.append(f"Визуальный стиль: {briefing['visual_style']}")
+    if not lines:
+        return ""
+    return "Пожелания из брифинга\n" + "\n".join(lines)
 
 
 def append_step_params_to_gpt_text(project: Project, step_code: str, base_text: str) -> str:

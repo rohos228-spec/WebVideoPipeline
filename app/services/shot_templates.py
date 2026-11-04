@@ -127,21 +127,25 @@ def split_scene_action_beats(text: str) -> list[str]:
     if not raw:
         return []
     chain = parse_scene_chain(raw)
-    if len(chain) >= 2:
-        chain_beats = [
-            " ".join(str(item.get("action") or "").split())
-            for item in chain
-            if " ".join(str(item.get("action") or "").split())
-        ]
-        if len(chain_beats) >= 2:
-            return chain_beats
+    if chain:
+        beats: list[str] = []
+        for item in chain:
+            act = " ".join(str(item.get("action") or "").split())
+            if not act:
+                continue
+            beats.extend(_arrow_beats(act) or [act])
+        if beats:
+            return beats
+    arrows = _arrow_beats(raw)
+    if len(arrows) >= 2:
+        return arrows
     body = raw
     if chain:
         body = " ".join(str(chain[0].get("action") or "").split()) or raw
     body = _META_ACTION_RE.sub(" ", body)
     body = " ".join(body.split())
     chunks = [p.strip(" ,.;:—-") for p in _BEAT_SPLIT_RE.split(body) if p and p.strip()]
-    beats: list[str] = []
+    beats = []
     for chunk in chunks:
         piece = " ".join(chunk.split())
         piece = re.sub(r"(?i)^как\s+", "", piece).strip()
@@ -155,6 +159,18 @@ def split_scene_action_beats(text: str) -> list[str]:
         if len(extra) > 1:
             beats = extra
     return beats or ([body] if body else [])
+
+
+_ARROW_SPLIT_RE = re.compile(r"\s*→\s*|\s*->\s*")
+
+
+def _arrow_beats(text: str) -> list[str]:
+    """Шаги по ``→``. Короткие глаголы («вошёл») не склеиваем."""
+    raw = " ".join((text or "").split())
+    if not raw:
+        return []
+    parts = [p.strip(" ,.;:—-") for p in _ARROW_SPLIT_RE.split(raw) if p.strip(" ,.;:—-")]
+    return [" ".join(p.split()) for p in parts if p]
 
 
 def explode_scene_action_to_kadry(

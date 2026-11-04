@@ -129,6 +129,9 @@ class Settings(BaseSettings):
     # app/services/anthropic_messages.py) и GPT — каталог
     # app/services/text_llm_catalog.py.
     text_llm_provider: str = Field("pay52", alias="TEXT_LLM_PROVIDER")
+    # kie лежит (сеть, 5xx, 429 после всех повторов, открытый предохранитель): тот же
+    # запрос той же моделью уходит в 52pay, если для модели есть ключ 52pay.
+    text_llm_fallback_52pay: bool = Field(True, alias="TEXT_LLM_FALLBACK_52PAY")
 
     # vibecode.moe — chat/completions для GPT, /v1/messages для Claude.
     vibecode_api_key: str = Field("", alias="VIBECODE_API_KEY")

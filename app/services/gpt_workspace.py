@@ -1374,9 +1374,20 @@ async def ask(
         return get_session(session_id)
 
     try:
+        from app.services import chat_harness
+
         gpt = get_gpt_client()
         has_xlsx = any(p.suffix.lower() in {".xlsx", ".xlsm"} for p in files)
         ask_text = text
+        # Обвязка: настоящая дата, проекты студии, инструменты, честные границы.
+        system_full = await chat_harness.harness_system(_WORKSPACE_SYSTEM)
+
+        async def _phase(detail: str) -> None:
+            m = _read_json(d / "meta.json", {})
+            m["phase"] = "thinking"
+            m["phase_detail"] = detail
+            m["updated_at"] = _now()
+            _write_json(d / "meta.json", m)
 
         meta = _read_json(d / "meta.json", {})
         meta["phase"] = "thinking"
@@ -1402,17 +1413,25 @@ async def ask(
                 )
                 meta["updated_at"] = _now()
                 _write_json(d / "meta.json", meta)
-            reply = await gpt.ask_with_files(
+            reply, tool_calls = await chat_harness.ask_with_tools(
+                gpt,
                 ask_text,
                 files,
+                history=history,
+                system=system_full,
+                on_delta=on_delta,
+                on_phase=_phase,
                 timeout=ask_timeout,
                 expect_file_download=has_xlsx,
-                history=history,
                 treat_txt_as_prompt=False,
-                system=_WORKSPACE_SYSTEM,
                 max_retries=0,
-                on_delta=on_delta,
             )
+            if tool_calls:
+                logger.info(
+                    "gpt_workspace: session={} tools={}",
+                    session_id,
+                    [c["tool"] for c in tool_calls],
+                )
         except Exception as e:  # noqa: BLE001
             # Только явный запрос «пустой txt» — иначе empty_stream маскировался
             # пустым файлом («GPT вернул пустой»), хотя kie уже success.
@@ -1452,7 +1471,7 @@ async def ask(
                     expect_file_download=has_xlsx,
                     history=retry_history,
                     treat_txt_as_prompt=False,
-                    system=_WORKSPACE_SYSTEM,
+                    system=system_full,
                     max_retries=0,
                 )
                 reply2 = (reply2 or "").strip()

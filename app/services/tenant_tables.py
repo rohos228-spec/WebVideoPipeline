@@ -11,9 +11,9 @@
 
 from __future__ import annotations
 
-#: Данные клиента. §4.1 плюс дочерние таблицы: RLS проверяет каждую строку
-#: сам и наследовать арендатора через проект не умеет.
-TENANT_TABLES: tuple[str, ...] = (
+#: Данные клиента в конвейере. §4.1 плюс дочерние таблицы: RLS проверяет
+#: каждую строку сам и наследовать арендатора через проект не умеет.
+BASE_TENANT_TABLES: tuple[str, ...] = (
     "projects",
     "frames",
     "scenes",
@@ -43,25 +43,38 @@ TENANT_TABLES: tuple[str, ...] = (
     # в режиме владельца, клиентские — только своему арендатору. Разрешение
     # «системный → арендатор» держит `prompt_store`, изоляцию — политика.
     "prompt_library",
-    # Слой действий и контроль изменений движка (#98). Таблицы создаёт
-    # create_all в lifespan, не alembic — RLS навешивает rls_apply / 0019.
-    "action_layer_plans",
-    "action_layer_steps",
+)
+
+#: Таблицы движка оркестратора (перенесён из video-pipeline int/chat-v1),
+#: которые принадлежат арендатору. Чат оркестратора открыт каждому клиенту
+#: студии (роль `member`), значит всё, что чат пишет и читает от имени
+#: клиента, — его данные: планы и шаги, одобрения, журнал действий, снимки
+#: для отката, предложения изменений и версии настроек его проектов, журнал
+#: наблюдения прогонов, медиа-задачи, решения и разрешения управляемых
+#: запусков. Сомнительные случаи (журнал наблюдения, идемпотентность Outsee,
+#: медиа-задачи) отнесены сюда же: каждая их строка — про проект клиента, и
+#: читают их только в контексте этого проекта.
+#:
+#: Колонку на свежей базе создаёт baseline (модели уже несут `tenant_id`),
+#: политику — 0006 (идёт по `all_isolated()` в момент прогона). Ревизия 0023
+#: догоняет базы, где таблицы были созданы раньше.
+ENGINE_TENANT_TABLES: tuple[str, ...] = (
     "action_layer_approvals",
-    "action_layer_spend",
-    "action_layer_history",
-    "action_layer_plan_context",
-    "action_layer_macros",
-    "action_layer_calls",
-    "action_layer_snapshots",
     "action_layer_attachments",
-    "change_proposals",
-    "config_versions",
-    "config_pointers",
-    # Слой оркестратора v1, решения, диагностика, запуски и медиа
+    "action_layer_calls",
+    "action_layer_history",
+    "action_layer_macros",
+    "action_layer_plan_context",
+    "action_layer_plans",
+    "action_layer_snapshots",
+    "action_layer_spend",
+    "action_layer_steps",
     "action_execution_controls",
     "action_node_recoveries",
     "action_v1_records",
+    "change_proposals",
+    "config_pointers",
+    "config_versions",
     "decision_execution_controls",
     "decision_records",
     "decision_runtime_bindings",
@@ -80,6 +93,33 @@ TENANT_TABLES: tuple[str, ...] = (
     "orchestrator_media_requests",
     "outsee_idempotency",
 )
+
+#: Таблицы движка без моделей в `Base.metadata`: их пишет сырой SQL через
+#: `app/orchestrator/db` (ревизия 0021). Это история чата целиком — задачи и
+#: их шаги, чекпоинты, события шины с нумерацией, очередь сообщений, вызовы
+#: LLM, отчёты, уведомления в чат. `check_coverage` их не видит (моделей
+#: нет), поэтому живая база сверяется отдельно: `check_database_coverage`.
+#:
+#: Сырые вставки не перечисляют `tenant_id`: на Postgres колонка получает
+#: его значением по умолчанию из `app.tenant_id` транзакции — той же
+#: настройки, которую читает политика (ревизия 0023). Забыть проставить
+#: нельзя, чужого арендатора вставка не получит: `WITH CHECK` сверяет то же.
+ORCH_RAW_TENANT_TABLES: tuple[str, ...] = (
+    "orch_tasks",
+    "orch_steps",
+    "orch_checkpoints",
+    "orch_events",
+    "orch_event_seq",
+    "orch_messages",
+    "orch_llm_calls",
+    "orch_reports",
+    "orch_report_versions",
+    "notification_log",
+    "chat_notices",
+)
+
+#: Всё, что принадлежит арендатору: конвейер, движок, сырые таблицы чата.
+TENANT_TABLES: tuple[str, ...] = BASE_TENANT_TABLES + ENGINE_TENANT_TABLES + ORCH_RAW_TENANT_TABLES
 
 #: Касса. Отдельно, потому что колонка арендатора у неё не добавляется —
 #: она там с рождения, и в 0005 эти таблицы создаются целиком.
@@ -104,52 +144,51 @@ INFRA_TABLES: frozenset[str] = frozenset(
         "email_verifications",
         "coupons",
         "coupon_redemptions",
-        # Глобальный рубильник супервизора: без tenant_id, общий на узел.
         "supervisor_kill_switch",
         "supervisor_kill_switch_history",
-        # Учёт расходов и задач провайдеров на уровне узла (без tenant_id)
         "spend_ledger",
         "provider_task_ledger",
     }
 )
 
-#: Таблицы движка с tenant_id, которые create_all поднимает вне alembic.
-#: Нужны отдельно, чтобы lifespan и миграция 0019 навешивали RLS точечно.
-ENGINE_TENANT_TABLES: tuple[str, ...] = (
-    "action_layer_plans",
-    "action_layer_steps",
-    "action_layer_approvals",
-    "action_layer_spend",
-    "action_layer_history",
-    "action_layer_plan_context",
-    "action_layer_macros",
-    "action_layer_calls",
-    "action_layer_snapshots",
-    "action_layer_attachments",
-    "change_proposals",
-    "config_versions",
-    "config_pointers",
-    # Слой оркестратора v1, решения, диагностика, запуски и медиа
-    "action_execution_controls",
-    "action_node_recoveries",
-    "action_v1_records",
-    "decision_execution_controls",
-    "decision_records",
-    "decision_runtime_bindings",
-    "decision_turns",
-    "managed_launches",
-    "managed_run_allowances",
-    "node_profile_overlays",
-    "observation_commit_uncertainty",
-    "observation_degradations",
-    "observation_diagnosis",
-    "observation_events",
-    "observation_executions",
-    "observation_incidents",
-    "observation_outbox",
-    "orchestrator_media_jobs",
-    "orchestrator_media_requests",
-    "outsee_idempotency",
+#: Таблицы движка, которые остаются ОБЩИМИ на студию, — решение, а не
+#: забывчивость. Колонки арендатора у них нет.
+#:
+#: * `spend_ledger`, `provider_task_ledger` — касса провайдеров и сверка
+#:   задач у провайдера. Дневной лимит трат и сверка считаются по всей
+#:   студии: провайдеру платит владелец, а не клиент. Политика «видно только
+#:   своё» молча дала бы каждому арендатору полный дневной лимит владельца.
+#: * `supervisor_kill_switch`, `supervisor_kill_switch_history` — аварийный
+#:   стоп платных вызовов всей студии. Он один на узел по смыслу.
+#:
+#: Ручки, которые их показывают и меняют (реестр резервов, аварийный стоп),
+#: открыты только админу (`app/web/engine_access.py::require_engine_admin`).
+#: Действия чата, которые читают их или общий лог сервера (`spend.summary`,
+#: `logs.tail` без проекта), участнику закрыты так же —
+#: `app/services/action_layer/plan.py::ADMIN_ONLY_ACTIONS`; себестоимость в
+#: карточках нод и отчётах участнику не показывается (`member_view`).
+ENGINE_TABLES: frozenset[str] = frozenset(
+    {
+        "provider_task_ledger",
+        "spend_ledger",
+        "supervisor_kill_switch",
+        "supervisor_kill_switch_history",
+    }
+)
+
+#: Сырые таблицы движка, общие на студию: глобальный каталог нод и
+#: неизменяемая история его промптов (правит только админ), журнал схемы
+#: раннера SQL движка.
+ORCH_RAW_SHARED_TABLES: frozenset[str] = frozenset(
+    {"node_defs", "node_prompt_versions", "orch_schema_migrations"}
+)
+
+#: Журнал публикаций (ревизия 0022): относить ли его к данным арендатора,
+#: решает заказчик. До решения таблицы общие, и ни одной ручки участнику к
+#: ним не открыто. Список нужен `check_database_coverage`, чтобы новая
+#: неклассифицированная таблица не пряталась среди этих.
+PENDING_DECISION_TABLES: frozenset[str] = frozenset(
+    {"publications", "publish_approvals", "publication_manual_actions"}
 )
 
 #: Маршрутные таблицы: закрыты политикой, но политика **обратная**. Сессия
@@ -190,5 +229,18 @@ def check_coverage() -> list[str]:
     """
     from app.models import Base
 
-    known = set(all_isolated()) | INFRA_TABLES
+    known = set(all_isolated()) | INFRA_TABLES | ENGINE_TABLES
     return sorted(name for name in Base.metadata.tables if name not in known)
+
+
+def check_database_coverage(table_names) -> list[str]:
+    """Таблицы ЖИВОЙ базы, не попавшие ни в один список. Пусто — всё учтено.
+
+    `check_coverage` смотрит в модели, а таблицы чата оркестратора пишет сырой
+    SQL — моделей у них нет. Эта проверка получает имена из инспектора базы
+    после миграций (`tests/test_orch_tenant_postgres.py`).
+    """
+    known = (
+        set(all_isolated()) | INFRA_TABLES | ENGINE_TABLES | ORCH_RAW_SHARED_TABLES | PENDING_DECISION_TABLES
+    )
+    return sorted(str(name) for name in table_names if str(name) not in known)

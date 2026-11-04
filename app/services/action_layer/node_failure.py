@@ -40,7 +40,9 @@ CAUSE_RU = {
     "truncated": "ответ модели оборван",
     "refusal": "модель отказалась отвечать",
     "provider_error": "сбой у провайдера модели",
+    "budget_cap": "упёрлись в потолок трат",
     "schema_other": "ответ модели не прошёл проверку формата",
+    "content_mismatch": "закадр кадров не сходится с закадровым текстом",
     "unknown": "причина по данным не видна",
 }
 
@@ -48,8 +50,17 @@ _PROVIDER = re.compile(
     r"(?:http|status|код|error)\W{0,3}(?:5\d\d|429)\b|internal server error|bad gateway|"
     r"service unavailable|gateway timeout|too many requests|timeout|timed out|таймаут|"
     r"время ожидания|quota|rate.?limit|insufficient|баланс|overloaded|"
-    r"connection (?:reset|error|refused)",
+    r"connection (?:reset|error|refused)|"
+    # httpx: провайдер недоступен по сети (проверено вживую — шло в «причина не видна»).
+    r"connect(?:error|timeout)|all connection attempts failed|readerror|remoteprotocolerror|"
+    r"сетев\w* ошибк",
     re.I,
+)
+# llm_ledger.BudgetExhausted: «бюджет исчерпан: $0.31 из $0.30 (проект #10)».
+_BUDGET = re.compile(r"бюджет исчерпан|budget exhausted|spend_cap_\w+|потол\w* (?:трат|расход|запуска)", re.I)
+# «бюджет исчерпан: $0.15 из $0.10» — запись llm_ledger.BudgetExhausted про бюджет текстов проекта.
+_PROJECT_BUDGET = re.compile(
+    r"бюджет исчерпан:\s*\$([0-9]+(?:\.[0-9]+)?)\s*из\s*\$([0-9]+(?:\.[0-9]+)?)", re.I
 )
 _TRUNC = re.compile(
     r"finish_reason\W*length|max_tokens|unterminated|обрез|оборван|незакрыт",
@@ -62,6 +73,8 @@ _REFUSAL = re.compile(
 )
 _UNKNOWN_FIELDS = re.compile(r"неизвестн\w* пол\w*\s*\[([^\]]*)\]", re.I)
 _EMPTY_OPS = re.compile(r"пуст\w* ops|ops.{0,20}пуст|нечего применять|empty ops", re.I)
+# Проверка содержания разбивки (content_checks): форма верна, текст кадров не тот.
+_CONTENT = re.compile(r"склейк\w*[^\n]{0,40}закадр|дословно совпадать с закадровым", re.I)
 _EMPTY_INPUT = re.compile(r"нет кадров|кадров нет|0 кадров|no frames|пуст\w* (?:вход|таблиц)", re.I)
 
 
@@ -340,6 +353,23 @@ def classify(
     if frames == 0 or (_EMPTY_INPUT.search(all_err) and not rejects):
         code = "empty_input"
         explain = "Модели нечего было обрабатывать: во входной таблице ноды нет ни одного кадра."
+    elif _BUDGET.search(all_err):
+        code = "budget_cap"
+        explain = (
+            "Модель остановлена потолком трат: на этот запуск или проект деньги кончились. "
+            "Повтор упрётся в тот же потолок — нужно поднять его или подтвердить запуск."
+        )
+        project_budget = _PROJECT_BUDGET.search(all_err)
+        if project_budget:
+            # Бюджет текстов проекта, не потолок запуска: поднимать надо его.
+            found["project_budget"] = {
+                "spent_usd": float(project_budget.group(1)),
+                "budget_usd": float(project_budget.group(2)),
+            }
+            explain = (
+                f"Кончился бюджет текстов проекта: потрачено ${project_budget.group(1)} "
+                f"из ${project_budget.group(2)}. Повтор упрётся в него же — сначала поднимите бюджет."
+            )
     elif _PROVIDER.search(all_err) and not rejects:
         code = "provider_error"
         explain = "Запрос не дошёл до ответа модели: провайдер вернул сбой, таймаут или кончилась квота."
@@ -381,6 +411,12 @@ def classify(
                 "что писать, или она решила, что всё уже заполнено."
             )
         found["check_node"] = is_check
+    elif _CONTENT.search(all_err):
+        code = "content_mismatch"
+        explain = (
+            "Формат ответа верный, но склейка закадра кадров не совпала с закадровым текстом: "
+            "модель потеряла, задвоила или пересказала часть текста."
+        )
     elif _PROVIDER.search(all_err):
         code = "provider_error"
         explain = "В ошибке сбой провайдера модели: таймаут, 5xx или квота."
@@ -391,6 +427,35 @@ def classify(
         code = "unknown"
         explain = "Отклонённых ответов модели и ошибок пачек на диске нет — по данным причина не видна."
     return {"code": code, "title_ru": CAUSE_RU[code], "explain_ru": explain, **found}
+
+
+def note_current_budget(cause: dict[str, Any], current_usd: float | None) -> dict[str, Any]:
+    """Сбой бюджета в прошлом, а лимит уже подняли: сказать это и не предлагать поднять ещё раз.
+
+    Текст ошибки ноды хранит лимит на момент сбоя ($0.10), и чат отвечал «нужно поднять
+    бюджет», хотя владелец уже поставил $10. ``current_usd`` 0 — бюджет выключен.
+    """
+    pb = cause.get("project_budget")
+    if cause.get("code") != "budget_cap" or not isinstance(pb, dict) or current_usd is None:
+        return cause
+    spent = float(pb.get("spent_usd") or 0.0)
+    current = float(current_usd)
+    if current != 0.0 and current <= spent:
+        return cause
+    out = dict(cause)
+    out["project_budget"] = dict(pb, current_budget_usd=current, raised=True)
+    now = "бюджет выключен" if current == 0.0 else f"сейчас бюджет ${current:g}"
+    out["explain_ru"] = (
+        f"Тогда кончился бюджет текстов проекта: потрачено ${pb.get('spent_usd')} из ${pb.get('budget_usd')}. "
+        f"Его уже подняли ({now}) — можно просто повторить запуск ноды."
+    )
+    return out
+
+
+def suggest_budget_usd(spent: float, budget: float) -> float:
+    """Предлагаемый бюджет текстов: вдвое больше потраченного, не меньше +$1 к текущему, целое."""
+    want = max(spent * 2, budget + 1.0, 1.0)
+    return float(int(want) + (0 if want == int(want) else 1))
 
 
 def _looks_cut(reply: str) -> bool:
@@ -405,6 +470,7 @@ def fix_options(
     node_key: str,
     step_code: str,
     upstream: str | None = None,
+    upstream_title: str | None = None,
 ) -> list[dict[str, Any]]:
     """Что можно сделать существующими действиями. Платное и правка промта — через карточку человека."""
     code = cause.get("code")
@@ -446,10 +512,23 @@ def fix_options(
                 {
                     "action": "node.output",
                     "params": {"project_id": pid, "node_key": upstream},
-                    "title_ru": f"Проверить ноду-источник {upstream}: что она отдала",
+                    # В карточке человеку — название ноды, не ключ n_split.
+                    "title_ru": f"Проверить, что отдала нода-источник «{upstream_title or upstream}»",
                     "phrase_ru": f"что выдала нода {upstream} в проекте {pid}",
                 }
             )
+        # Кадров нет, потому что не дошли шаги до разбивки: повтор этой ноды ничего не даст.
+        out.insert(
+            0,
+            {
+                "action": "step.run_step",
+                "params": {"project_id": pid, "step_code": "split"},
+                # Это не повтор упавшей ноды, а другой платный шаг: автоповтор его не трогает.
+                "upstream": True,
+                "title_ru": "Довести проект до разбивки на кадры (сценарий, закадр, разбивка — платно)",
+                "phrase_ru": f"доведи проект {pid} до разбивки на кадры",
+            },
+        )
         out.append(dict(retry, title_ru="Перезапустить ноду, когда у источника появятся кадры"))
         return out
     if code == "empty_ops":
@@ -495,8 +574,33 @@ def fix_options(
         ]
     if code == "refusal":
         return [models, variant, retry]
+    if code == "content_mismatch":
+        return [
+            {
+                "action": "diag.content_checks",
+                "params": {"project_id": pid, "step": "split"},
+                "title_ru": "Показать, какой текст потерян или задвоен",
+                "phrase_ru": f"проверь результат разбивки в проекте {pid}",
+            },
+            dict(retry, title_ru="Повторить разбивку: модель получит список расхождений"),
+            models,
+        ]
     if code == "provider_error":
         return [dict(retry, title_ru="Повторить позже: сбой был у провайдера"), models]
+    if code == "budget_cap":
+        pb = cause.get("project_budget")
+        if isinstance(pb, dict) and pb.get("raised"):
+            return [dict(retry, title_ru="Повторить запуск ноды: бюджет уже поднят (с подтверждением)")]
+        if isinstance(pb, dict):
+            amount = suggest_budget_usd(float(pb.get("spent_usd") or 0), float(pb.get("budget_usd") or 0))
+            raise_budget = {
+                "action": "project.set_llm_budget",
+                "params": {"project_id": pid, "amount_usd": amount},
+                "title_ru": f"Поднять бюджет текстов проекта до ${amount:g} (с подтверждением)",
+                "phrase_ru": f"подними бюджет текстов проекта {pid} до {amount:g} доллара",
+            }
+            return [raise_budget, dict(retry, title_ru="Потом повторить запуск ноды")]
+        return [dict(retry, title_ru="Перезапустить ноду с новым потолком (с подтверждением)")]
     if code == "schema_other":
         return [
             prompt_edit(
@@ -685,7 +789,21 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     metrics = metrics_line(data_dir, key) if data_dir is not None else None
     is_check = _is_check(meta, key)
     cause = classify(errors=errors, rejects=rejects, frames=(size or {}).get("frames"), is_check=is_check)
-    fixes = fix_options(cause, project_id=pid, node_key=key, step_code=step, upstream=_upstream(meta, key))
+    if cause.get("project_budget"):
+        from app.services.llm_ledger import budget_from_meta
+
+        try:
+            cause = note_current_budget(cause, budget_from_meta(meta))
+        except Exception:  # noqa: BLE001 — подсказка о лимите не должна ронять разбор сбоя
+            pass
+    up = _upstream(meta, key)
+    up_node = nodes.get(up) if up else None
+    up_title = (
+        (bi._labels(meta).get(up) or bi._node_title(up_node, bi._node_types(up_node, "")[1])) if up else None
+    )
+    fixes = fix_options(
+        cause, project_id=pid, node_key=key, step_code=step, upstream=up, upstream_title=up_title
+    )
     model = bi._model_for(meta, key, node, raw, eff) or None
     prompt = bi._prompt_for(detail, key, raw, eff)
 
@@ -768,8 +886,9 @@ def node_failure_spec() -> ActionSpec:
         "полный текст ошибки, отклонённые ответы модели (что она вернула и что написала в "
         "report), сколько кадров было на входе, ошибка пачки из дневника. Причина правилами: "
         "пустой вход, пустой список правок, неизвестные поля, оборванный ответ, отказ, сбой "
-        "провайдера, прочий формат; и варианты исправления существующими действиями. Без "
-        "node_key — сама берёт упавшую ноду проекта. Только чтение.",
+        "провайдера, закадр кадров не сходится с текстом, прочий формат; и варианты "
+        "исправления существующими действиями. Без node_key — сама берёт упавшую ноду "
+        "проекта. Только чтение.",
         params_schema=bi._schema({"project_id": _PID, "node_key": _NODE_KEY}, ["project_id"]),
         executor=_diag_node_failure,
         risk=RISK_READ,

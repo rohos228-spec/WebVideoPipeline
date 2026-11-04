@@ -46,13 +46,30 @@ def stop_flag_path(project_id: int) -> Path:
     return _stop_flag_path(project_id)
 
 
-def _write_stop_flag(project_id: int) -> None:
-    _stop_flag_path(project_id).write_text("1", encoding="utf-8")
+def holder_path(project_id: int) -> Path:
+    """Файл оркестратора рядом с ключом: какие задачи чата держат этот ключ и его метка."""
+    flag = _stop_flag_path(project_id)
+    return flag.with_name(flag.name + ".orch")
+
+
+def stop_token(project_id: int) -> str | None:
+    """Содержимое ключа (метка того, кто его поставил) или None, если ключа нет."""
+    try:
+        return _stop_flag_path(project_id).read_text(encoding="utf-8").strip()
+    except (FileNotFoundError, OSError):
+        return None
+
+
+def _write_stop_flag(project_id: int, token: str | None = None) -> None:
+    _stop_flag_path(project_id).write_text(token or "1", encoding="utf-8")
 
 
 def _clear_stop_flag(project_id: int) -> None:
     with contextlib.suppress(FileNotFoundError):
         _stop_flag_path(project_id).unlink()
+    # Ключа нет — запись держателей о нём больше ничего не значит.
+    with contextlib.suppress(FileNotFoundError, OSError):
+        holder_path(project_id).unlink()
 
 
 def register_advance_task(project_id: int, task: asyncio.Task) -> None:
@@ -71,6 +88,52 @@ def is_advance_active(project_id: int) -> bool:
 def active_advance_count() -> int:
     """Сколько advance-задач сейчас живы в этом процессе."""
     return sum(1 for task in _advance_tasks.values() if not task.done())
+
+
+# Почему воркер не взял running-проект на последнем тике (то же, что он пишет в runtime_wait):
+# parallel_slots_full | queue_predecessor | failure_sleep | user_stop.
+# Проход воркера идёт от имени одного арендатора и видит только его проекты:
+# запись помнит арендатора, чистка тика трогает только его записи.
+_worker_waits: dict[int, tuple[str | None, str]] = {}
+
+
+def _tenant_now() -> str | None:
+    from app.services.tenant import current_tenant
+
+    return current_tenant()
+
+
+def note_worker_wait(project_id: int, reason: str) -> None:
+    _worker_waits[int(project_id)] = (_tenant_now(), str(reason))
+
+
+def clear_worker_wait(project_id: int) -> None:
+    _worker_waits.pop(int(project_id), None)
+
+
+def keep_worker_waits(project_ids) -> None:
+    """Тик воркера: проекты арендатора тика, которых больше нет среди running, ничего не ждут."""
+    keep = {int(pid) for pid in project_ids}
+    tenant = _tenant_now()
+    for pid in [pid for pid, (owner, _r) in _worker_waits.items() if owner == tenant and pid not in keep]:
+        _worker_waits.pop(pid, None)
+
+
+def keep_worker_wait_tenants(tenants) -> None:
+    """Начало тика воркера: записи арендаторов, которым тик не служит, ничего не значат.
+
+    `keep_worker_waits` чистит только арендатора текущего прохода. Арендатор,
+    выпавший из списка тика (работа кончилась, проекты сняты с очереди), прохода
+    больше не получает, и его прежние «ждёт места» висели бы в ответах чата вечно.
+    """
+    served = set(tenants)
+    for pid in [pid for pid, (owner, _r) in _worker_waits.items() if owner not in served]:
+        _worker_waits.pop(pid, None)
+
+
+def worker_wait_reason(project_id: int) -> str | None:
+    got = _worker_waits.get(int(project_id))
+    return got[1] if got else None
 
 
 def is_generation_active(project_id: int) -> bool:
@@ -180,12 +243,16 @@ def request_stop(
     project_id: int,
     *,
     reason: str = "user_stop",
+    token: str | None = None,
 ) -> tuple[bool, list[str]]:
-    """Stop: файл (все процессы) + cancel task (этот процесс)."""
+    """Stop: файл (все процессы) + cancel task (этот процесс).
+
+    ``token`` пишется в файл ключа: так kill чата потом узнаёт свой ключ и не снимает чужой.
+    """
     from app.services.xlsx_flow_locks import cancel_xlsx_flow_tasks
 
     _stop_pids.add(project_id)
-    _write_stop_flag(project_id)
+    _write_stop_flag(project_id, token)
     cancelled_adv = cancel_advance_task(project_id)
     cancelled_xlsx = cancel_xlsx_flow_tasks(project_id)
     if cancelled_adv or cancelled_xlsx:
@@ -306,6 +373,7 @@ def clear_all() -> None:
     _active_pages.clear()
     stop_dir = Path(settings.data_dir) / ".stop"
     if stop_dir.is_dir():
-        for f in stop_dir.glob("project_*.stop"):
-            with contextlib.suppress(OSError):
-                f.unlink()
+        for pattern in ("project_*.stop", "project_*.stop.orch"):
+            for f in stop_dir.glob(pattern):
+                with contextlib.suppress(OSError):
+                    f.unlink()

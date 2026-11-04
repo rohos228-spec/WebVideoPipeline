@@ -10,7 +10,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:unit": "node --experimental-strip-types --test src/lib/*.test.ts",
+    "test:e2e:orch": "playwright test -c e2e/orchestrator/playwright.config.ts"
   },
   "dependencies": {
     "next": "^15.5.4",

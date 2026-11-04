@@ -47,6 +47,12 @@ dependencies = [
 whisper = [
   "faster-whisper>=1.0,<2",
 ]
+# OCR вшитых субтитров для агента стиля (~70MB вместе с opencv). Модель кириллицы
+# (~8MB) качается сама в DATA_DIR/.cache/rapidocr при первом разборе ролика:
+#   pip install -e ".[ocr]"
+ocr = [
+  "rapidocr-onnxruntime>=1.4,<2",
+]
 # NVIDIA NeMo Parakeet (ASR_BACKEND=nvidia) — ПК монтажа с CUDA:
 #   pip install -e ".[nvidia]"
 nvidia = [

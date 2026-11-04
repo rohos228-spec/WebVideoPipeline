@@ -352,6 +352,16 @@ except Exception:
 PUBLICATION_CODE_RU: dict[str, str] = {**_PUBLICATION_CODE_EXTRA_RU, **_REFUSALS}
 
 
+def _node_ru(key: object) -> str:
+    """Название ноды для журнала («Работа с GPT 2»), а не ключ n_excel_gpt_2."""
+    try:
+        from app.services.action_layer.card_text import node_key_ru
+
+        return node_key_ru(str(key or ""))
+    except Exception:  # noqa: BLE001
+        return str(key or "")
+
+
 def publication_code_text(code: Any) -> str:
     c = str(code or "").strip()
     if not c:
@@ -655,7 +665,7 @@ def _event_detail(kind: str, row: Mapping[str, Any], p: Mapping[str, Any]) -> st
     parts: list[str] = []
     node = _get(row, "node_key")
     if node:
-        parts.append(f"нода {node}")
+        parts.append(f"нода «{_node_ru(node)}»")
     if p.get("error_type"):
         parts.append(f"тип ошибки {p['error_type']}")
     if p.get("reason") and kind != "runtime_wait":
@@ -710,7 +720,7 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
         if fact:
             detail.append(_clip(fact, 250))
         if _get(row, "node_key"):
-            detail.append(f"нода {row['node_key']}")
+            detail.append(f"нода «{_node_ru(row['node_key'])}»")
         return str(title), _clip("; ".join(detail)), severity
 
     if source == "decision_records":
@@ -721,7 +731,7 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
         if proposal.get("action"):
             detail.append(f"предложено: {ACTION_V1_RU.get(str(proposal['action']), proposal['action'])}")
         if _get(row, "node_key"):
-            detail.append(f"нода {row['node_key']}")
+            detail.append(f"нода «{_node_ru(row['node_key'])}»")
         severity = (
             SEV_ERROR
             if status == "failed"
@@ -741,7 +751,7 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
         if _get(row, "initiator"):
             detail.append(f"инициатор: {row['initiator']}")
         if _get(row, "node_key"):
-            detail.append(f"нода {row['node_key']}")
+            detail.append(f"нода «{_node_ru(row['node_key'])}»")
         if _get(row, "rationale"):
             detail.append(_clip(row["rationale"], 250))
         severity = (
@@ -880,7 +890,7 @@ def _describe(row: Mapping[str, Any]) -> tuple[str, str, str]:
         title = NODE_RUN_STATUS_RU.get(status) or _fallback(source, status, "Состояние ноды")
         detail = []
         if _get(row, "node_key"):
-            detail.append(f"нода {row['node_key']}")
+            detail.append(f"нода «{_node_ru(row['node_key'])}»")
         if _get(row, "error"):
             detail.append(_clip(row["error"], 250))
         elif _get(row, "progress_text"):

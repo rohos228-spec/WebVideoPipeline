@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Frame, Project
+from app.orchestrator.validators.activity_flags import flag_is_false, flag_is_true
 from app.services import db_v2
 from app.services.xlsx_v8_import import (
     ROW_DURATION_V8,
@@ -278,7 +279,7 @@ def normalize_fields(raw: dict, aliases: dict[str, str], *, scope: str) -> dict:
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
-_HEX_UUID_RE = re.compile(r"^[0-9a-fA-F]+$")
+_HEX_UUID_RE = re.compile(r"^[0-9a-fA-F-]+$")
 
 
 def _hamming_distance(a: str, b: str) -> int:
@@ -1412,3 +1413,75 @@ async def apply_ops(
         "exported": exported,
         "uuid_repairs": [{"from": a, "to": b} for a, b in (number_repairs + uuid_repairs)],
     }
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+def _shot_row_id(row: Any) -> str:
+    if not isinstance(row, dict):
+        return ""
+    return str(row.get("id") or "").strip()
+
+
+def _kept_hide_marks(row: dict[str, Any]) -> dict[str, Any]:
+    """Пометки скрытия старой строки переживают входящее обновление."""
+    marks: dict[str, Any] = {}
+    if flag_is_false(row.get("активен")):
+        marks["активен"] = row.get("активен")
+    for key in ("удалён", "удален"):
+        if flag_is_true(row.get(key), mark=key):
+            marks[key] = row[key]
+    if flag_is_true(row.get("карантин"), mark="карантин"):
+        marks["карантин"] = row["карантин"]
+    note = row.get("пометка")
+    if str(note or "").strip():
+        marks["пометка"] = note
+    return marks
+
+
+def merge_kadry_keep_missing(old: Any, incoming: Any, *, restore_ids: Any = None) -> list[dict[str, Any]]:
+    """Короткий список не выкидывает старые шоты: их хвост с активен False.
+
+    Строка без id остаётся. Совпадающий id сливается как {**old, **new},
+    но пометки скрытия старой строки не стираются.
+    Пустой incoming не подменяет лестницу — это делает вызывающий код.
+    """
+    old_rows = [dict(row) for row in old if isinstance(row, dict)] if isinstance(old, list) else []
+    new_rows = [dict(row) for row in incoming if isinstance(row, dict)] if isinstance(incoming, list) else []
+    if not new_rows:
+        return old_rows
+    old_by_id: dict[str, dict[str, Any]] = {}
+    old_without_id: list[dict[str, Any]] = []
+    for row in old_rows:
+        sid = _shot_row_id(row)
+        if not sid:
+            old_without_id.append(dict(row))
+            continue
+        old_by_id.setdefault(sid, dict(row))
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in new_rows:
+        sid = _shot_row_id(row)
+        if sid and sid in old_by_id:
+            merged = {**old_by_id[sid], **row}
+            marks = _kept_hide_marks(old_by_id[sid])
+            if restore_ids and sid in restore_ids:
+                # Явный restore адресованного шота: снимаются только пометки,
+                # пришедшие в его строке. Остальные шоты не оживают.
+                marks = {k: v for k, v in marks.items() if k not in row}
+            merged.update(marks)
+            out.append(merged)
+            seen.add(sid)
+            continue
+        out.append(dict(row))
+        if sid:
+            seen.add(sid)
+    for sid, row in old_by_id.items():
+        if sid in seen:
+            continue
+        kept = dict(row)
+        kept["активен"] = False
+        out.append(kept)
+    out.extend(dict(row) for row in old_without_id)
+    return out

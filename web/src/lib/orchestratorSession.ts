@@ -62,6 +62,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   taskId: string | null;
+  /** ISO UTC события, из которого пришла реплика. По нему карточки сбоев встают между репликами. */
+  at?: string | null;
 }
 
 export interface AgentView {
@@ -222,6 +224,10 @@ export interface ApprovalView {
    * `CheckpointData.plan` (`readPlanSteps`).
    */
   plan: PlanStepView[];
+  /** Что затронет шаг словами (`steps[].params_text`): «кадр 5; проект #4». */
+  details?: string[];
+  /** `destructive_effects`: что изменится без возврата. */
+  effects?: string[];
   resolved: "approved" | "rejected" | "retried" | "closed" | null;
 }
 
@@ -473,11 +479,32 @@ function readStepChangeId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function approvalWire(body: Record<string, unknown>): { actions: string[] | null; stepChangeId: string | null } {
+function approvalWire(body: Record<string, unknown>): {
+  actions: string[] | null;
+  stepChangeId: string | null;
+  details: string[];
+  effects: string[];
+} {
   return {
     actions: readStringList(body.actions),
     stepChangeId: readStepChangeId(body.step_change_id),
+    details: approvalDetails(body.steps),
+    effects: readChangeIds(body.destructive_effects),
   };
+}
+
+/** Строки шагов карточки: у одного шага — только параметры (название уже в заголовке). */
+function approvalDetails(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const rows = value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object");
+  const out: string[] = [];
+  for (const row of rows) {
+    const params = typeof row.params_text === "string" ? row.params_text.trim() : "";
+    const title = typeof row.title === "string" ? row.title.trim() : "";
+    const line = rows.length > 1 ? [title, params].filter(Boolean).join(" — ") : params;
+    if (line) out.push(line);
+  }
+  return out;
 }
 
 function readChangeIds(value: unknown): string[] {
@@ -765,15 +792,63 @@ function ensureTask(tasks: TaskView[], id: string, title?: string): TaskView {
   return task;
 }
 
-function appendToken(state: OrchScreenState, taskId: string | null, text: string): void {
+/** Id пузыря, который собирается из `token` одной строки orch_messages (`message_id`). */
+const STREAM_PREFIX = "asst-m";
+const STREAM_DONE = "-done";
+
+function streamingId(messageId: unknown): string | null {
+  return typeof messageId === "number" && Number.isFinite(messageId) ? `${STREAM_PREFIX}${messageId}` : null;
+}
+
+function isOpenStream(message: ChatMessage | undefined): message is ChatMessage {
+  return (
+    message != null &&
+    message.role === "assistant" &&
+    message.id.startsWith(STREAM_PREFIX) &&
+    !message.id.endsWith(STREAM_DONE)
+  );
+}
+
+/**
+ * Кусок потокового ответа. Ответ на новую реплику — новый пузырь после неё: раньше токены
+ * дописывались в последний старый ответ выше по ленте, и новый ответ не было видно.
+ */
+function appendToken(state: OrchScreenState, taskId: string | null, text: string, messageId?: unknown): void {
   if (!text) return;
   const messages = state.messages;
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (message && message.role === "assistant" && message.taskId === taskId) {
-      message.text += text;
+  const id = streamingId(messageId);
+  if (id) {
+    const existing = messages.findLast((message) => message.id === id);
+    if (existing) {
+      existing.text += text;
       return;
     }
+  } else {
+    const last = messages.at(-1);
+    if (isOpenStream(last) && last.taskId === taskId) {
+      last.text += text;
+      return;
+    }
+  }
+  messages.push({
+    id: id ?? `${STREAM_PREFIX}x${messages.length}`,
+    role: "assistant",
+    text,
+    taskId,
+  });
+}
+
+/**
+ * Итоговое `message` ответа. Сервер шлёт его после токенов того же ответа целым текстом:
+ * совпадает с собранным пузырём — закрываем пузырь, иначе это отдельная реплика.
+ */
+function appendFinalMessage(state: OrchScreenState, taskId: string | null, text: string): void {
+  const messages = state.messages;
+  const last = messages.at(-1);
+  if (isOpenStream(last) && last.taskId === taskId && last.text && text.startsWith(last.text.trimEnd().slice(0, 40))) {
+    last.text = text;
+    last.id = `${last.id}${STREAM_DONE}`;
+    return;
   }
   messages.push({
     id: `asst-${taskId ?? "none"}-${messages.length}`,
@@ -790,7 +865,41 @@ function rememberActionResult(state: OrchScreenState, payload: Record<string, un
   state.actionResults.push(view);
 }
 
+/** Вопрос уже в ленте после последнего ответа (живая отправка ставит его до ack). */
+function askedSinceLastAnswer(messages: ChatMessage[], text: string): boolean {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role === "assistant") return false;
+    if (message.text.trim() === text) return true;
+  }
+  return false;
+}
+
 export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenAction): OrchScreenState {
+  const next = reduceOrchScreenRaw(state, action);
+  if (action.type !== "event" || next === state || !action.event.created_at) return next;
+  return stampMessages(next, state.messages.length, action.event.created_at, action.event.type === "ack");
+}
+
+/**
+ * Время события на новые реплики. Живой вопрос человека ставится до ack без времени (часы
+ * браузера могут врать) — время ему даёт ack сервера.
+ */
+function stampMessages(next: OrchScreenState, before: number, at: string, ack: boolean): OrchScreenState {
+  const messages = next.messages;
+  let changed = false;
+  const stamped = messages.map((message, index) => {
+    if (message.at) return message;
+    const fresh = index >= before;
+    const asked = ack && message.role === "user" && index === messages.length - 1;
+    if (!fresh && !asked) return message;
+    changed = true;
+    return { ...message, at };
+  });
+  return changed ? { ...next, messages: stamped } : next;
+}
+
+function reduceOrchScreenRaw(state: OrchScreenState, action: OrchScreenAction): OrchScreenState {
   if (action.type === "reset") return initialOrchScreen(state.ownSession);
   if (action.type === "task-status") {
     const status = asTaskStatus(action.status);
@@ -926,6 +1035,17 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
   };
   const payload = asRecord(event.payload);
   const taskId = taskKey(event.task_id);
+  if (taskId && (event.type === "agent_status" || event.type === "approval_required")) {
+    // Плашка старой задачи («План получился пустым» от 20.10) висела внизу дока под каждой новой
+    // просьбой, будто про неё. Пошла более новая задача — старые плашки без кнопок закрываем.
+    const now = Number(taskId);
+    for (const item of next.approvals) {
+      const own = item.taskId ? Number(item.taskId) : NaN;
+      if (item.resolved == null && !item.serverId && isTerminalBlock(item.reason) && own < now) {
+        item.resolved = "closed";
+      }
+    }
+  }
   if (event.type !== "approval_required") {
     const decided = approvalDecision(payload.decision ?? payload.approval_decision);
     const key = approvalDecisionKey(payload);
@@ -955,6 +1075,12 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
       text: accepted || !str(payload.text) ? "принял, разбираю" : str(payload.text),
       seq: event.seq,
     };
+    // Повтор истории после перезагрузки: вопрос человека приходит только в ack. Без этого в
+    // ленте остаются одни ответы. Живой вопрос уже стоит в ленте (user-message) — не дублируем.
+    const asked = accepted ? str(payload.text).trim() : "";
+    if (asked && !askedSinceLastAnswer(next.messages, asked)) {
+      next.messages.push({ id: `user-ack-${event.seq}`, role: "user", text: asked, taskId: null });
+    }
     return next;
   }
 
@@ -979,14 +1105,14 @@ export function reduceOrchScreen(state: OrchScreenState, action: OrchScreenActio
 
   if (event.type === "message") {
     const text = str(payload.text);
-    if (text && str(payload.role) !== "user") appendToken(next, taskId, text);
+    if (text && str(payload.role) !== "user") appendFinalMessage(next, taskId, text);
     absorbLlmSignal(next, taskId, payload, event.seq, event.session_id || null);
     rememberActionResult(next, payload, event.seq);
     return next;
   }
 
   if (event.type === "token") {
-    appendToken(next, taskId, str(payload.text));
+    appendToken(next, taskId, str(payload.text), payload.message_id);
     return next;
   }
 

@@ -64,7 +64,14 @@ from app.orchestrator import app_ref
 from app.orchestrator.agents import approval_steps
 from app.orchestrator.agents import summarizer as task_summary
 from app.orchestrator.agents.executor import effective_risk, run_many, step_is_paid, tighten_paid_step
-from app.orchestrator.agents.failure_scope import failure_reads
+from app.orchestrator.agents.failure_scope import (
+    content_check_scope,
+    failure_reads,
+    fix_after_diag_goal,
+    fix_with_diag,
+    is_bare_fix,
+    plan_fix_from_last,
+)
 from app.orchestrator.agents.launch_scope import parallel_needed, refit_parallel, route_multi_launch
 from app.orchestrator.agents.light_scope import light_as_coverage
 from app.orchestrator.agents.planner import PlanSchemaError
@@ -864,8 +871,21 @@ class Supervisor:
                 "decision": ApprovalDecision.deny.value,
                 "retry_armed": False,
             }
-        if decided in {ApprovalDecision.retry_step, ApprovalDecision.deny}:
-            raise InvalidTransition("retry_step и deny только для paid_outcome_unknown")
+        if decided is ApprovalDecision.deny:
+            # «Отклонить» на обычной карточке (риск, план): док шлёт deny сюда, а не в /reject.
+            # Раньше 409 «invalid transition» — карточка блокировалась, задача висела в ожидании.
+            await self._emit_decision(task_id, session_id, decided)
+            self._budget_stop.discard(task_id)
+            self._block_reason.pop(task_id, None)
+            await self._set_status(task_id, TaskStatus.cancelled, session_id=session_id, error="rejected")
+            return {
+                "executed": False,
+                "decision": ApprovalDecision.deny.value,
+                "retry_armed": False,
+                "change_id": change_id or self._appr_open.get(int(task_id)),
+            }
+        if decided is ApprovalDecision.retry_step:
+            raise InvalidTransition("retry_step только для paid_outcome_unknown")
         if (
             reason == ApprovalReason.missing_project_id.value
             and task_id not in self._budget_stop
@@ -2787,6 +2807,23 @@ class Supervisor:
                 return pid
         return None
 
+    def _last_check(self, session_id: str) -> tuple[str, dict] | None:
+        # «Почини» — к последнему разбору в чате: сбою ноды или проверке содержания.
+        rows: list[dict] = []
+        for action in ("diag.node_failure", "diag.content_checks"):
+            try:
+                rows += self.tasks.session_steps(session_id, action)
+            except Exception:
+                continue
+        for row in sorted(rows, key=lambda r: int(r.get("id") or 0), reverse=True):
+            try:
+                params = json.loads(row.get("params_json") or "{}")
+            except (TypeError, ValueError):
+                continue
+            if isinstance(params.get("project_id"), int) and params["project_id"] > 0:
+                return str(row.get("action_name")), params
+        return None
+
     async def _make_plan(
         self,
         task_id: int,
@@ -2799,9 +2836,15 @@ class Supervisor:
             return None
         if self._status(task_id) is not TaskStatus.planning:
             await self._set_status(task_id, TaskStatus.planning, session_id=session_id)
+        # «Почини» сразу после разбора сбоя: без проекта и ноды планировщик отвечал «уточните».
+        last_check = self._last_check(session_id) if is_bare_fix(goal) else None
+        if last_check and last_check[0] == "diag.node_failure":
+            goal = fix_after_diag_goal(goal, last_check[1]["project_id"])
         token = _LLM_TASK.set(int(task_id))
         try:
-            drafted = await self._draft_plan(task_id, session_id, goal, context)
+            # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
+            fixed = await plan_fix_from_last(last_check)
+            drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
                 drafted = await self._draft_plan(
@@ -2826,6 +2869,8 @@ class Supervisor:
         drafted = upload_source_from_goal(drafted, goal)
         # «Найди причину ошибки в ИИ-редакторе сцен»: разбор сбоя ноды, а не одно чтение доски.
         drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
+        drafted = await fix_with_diag(list(drafted), goal, self.actions)
+        drafted = content_check_scope(drafted, goal)
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []
@@ -4102,6 +4147,9 @@ class Supervisor:
         if frame_soft_delete_state(step.action, self.actions) is not None:
             return [index]
         seen = {_step_project(step)}
+        # Правки доски монтажа одной просьбы («объедини 3–6» = три слияния) идут
+        # одной карточкой и в одном проекте: человек одобряет просьбу целиком.
+        same_project_ok = step.action.startswith("montage.")
         found = [index]
         cursor = index + 1
         while cursor < len(plan):
@@ -4109,7 +4157,7 @@ class Supervisor:
             project = _step_project(nxt)
             if nxt.action != step.action or nxt.parallel_group != step.parallel_group:
                 break
-            if project is None or project in seen:
+            if project is None or (project in seen and not same_project_ok):
                 break
             seen.add(project)
             found.append(cursor)
@@ -6098,7 +6146,11 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
             shown = f" «{value}»" if value not in (None, "") else ""
             human.append(f"«{title}»: недопустимое значение{shown} ({label}).")
         elif reason == "not_in_whitelist":
-            human.append(f"«{action}»: такого действия нет среди разрешённых.")
+            human.append(
+                f"«{title}»: это действие сейчас недоступно."
+                if title and title != action
+                else "Один из шагов плана сейчас недоступен."
+            )
         elif reason == "missing_verify_code_state":
             human.append(f"«{title}»: перед запуском нет проверки состояния проекта.")
         else:

@@ -28,14 +28,7 @@ from app.orchestrator.action_contracts.contracts import escalated_metadata as co
 from app.services.action_layer import store
 from app.services.action_layer.context import ActionContext
 from app.services.action_layer.spec import ensure_builtin_actions, registry
-
-try:
-    from app.services.frame_tombstones import forget_deleted, mark_frame_deleted
-except ImportError:
-    def forget_deleted(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
-        pass
-    def mark_frame_deleted(*args: Any, **kwargs: Any) -> None:  # type: ignore[misc]
-        pass
+from app.services.frame_tombstones import forget_deleted, mark_frame_deleted
 from app.services.redact import redact_text
 
 _CORE_CHANGE_ID = re.compile(r"^orch-appr-[0-9]+-[0-9]+$")
@@ -43,7 +36,21 @@ _SOFT_FRAME_DELETE = frozenset({"montage.delete_frame", "montage.delete_child_fr
 # Имена из SOFT_DELETE_RESTORE, у которых есть исполнитель. Остальные — только метаданные.
 _IMPLEMENTED_RESTORES = frozenset({"frame.restore"})
 # Помечены мягкими, но исполнитель необратим. До R2 их нет ни в списке, ни в вызове.
-_HELD_UNTIL_R2 = frozenset({"group.delete", "prompt.delete_master"})
+_HELD_UNTIL_R2 = frozenset(
+    {
+        "group.delete",
+        "prompt.delete_master",
+        # Разбивка/улучшение/генерация сцен и закадр на несколько кадров перенесены
+        # из int/chat-v1 (ручки scenes/split, scene-improve, scene-action-generate, coverage_vo_span).
+        # Ручки /projects/{id}/observations/kill-switch на этой линии нет (404 после кнопки),
+        # а рубильник студии общий на весь сервер — подключать его к кнопке решает владелец.
+        "kill_switch.engage",
+    }
+)
+# Общие (мастер) промты из чата не пишутся: правка бьёт по всем проектам сразу. Чат
+# предлагает правку промта одной ноды (prompt.edit_text), мастер меняет человек в Студии.
+_MASTER_PROMPT_WRITES = frozenset({"prompt.save_master", "prompt.create_master"})
+_HELD_UNTIL_R2 = _HELD_UNTIL_R2 | _MASTER_PROMPT_WRITES
 
 
 class BoundResult(ActionResult):
@@ -593,10 +600,341 @@ def plan_defaults(name: str, params: dict | None) -> dict:
     if str(name) == "report.nodes" and params.get("kind") == "md":
         # В чате нужен вариант с файлом: md отдаёт только текст без ссылки на скачивание.
         params["kind"] = "chat"
+    if str(name) == "montage.set_coverage":
+        # «Крупный план» → «КРУПНЫЙ»: доска показывает только значения из своего списка.
+        from app.services.action_layer.planner_rules import _normalize_values
+
+        _normalize_values(str(name), params, [])
     if str(name) == "node.set_prompt_variant" and params.get("slot_id") == "default":
         # «default» — имя варианта промта, не слот: нода читает слот main.
         params["slot_id"] = "main"
     return params
+
+
+# Шот не назван («обрежь видео кадра 1»): у кадра обычно один шот с файлом, его и берём, как
+# старый планировщик (planner_rules._fill_shots). Файлы в обоих шотах — вопрос человеку.
+_SHOT_FILL: dict[str, tuple[tuple[str, str], ...]] = {
+    "montage.set_video_trim": (("shot", "frame_number"),),
+    "montage.swap_slots": (("a_shot", "a_frame"), ("b_shot", "b_frame")),
+    "montage.move_image": (("from_shot", "from_frame"), ("to_shot", "to_frame")),
+}
+
+
+def _media_kind(name: str, params: dict) -> str:
+    if name == "montage.set_video_trim":
+        return "video"
+    if name == "montage.move_image":
+        return "image"
+    return "video" if params.get("kind") == "video" else "image"
+
+
+async def _fill_shots(name: str, params: dict) -> dict:
+    keys = [(shot, frame) for shot, frame in _SHOT_FILL[name] if shot not in params and frame in params]
+    if not keys or params.get("project_id") is None:
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+    from app.services.montage_board import build_montage_board
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, int(params["project_id"]))
+        if project is None:
+            return params
+        board = await build_montage_board(session, project)
+        await session.rollback()
+    kind = _media_kind(name, params)
+    what = "видео" if kind == "video" else "картинка"
+    by_number = {int(f.get("number") or 0): f for f in board.get("frames") or []}
+    out = dict(params)
+    for shot_key, frame_key in keys:
+        frame = by_number.get(int(out[frame_key]))
+        if frame is None:
+            continue
+        have = [n for n in (1, 2) if frame.get(f"{kind}_shot{n}_url")]
+        if len(have) == 2:
+            raise PlanResolveRefused(
+                f"У кадра {out[frame_key]} {what} есть в обоих шотах. Какой взять: шот 1 или шот 2?"
+            )
+        out[shot_key] = have[0] if have else 1
+    return out
+
+
+_FRAME_ID_KEYS = ("frame_id", "after_frame_id", "left_frame_id", "right_frame_id")
+
+
+def _frame_values(params: dict) -> list[int]:
+    out: list[int] = []
+    for key in (*_FRAME_ID_KEYS, "frame_ids"):
+        vals = params.get(key)
+        for v in vals if isinstance(vals, list) else [vals]:
+            if isinstance(v, int) and not isinstance(v, bool):
+                out.append(v)
+    return out
+
+
+FRAME_NUMBERS: dict[int, int] = {}
+"""id строки кадра → номер на доске; пополняет ``_fill_frame_ids`` перед карточкой."""
+
+
+async def _board_frame_ids(project_id: int) -> dict[int, int] | None:
+    """Номер кадра на доске → id строки кадра; удалённые номера не в счёт."""
+    from app.services.frame_tombstones import deleted_numbers
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return None
+        gone = set(deleted_numbers(project))
+        rows = (
+            await session.execute(select(Frame.number, Frame.id).where(Frame.project_id == project_id))
+        ).all()
+        await session.rollback()
+    return {int(r.number): int(r.id) for r in rows if int(r.number) not in gone}
+
+
+async def _fill_frame_ids(params: dict) -> dict:
+    """Каталог велит планировщику писать в frame_id номер кадра с доски («кадр 5» — 5), а маршруты
+    доски ждут id строки кадра. Без перевода карточка «раздели сцену 3–6» уходила с id чужого
+    проекта. Номер на доске важнее: id кадра оставляем, только если такого номера нет."""
+    if params.get("project_id") is None or not _frame_values(params):
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+
+    project_id = int(params["project_id"])
+    by_number = await _board_frame_ids(project_id)
+    if by_number is None:
+        return params
+    ids = set(by_number.values())
+    # Карточка подтверждения показывает кадр номером с доски, а не id строки (approval_steps).
+    FRAME_NUMBERS.update({fid: n for n, fid in by_number.items()})
+
+    def one(v: Any) -> Any:
+        if not isinstance(v, int) or isinstance(v, bool):
+            return v
+        if v in by_number:
+            return by_number[v]
+        if v in ids:
+            return v
+        raise PlanResolveRefused(f"Кадра {v} нет на доске монтажа проекта {project_id}.")
+
+    out = dict(params)
+    for key in _FRAME_ID_KEYS:
+        if key in out:
+            out[key] = one(out[key])
+    if isinstance(out.get("frame_ids"), list):
+        out["frame_ids"] = [one(v) for v in out["frame_ids"]]
+    return out
+
+
+async def _board_frames(project_id: int) -> list[dict] | None:
+    from app.services.montage_board import build_montage_board
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return None
+        board = await build_montage_board(session, project)
+        await session.rollback()
+    return [f for f in board.get("frames") or [] if isinstance(f, dict)]
+
+
+async def _scene_image_ops(params: dict) -> dict:
+    """«Улучши сцену 3–4»: модель ставила max_image_ops=2 по числу кадров, а очередь — still сцены
+    и картинка каждого кадра (3). Лимит меньше операций — картинки не стартовали, а чат писал
+    «Готово». Берём размер сцены с доски: карточка показывает честную цену."""
+    if params.get("project_id") is None or not isinstance(params.get("frame_id"), int):
+        return params
+    from app.services.action_layer.builtin_montage_more import MAX_IMPROVE_IMAGE_OPS
+
+    frames = await _board_frames(int(params["project_id"]))
+    at = next((f for f in frames or [] if str(f.get("frame_id")) == str(params["frame_id"])), None)
+    if at is None:
+        return params
+    need = min(int(at.get("vo_scene_size") or 1) + 1, MAX_IMPROVE_IMAGE_OPS)
+    have = params.get("max_image_ops")
+    if isinstance(have, int) and not isinstance(have, bool) and have >= need:
+        return params
+    return {**params, "max_image_ops": need}
+
+
+async def _check_split(params: dict) -> dict:
+    """«Раздели сцену 3–6 на 3–4 и 5–6»: до карточки сверяем с доской, иначе карточка падала уже
+    после «Подтвердить» («первый кадр сцены нельзя отделить»)."""
+    if params.get("project_id") is None or not isinstance(params.get("frame_id"), int):
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+
+    frames = await _board_frames(int(params["project_id"]))
+    if not frames:
+        return params
+    at = next((f for f in frames if str(f.get("frame_id")) == str(params["frame_id"])), None)
+    if at is None:
+        return params
+    number = int(at.get("number") or 0)
+    head = int(at.get("vo_scene_number") or 0)
+    size = int(at.get("vo_scene_size") or 0)
+    if head == number:
+        if size <= 1:
+            raise PlanResolveRefused(
+                f"Кадр {number} и так отдельная сцена — делить нечего. Если нужно сначала собрать "
+                "кадры в одну сцену, попросите объединить сцены."
+            )
+        raise PlanResolveRefused(
+            f"Кадр {number} — первый в своей сцене, его нельзя отделить. Назовите кадр, с которого "
+            "начнётся новая сцена."
+        )
+    out = dict(params)
+    ids = out.get("frame_ids")
+    parent = next((f for f in frames if int(f.get("number") or 0) == head), None)
+    if isinstance(ids, list) and parent is not None and parent.get("frame_id") not in ids:
+        # Планировщик кладёт сюда кадры новой части, а сервер ждёт все видимые кадры ячейки.
+        out.pop("frame_ids")
+    return out
+
+
+async def _fill_ref_file(params: dict) -> dict:
+    """«Приложи реф predmet2»: в file — код или имя рефа, а не путь; путь берём из ref-assets проекта."""
+    want = str(params.get("file") or params.get("name") or "").strip()
+    if not want or params.get("project_id") is None:
+        return params
+    from app.orchestrator.contracts import PlanResolveRefused
+    from app.services.montage_board import _entity_name_maps
+    from app.services.montage_frame_refs import list_ref_assets
+
+    project_id = int(params["project_id"])
+    async with store.sessions()() as session:
+        project = await session.get(Project, project_id)
+        if project is None:
+            return params
+        data_dir = project.data_dir
+        char_names, item_names = await _entity_name_maps(session, project_id)
+        await session.rollback()
+    assets = list_ref_assets(data_dir, names={"character": char_names, "item": item_names})
+    key = want.lower().replace("/", "\\")
+    stem = key.rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+    found = [
+        a
+        for a in assets
+        if key == str(a.get("file") or "").lower()
+        or stem in {str(a.get("code") or "").lower(), str(a.get("name") or "").lower()}
+    ]
+    if not found:
+        found = [a for a in assets if str(a.get("name") or "").lower().startswith(stem)]
+    if len(found) != 1:
+        names = ", ".join(str(a.get("name") or a.get("code")) for a in assets[:12])
+        raise PlanResolveRefused(f"Не нашёл реф «{want}» в проекте {project_id}. Есть: {names}.")
+    out = dict(params)
+    out["file"] = found[0]["file"]
+    out.setdefault("kind", found[0].get("kind") or "")
+    return out
+
+
+async def _fill_node_key(params: dict) -> dict:
+    """«Нода 'script' не найдена»: модель писала тип или подпись ноды вместо ключа n_script.
+
+    Тип, код шага или подпись, однозначно указывающие на одну ноду проекта, заменяются её ключом.
+    """
+    from app.orchestrator.contracts import NODE_KEY_RE
+
+    want = str(params.get("node_key") or "").strip()
+    pid = params.get("project_id")
+    if not want or NODE_KEY_RE.match(want) or not isinstance(pid, int) or isinstance(pid, bool):
+        return params
+    from app.orchestrator.agents.project_nodes import _meta_from_db, roster
+
+    try:
+        rows = roster(await _meta_from_db(pid))
+    except Exception:
+        return params
+    low = want.lower()
+    for field in ("type", "step_code", "label", "type_ru"):
+        hit = [row for row in rows if str(row.get(field) or "").lower() == low]
+        if len(hit) == 1:
+            return {**params, "node_key": str(hit[0]["key"])}
+        if hit:
+            return params
+    return params
+
+
+async def _fill_gpt_head(params: dict) -> dict:
+    """«Запусти работу с gpt, лимит $0.5»: без ноды шаг не стартовал («укажите node_key»).
+
+    Берём первую по схеме ещё не готовую голову цепочки «Работа с GPT» (до неё не доходит другая
+    такая нода): готовую повторно не гоняем. Какая нода пойдёт, человек видит на карточке.
+    """
+    pid = params.get("project_id")
+    if params.get("step_code") != "excel_gpt" or params.get("node_key") or not isinstance(pid, int):
+        return params
+    from app.orchestrator.agents.project_nodes import _meta_from_db
+    from app.services.action_layer.builtin_launch import gpt_chain
+    from app.services.excel_gpt_node import is_excel_gpt_node_type
+    from app.services.node_config import graph_nodes
+
+    try:
+        meta = await _meta_from_db(pid)
+        keys = [str(n.get("id")) for n in graph_nodes(meta) if is_excel_gpt_node_type(str(n.get("type") or ""))]
+        reached = {k for key in keys for k in gpt_chain(meta, key)[1:]}
+    except Exception:
+        return params
+    done = await _done_nodes(pid)
+    heads = [key for key in keys if key not in reached and key not in done]
+    return {**params, "node_key": heads[0]} if heads else params
+
+
+async def _done_nodes(project_id: int) -> set[str]:
+    from app.models import NodeRun, NodeRunStatus, WorkflowRun
+
+    async with store.sessions()() as session:
+        rows = await session.execute(
+            select(NodeRun.node_key)
+            .join(WorkflowRun, WorkflowRun.id == NodeRun.workflow_run_id)
+            .where(WorkflowRun.project_id == project_id, NodeRun.status == NodeRunStatus.done)
+        )
+        return {str(key) for key in rows.scalars()}
+
+
+# Платные действия доски с условием «модель и разрешение как в проекте»: планировщик их
+# угадывал (1k при 2k в проекте), и карточку нельзя было подтвердить. Другое значение условие
+# не пропустит никогда, поэтому берём значения проекта — карточка их и покажет.
+_BASIS_FIELDS = {
+    "montage.generate_scene_images": ("image",),
+    "montage.improve_scene": ("image",),
+    "montage.apply_queue": ("image", "video"),
+}
+
+
+async def _fill_media_basis(name: str, params: dict) -> dict:
+    pid = params.get("project_id")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return params
+    from app.services.action_layer.builtin_montage_more import _effective_settings
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, pid)
+        if project is None:
+            return params
+        detail = {
+            field: getattr(project, field, None)
+            for field in (
+                "meta",
+                "image_generator",
+                "image_resolution",
+                "image_quality",
+                "aspect_ratio",
+                "video_generator",
+                "video_resolution",
+            )
+        }
+        await session.rollback()
+    eff = _effective_settings(detail)
+    out = dict(params)
+    for kind in _BASIS_FIELDS[name]:
+        if kind == "video" and not out.get("max_video_ops"):
+            continue
+        if kind == "image" and name == "montage.apply_queue" and not out.get("max_image_ops"):
+            continue
+        for field in (f"{kind}_generator", f"{kind}_resolution"):
+            out[field] = eff[field]
+    return out
 
 
 async def plan_resolve(name: str, params: dict | None) -> dict:
@@ -604,12 +942,27 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
 
     Правка настроек проекта: без ключей, значение которых в проекте уже такое же."""
     params = dict(params or {})
+    if "node_key" in params:
+        params = await _fill_node_key(params)
+    if str(name).startswith("montage."):
+        params = await _fill_frame_ids(params)
+    if str(name) == "montage.split_scene":
+        return await _check_split(params)
+    if str(name) == "montage.improve_scene":
+        params = await _scene_image_ops(params)
+    if str(name) == "montage.link_ref":
+        return await _fill_ref_file(params)
+    if str(name) in _SHOT_FILL:
+        return await _fill_shots(str(name), params)
+    if str(name) in _BASIS_FIELDS:
+        return await _fill_media_basis(str(name), params)
     if str(name) in ("project.patch_settings", "project.patch_settings_costly"):
         from app.services.action_layer.builtin_wave5 import changed_settings_only
 
         return await changed_settings_only(params)
     if str(name) != "step.run_step":
         return params
+    params = await _fill_gpt_head(params)
     from app.services.action_layer.builtin_wave5 import declared_media_values
 
     return await declared_media_values(params)
@@ -691,6 +1044,8 @@ async def _execute(name: str, params: dict | None, ctx: Any) -> ActionResult:
 
     ensure_builtin_actions()
     params = dict(params or {})
+    if str(name) in _MASTER_PROMPT_WRITES:
+        return _failed("общий (мастер) промт из чата не меняется: правьте его в Студии")
     if str(name) in _HELD_UNTIL_R2:
         return _failed("до R2 недоступно")
     if str(name) == "frame.restore":

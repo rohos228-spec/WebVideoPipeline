@@ -1,0 +1,186 @@
+{
+  "_comment": "full — ответы слоя действий как у админа; member — те же ответы после app/web/member_money.member_safe (проверяет tests/test_member_money_overmask.py). e2e участника рисует member.",
+  "full": {
+    "preview": {
+      "plan_id": "pl-member-1",
+      "explanation_ru": "Перегенерирую кадр 3 за кредиты, не дороже $0.40.",
+      "preview": {
+        "ok": true,
+        "errors": [],
+        "plan_hash": "h-member-1",
+        "risk_max": "paid",
+        "needs_approval": true,
+        "steps": [
+          {
+            "index": 0,
+            "action_id": "hitl.regenerate",
+            "title_ru": "Перегенерировать кадр",
+            "risk": "paid",
+            "spends_money": true,
+            "valid": true,
+            "errors": [],
+            "precondition_failures": [],
+            "cost": { "low": 12, "high": 40, "basis": "по тарифу студии", "known": true, "high_usd": 0.4 },
+            "params": { "project_id": 13, "frame": 3, "ceiling_credits": 40 }
+          }
+        ],
+        "cost": { "low": 12, "high": 40, "unknown_steps": 0, "known": true, "low_usd": 0.12, "high_usd": 0.4 },
+        "destructive_effects": [],
+        "warnings": [],
+        "budget": { "cap_credits": 100, "remaining_credits": 60, "fits": true, "cap_usd": 1.0 }
+      }
+    },
+    "history": {
+      "total": 1,
+      "items": [
+        {
+          "id": 1,
+          "created_at": "2026-10-23T10:00:00Z",
+          "plan_id": "pl-old",
+          "step_index": 0,
+          "event": "step_done",
+          "actor": "studio_user:member",
+          "request_text": "перегенерируй кадр 2",
+          "action_id": "hitl.regenerate",
+          "params": { "frame": 2 },
+          "outcome": "succeeded",
+          "error": null,
+          "cost_estimate": { "low": 10, "high": 30, "high_usd": 0.3 },
+          "cost_recorded": 18,
+          "actual_usd": 0.18
+        }
+      ]
+    },
+    "running": { "items": [ { "id": "pl-run", "status": "running", "project_id": 13, "request_text": "картинки", "live": true, "interrupted": false, "created_at": null, "updated_at": null } ] },
+    "plan": {
+      "id": "pl-run",
+      "status": "running",
+      "project_id": 13,
+      "operator": "studio_user:member",
+      "request_text": "картинки",
+      "plan_hash": "h-run",
+      "risk_max": "paid",
+      "needs_approval": false,
+      "cost_estimate": { "low": 20, "high": 50, "unknown_steps": 0 },
+      "spent_credits": 22,
+      "budget_cap_credits": 100,
+      "stop_requested": false,
+      "stop_reason": null,
+      "error": null,
+      "live": true,
+      "interrupted": false,
+      "created_at": null,
+      "updated_at": null,
+      "finished_at": null,
+      "approvals": [],
+      "steps": [
+        {
+          "index": 0,
+          "action_id": "step.run_step",
+          "params": { "step_code": "images", "ceiling_credits": 50 },
+          "depends_on": [],
+          "status": "running",
+          "attempts": 1,
+          "progress": 40,
+          "progress_note": "кадры 1–4",
+          "result": null,
+          "error": null,
+          "cost": { "low": 20, "high": 50, "actual": 22, "actual_usd": 0.22 },
+          "started_at": null,
+          "finished_at": null
+        }
+      ]
+    }
+  },
+  "member": {
+    "preview": {
+      "plan_id": "pl-member-1",
+      "explanation_ru": "Перегенерирую кадр 3 за кредиты, не дороже (сумма видна админу).",
+      "preview": {
+        "ok": true,
+        "errors": [],
+        "plan_hash": "h-member-1",
+        "risk_max": "paid",
+        "needs_approval": true,
+        "steps": [
+          {
+            "index": 0,
+            "action_id": "hitl.regenerate",
+            "title_ru": "Перегенерировать кадр",
+            "risk": "paid",
+            "spends_money": true,
+            "valid": true,
+            "errors": [],
+            "precondition_failures": [],
+            "cost": { "low": 12, "high": 40, "basis": "по тарифу студии", "known": true },
+            "params": { "project_id": 13, "frame": 3, "ceiling_credits": 40 }
+          }
+        ],
+        "cost": { "low": 12, "high": 40, "unknown_steps": 0, "known": true },
+        "destructive_effects": [],
+        "warnings": [],
+        "budget": { "cap_credits": 100, "remaining_credits": 60, "fits": true }
+      }
+    },
+    "history": {
+      "total": 1,
+      "items": [
+        {
+          "id": 1,
+          "created_at": "2026-10-23T10:00:00Z",
+          "plan_id": "pl-old",
+          "step_index": 0,
+          "event": "step_done",
+          "actor": "studio_user:member",
+          "request_text": "перегенерируй кадр 2",
+          "action_id": "hitl.regenerate",
+          "params": { "frame": 2 },
+          "outcome": "succeeded",
+          "error": null,
+          "cost_estimate": { "low": 10, "high": 30 },
+          "cost_recorded": 18
+        }
+      ]
+    },
+    "running": { "items": [ { "id": "pl-run", "status": "running", "project_id": 13, "request_text": "картинки", "live": true, "interrupted": false, "created_at": null, "updated_at": null } ] },
+    "plan": {
+      "id": "pl-run",
+      "status": "running",
+      "project_id": 13,
+      "operator": "studio_user:member",
+      "request_text": "картинки",
+      "plan_hash": "h-run",
+      "risk_max": "paid",
+      "needs_approval": false,
+      "cost_estimate": { "low": 20, "high": 50, "unknown_steps": 0 },
+      "spent_credits": 22,
+      "budget_cap_credits": 100,
+      "stop_requested": false,
+      "stop_reason": null,
+      "error": null,
+      "live": true,
+      "interrupted": false,
+      "created_at": null,
+      "updated_at": null,
+      "finished_at": null,
+      "approvals": [],
+      "steps": [
+        {
+          "index": 0,
+          "action_id": "step.run_step",
+          "params": { "step_code": "images", "ceiling_credits": 50 },
+          "depends_on": [],
+          "status": "running",
+          "attempts": 1,
+          "progress": 40,
+          "progress_note": "кадры 1–4",
+          "result": null,
+          "error": null,
+          "cost": { "low": 20, "high": 50, "actual": 22 },
+          "started_at": null,
+          "finished_at": null
+        }
+      ]
+    }
+  }
+}

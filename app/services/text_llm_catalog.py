@@ -628,6 +628,9 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
             m_id = item["id"].lower()
             if "glm" in m_id:
                 key_ok = bool((s.pay52_glm_key or "").strip())
+            elif "low" in m_id:
+                # Тот же порядок, что в settings.gpt_api_effective_key: «…-5-5-pay52-low» идёт на низкий ключ.
+                key_ok = bool((s.pay52_claude_low_key or "").strip())
             elif "high" in m_id or "fable" in m_id or "5-5" in m_id:
                 key_ok = bool((s.pay52_claude_high_key or "").strip())
             elif "claude" in m_id:

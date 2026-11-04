@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from app.services import runtime_streams as rs
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/runtime-streams", tags=["runtime-streams"])
 
 
 class RuntimeStreamsPatch(BaseModel):
-    worker_max_parallel: int | None = Field(None, ge=1, le=4)
+    worker_max_parallel: int | None = Field(None, ge=rs.WORKER_MIN, le=rs.WORKER_MAX)
     default_outsee_streams: int | None = Field(None, ge=0, le=4)
     default_check_streams: int | None = Field(None, ge=0, le=10)
 
@@ -44,6 +44,13 @@ async def get_runtime_streams() -> dict[str, Any]:
 
 
 @router.patch("")
-async def patch_runtime_streams(body: RuntimeStreamsPatch) -> dict[str, Any]:
-    rs.save_runtime_streams(body.model_dump(exclude_none=True))
+async def patch_runtime_streams(body: RuntimeStreamsPatch, request: Request) -> dict[str, Any]:
+    changes = body.model_dump(exclude_none=True)
+    if "worker_max_parallel" in changes:
+        # Окно параллели очереди одно на всю студию: в режиме учётных записей
+        # его меняет только админ (участник менял бы скорость всем клиентам).
+        from app.web.engine_access import require_engine_admin
+
+        await require_engine_admin(request)
+    rs.save_runtime_streams(changes)
     return await get_runtime_streams()

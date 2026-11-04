@@ -402,6 +402,10 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("project.status", "none", True, False, False),
     ("node.output", "none", True, False, False),
     ("diag.incidents", "none", True, False, False),
+    ("diag.node_failure", "none", True, False, False),
+    # Проверка содержания шага (склейка закадра, герои в промтах): без строки здесь чат
+    # считал бы её платной и высокого риска.
+    ("diag.content_checks", "none", True, False, False),
     ("logs.tail", "none", True, False, False),
     ("spend.summary", "none", True, False, False),
     ("projects.overview", "none", True, False, False),
@@ -426,6 +430,9 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("node.set_model_many", "high", False, True, False),
     ("node.set_prompt_variant_many", "high", False, True, False),
     ("node.revert_model_many", "medium", False, False, False),
+    # Бюджет текстов проекта: разрешает будущие траты, поэтому с карточкой (medium),
+    # но ничего не удаляет и сам не платит.
+    ("project.set_llm_budget", "medium", False, False, False),
 )
 
 CHAT_V1_ACTION_IDS: frozenset[str] = frozenset(row[0] for row in _CHAT_V1_ROWS)

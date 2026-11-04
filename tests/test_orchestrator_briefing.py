@@ -74,7 +74,7 @@ def test_apply_set_briefing():
     block_plan = build_duration_params_block(p, "plan", header="Сценарий")
     assert "Целевое количество сцен/кадров: 12" in block_plan
     assert "Длина 45 секунд" in block_plan
-    assert "Жанр и структура сценария: Кинематографичная история" in block_plan
+    assert "Тип сценария: Кинематографичная история" in block_plan
     assert "Формат кадра (соотношение сторон): 16_9" in block_plan
     assert "Структура и темп сцен: динамичный клип" in block_plan
     assert "Визуальный стиль: 3D мультфильм" in block_plan
@@ -140,3 +140,71 @@ def test_clean_orchestrator_human_reply_nested_json():
     res4 = _clean_orchestrator_human_reply(t4)
     assert res4 == "Записал: клиповый монтаж"
 
+
+
+def test_briefing_duration_given_as_range_is_saved():
+    """Модель отвечает подписью варианта («30–45с», «8-12»): раньше float() падал и длительность терялась."""
+    from app.models import Project
+    from app.web.routers.db_browser import _apply_set_briefing, _briefing_number
+
+    assert _briefing_number("30–45с") == 37.5
+    assert _briefing_number("60 сек") == 60.0
+    assert _briefing_number(40) == 40.0
+    p = Project(slug="b", topic="t", meta={})
+    label = _apply_set_briefing(p, {"duration": "30–45с (Стандарт / 8-12 сцен)", "target_frames": "8-12"})
+    assert "duration=37.5s" in label and "frames=10" in label
+    assert p.meta["briefing"]["duration_seconds"] == 37.5
+    assert p.meta["briefing"]["target_frames"] == 10
+
+
+def test_briefing_unknown_plan_prompt_falls_back_to_default():
+    """«Вирусный Shorts» без своего файла: раньше писалось неизвестное имя и шаг брал чужой глобальный промт."""
+    p = Project(slug="v", topic="t", meta={}, prompt_overrides={})
+    label = _apply_set_briefing(p, {"plan_prompt": "viral_dynamic_shorts"})
+    assert "plan_prompt=default" in label
+    assert p.prompt_overrides["plan"] == "default"
+    b = p.meta["briefing"]
+    assert b["plan_prompt_requested"] == "viral_dynamic_shorts"
+    assert b["scenario_type"] == "viral_dynamic_shorts"
+    assert "Тип сценария: viral_dynamic_shorts" in build_duration_params_block(p, "plan", header="Сценарий")
+
+
+def test_reply_drops_cjk_inside_russian_word():
+    assert _clean_orchestrator_human_reply("Нужна визуальная一致ность?") == "Нужна визуальная согласованность?"
+    assert _clean_orchestrator_human_reply("Стиль 水彩 акварель") == "Стиль  акварель"
+
+
+def test_briefing_keeps_hero_description():
+    """«один герой, рыжий кот в шарфе»: сохраняется сам герой, а не только hero_mode."""
+    p = Project(slug="h", topic="t", meta={}, prompt_overrides={})
+    label = _apply_set_briefing(p, {"hero_mode": "hero", "hero_description": "рыжий кот в шарфе"})
+    assert "hero_description" in label
+    assert p.hero_description == "рыжий кот в шарфе"
+    assert "Главный герой: рыжий кот в шарфе" in build_duration_params_block(p, "plan", header="Сценарий")
+    p2 = Project(slug="h2", topic="t", meta={}, prompt_overrides={}, hero_description="уже описан")
+    _apply_set_briefing(p2, {"hero_description": "другой"})
+    assert p2.hero_description == "уже описан"
+    assert p2.meta["briefing"]["hero_description"] == "другой"
+
+
+def test_briefing_context_lists_saved_answers_for_final_summary():
+    from app.web.routers.db_browser import _briefing_context
+
+    p = Project(slug="b", title="B", meta={}, prompt_overrides={})
+    assert _briefing_context(p) == []
+    _apply_set_briefing(p, {"duration": 30, "target_frames": 8, "scenario_type": "Документальный",
+                            "subtitles_enabled": False})
+    lines = _briefing_context(p)
+    text = "\n".join(lines)
+    assert lines[0].startswith("БРИФИНГ")
+    assert "хронометраж, с: 30" in text
+    assert "тип сценария: Документальный" in text
+    assert "субтитры: нет" in text
+
+
+def test_prompt_says_briefing_is_saved_at_once():
+    from app.web.routers.db_browser import _system_prompt
+
+    sp = _system_prompt(False)
+    assert "«Записал" in sp
+    assert "ВСЕХ восьми пунктов" in sp

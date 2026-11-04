@@ -66,7 +66,14 @@ async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobRes
                     if project is None:
                         logger.warning("advance_project_job: проект #{} исчез", project_id)
                         return AdvanceJobResult(project_id, prev, None)
-                    await advance_project(session, project, bot)
+                    from app.services import request_context, spend_guard
+
+                    # Цепочка из чата с потолком: такт пишет траты в её run_id и упирается в её
+                    # потолок. Управляемый запуск считает траты по своему run_id — его не трогаем.
+                    run_id = request_context.get_run_id()
+                    chain_meta = project.meta if not run_id or run_id.startswith("native:") else None
+                    with spend_guard.chain_budget_scope(chain_meta):
+                        await advance_project(session, project, bot)
                     new = project.status.value
                     if new != prev:
                         _NO_CREDITS_FIRST_SEEN.pop(project_id, None)

@@ -356,12 +356,22 @@ def write_split_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None =
     return prompt_file
 
 
+def _with_briefing(project: Project, step_code: str, master: str) -> str:
+    from app.services.node_step_params import build_briefing_media_block
+
+    block = build_briefing_media_block(project, step_code).strip()
+    if not block:
+        return master
+    return f"{master.rstrip()}\n\n---\n{block}\n"
+
+
 def write_img_pr_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None = None) -> Path:
     master = _get_master_or_fallback(
         project,
         "img_pr",
         "# img_pr\n\nМастер-промт для шага «Промты картинок» ещё не настроен.",
     )
+    master = _with_briefing(project, "img_pr", master)
     prompt_file = tmp_dir / f"prompt_img_pr_{ts or _timestamp()}.txt"
     prompt_file.write_text(master, encoding="utf-8")
     return prompt_file
@@ -374,6 +384,7 @@ def write_anim_pr_prompt_file(project: Project, tmp_dir: Path, *, ts: str | None
         "anim_pr",
         "# anim_pr\n\nМастер-промт для шага «Промты анимации» ещё не настроен.",
     )
+    master = _with_briefing(project, "anim_pr", master)
     prompt_file = tmp_dir / f"prompt_anim_pr_{ts or _timestamp()}.md"
     prompt_file.write_text(master, encoding="utf-8")
     return prompt_file

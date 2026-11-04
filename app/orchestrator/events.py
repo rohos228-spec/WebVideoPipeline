@@ -89,7 +89,7 @@ class EventBus:
         """
         async with self._session_lock(session_id):
             ephemeral = event_type in EPHEMERAL_EVENT_TYPES
-            seq, _stored_at = await asyncio.to_thread(
+            seq, stored_at = await asyncio.to_thread(
                 _insert_event,
                 session_id,
                 event_type,
@@ -104,6 +104,7 @@ class EventBus:
                 payload=dict(payload or {}),
                 seq=seq,
                 session_id=session_id,
+                created_at=stored_at,
             )
             if ephemeral:
                 ring = self._rings.setdefault(session_id, deque(maxlen=TOKEN_RING_SIZE))
@@ -377,7 +378,7 @@ def _load_persisted(session_id: str, last_seq: int) -> list[OrchEvent]:
             conn.execute(
                 text(
                     """
-                    SELECT session_id, task_id, seq, type, payload_json
+                    SELECT session_id, task_id, seq, type, payload_json, created_at
                     FROM orch_events
                     WHERE session_id = :sid AND seq > :last_seq
                     ORDER BY seq ASC
@@ -400,6 +401,7 @@ def _load_persisted(session_id: str, last_seq: int) -> list[OrchEvent]:
                 payload=payload if isinstance(payload, dict) else {"value": payload},
                 seq=int(row["seq"]),
                 session_id=row["session_id"],
+                created_at=str(row["created_at"] or ""),
             )
         )
     return events

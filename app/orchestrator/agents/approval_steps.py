@@ -110,8 +110,27 @@ def variant_title(name: str) -> str:
     return f"«{title or name}»"
 
 
+_FRAME_KEYS = ("frame_id", "after_frame_id", "left_frame_id", "right_frame_id")
+
+
+def _frame_numbers(shown: dict[str, Any]) -> None:
+    """«кадр 237» в карточке — id строки; человек видит на доске номер 5."""
+    try:
+        from app.orchestrator.actions.executor import FRAME_NUMBERS
+    except Exception:
+        return
+    for key in _FRAME_KEYS:
+        value = shown.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and value in FRAME_NUMBERS:
+            shown[key] = FRAME_NUMBERS[value]
+    ids = shown.get("frame_ids")
+    if isinstance(ids, list):
+        shown["frame_ids"] = [FRAME_NUMBERS.get(v, v) if isinstance(v, int) else v for v in ids]
+
+
 def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, named: bool = False) -> str:
     shown = dict(params)
+    _frame_numbers(shown)
     if named:
         for key in _ID_KEYS:
             shown.pop(key, None)
@@ -352,6 +371,19 @@ def projects_ru(count: int) -> str:
     return f"{count} {word}"
 
 
+def actions_ru(count: int) -> str:
+    tail = count % 100
+    if 11 <= tail <= 14:
+        word = "действий"
+    elif count % 10 == 1:
+        word = "действие"
+    elif 2 <= count % 10 <= 4:
+        word = "действия"
+    else:
+        word = "действий"
+    return f"{count} {word}"
+
+
 def _tagged(project: int | None, texts: Any) -> list[str]:
     out: list[str] = []
     for item in texts if isinstance(texts, list) else []:
@@ -474,7 +506,11 @@ def group_card(
         if isinstance(preview.get("plan_id"), str):
             plan_ids[str(at)] = preview["plan_id"]
     card: dict[str, Any] = {
-        "title": f"{base}: {projects_ru(count)} одним подтверждением",
+        "title": (
+            f"{base}: {actions_ru(count)} одним подтверждением"
+            if len(set(projects)) == 1
+            else f"{base}: {projects_ru(count)} одним подтверждением"
+        ),
         "steps": views,
         "cost_text": cost_text,
         "cost": {"known": cost is not None, "high_usd": cost, "low_usd": cost},

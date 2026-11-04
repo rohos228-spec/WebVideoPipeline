@@ -35,7 +35,7 @@ export function CommandBar({projectId, sceneId, frameId, disabled, onPlan, attac
   useEffect(() => {
     let cancelled = false;
     listMacros().then((m) => { if (!cancelled) setMacros(m); }).catch(() => { if (!cancelled) setMacros(null); });
-    getCatalog().then((c: any) => { if (!cancelled) setCatalog(c.actions); }).catch(() => undefined);
+    getCatalog().then((c) => { if (!cancelled) setCatalog(c.actions); }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
 
@@ -113,7 +113,7 @@ export function CommandBar({projectId, sceneId, frameId, disabled, onPlan, attac
             return (
               <Button key={m.id} type="button" size="sm" variant="outline" className="h-7 text-[11px]"
                 aria-pressed={openMacro?.id === m.id}
-                title={unavailable ? `Недоступно: нет действий ${(m.missing_action_ids ?? []).join(", ")}` : m.description_ru}
+                title={unavailable ? "Пока недоступно в этой версии студии" : m.description_ru}
                 disabled={off || unavailable}
                 onClick={() => {
                   if (openMacro?.id === m.id) { setOpenMacro(null); return; }
@@ -125,7 +125,7 @@ export function CommandBar({projectId, sceneId, frameId, disabled, onPlan, attac
             );
           })}
           {macros.filter((m) => m.available === false).map((m) => (
-            <span key={`u${m.id}`} className="text-white/40">«{macroTitle(m)}» недоступна: нет {(m.missing_action_ids ?? []).join(", ")}</span>
+            <span key={`u${m.id}`} className="text-white/40">«{macroTitle(m)}» пока недоступна в этой версии студии</span>
           ))}
         </div>
       )}

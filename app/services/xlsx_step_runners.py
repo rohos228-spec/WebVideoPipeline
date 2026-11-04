@@ -11,6 +11,7 @@ import math
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from sqlalchemy import select
@@ -247,6 +248,10 @@ class XlsxRoundtripResult:
     # Этап 5: результат получен локальным fallback БЕЗ LLM (спека «Запрет
     # тихого частичного успеха» — деградация только с явным маркером).
     degraded_no_llm: bool = False
+    # split: склейка закадра кадров сверена с voiceover.txt (content_checks).
+    # False — кадры не пишутся (split_frames); None — сверки не было.
+    split_verified: bool | None = None
+    split_source: str | None = None
 
 
 def _ts() -> str:
@@ -398,6 +403,10 @@ async def run_plan_xlsx(
     prompt_file = cx.write_plan_prompt_file(project, tmp_dir, topic=actual_topic, ts=ts)
     chat_msg = cx.chat_message(project, "plan", topic=actual_topic, prompt_file_name=prompt_file.name)
     chat_msg = f"{chat_msg}{_PLAN_DB_HINT}"
+    # Повтор после сбоя или переделка по ревью: модель видит, что было не так.
+    from app.services.retry_feedback import prompt_addendum
+
+    chat_msg += prompt_addendum(project, "plan", "planning")
 
     logger.info(
         "plan_db: prompt_file={} ({} байт), chat_len={} (без xlsx-download)",
@@ -468,6 +477,9 @@ async def run_script_xlsx(
         cx.chat_message(project, "script", prompt_file_name=prompt_file.name)
     )
     chat_msg = f"{chat_msg}{_SCRIPT_DB_HINT}"
+    from app.services.retry_feedback import prompt_addendum
+
+    chat_msg += prompt_addendum(project, "script", "scripting")
     attach_files: list[Path] = [prompt_file]
     # Контекст: общий план / прошлый закадр — без ожидания скачивания xlsx.
     if (project.general_plan or "").strip():
@@ -707,6 +719,9 @@ async def run_split_xlsx(
     tmp_dir = cx.tmp_gpt_dir(project)
     prompt_file = cx.write_split_prompt_file(project, tmp_dir, ts=ts)
     chat_msg = cx.chat_message(project, "split", prompt_file_name=prompt_file.name) + _SPLIT_DB_HINT
+    from app.services.retry_feedback import prompt_addendum
+
+    chat_msg += prompt_addendum(project, "split", "splitting")
     attach_files: list[Path] = [prompt_file, voiceover]
     if (project.general_plan or "").strip():
         gp = tmp_dir / f"general_plan_{ts}.txt"
@@ -751,19 +766,48 @@ async def run_split_xlsx(
     except Exception:  # noqa: BLE001 — учёт возьмёт fallback из gpt_api
         split_prompt_hash = None
 
+    # Схема видит только форму. Склейка кадров обязана дать закадр слово в слово —
+    # иначе repair с перечнем потерь и дублей (модель видит, что именно потеряла).
+    # Число кадров по сценарию — тоже repair, но ответ с верной склейкой и не тем
+    # числом лучше локальной нарезки: он принимается с мягкой находкой.
+    from app.services import content_checks as cc
+
+    vo_text = voiceover.read_text(encoding="utf-8", errors="replace")
+    requested = cc.requested_frame_count(project)
+    concat_ok: dict[str, Any] = {}
+
+    def _validate(payload: Any) -> list[str]:
+        frames = [item.model_dump(exclude_none=True) for item in payload.frames]
+        problems = cc.split_contract_problems(vo_text, frames)
+        if problems:
+            return problems
+        n = len(clamp_parent_frames(frames))
+        if requested is not None and n != requested:
+            concat_ok["frames"] = frames
+            return [f"кадров {n}, а в сценарии просили ровно {requested}: соедини или раздели соседние фразы"]
+        return []
+
     degraded = False
     try:
         with llm_ledger.bind_prompt_hash(split_prompt_hash):
             policy_res = await run_with_contract(
                 contract=FRAME_SPLIT,
                 call=_call,
+                validate=_validate,
                 reject_dir=project.data_dir / "llm_rejects",
                 label="split",
             )
         reply = policy_res.reply_text
         frames_spec = [item.model_dump(exclude_none=True) for item in policy_res.payload.frames]
     except LlmContractError as e:
-        blocks = split_voiceover_locally(voiceover.read_text(encoding="utf-8", errors="replace"))
+        if concat_ok.get("frames"):
+            # Склейка верна, не сошлось только число кадров: берём ответ модели,
+            # находку «число кадров» запишет проверка после шага (content_checks).
+            logger.warning("split_db: число кадров не как в сценарии — ответ принят: {}", str(e)[:200])
+            return _split_result(
+                proj_xlsx, f"[frame_count_mismatch] {e}", concat_ok["frames"], vo_text, degraded=False
+            )
+        blocks = split_voiceover_locally(vo_text)
         blocks = [b.strip() for b in blocks if b.strip()]
         if len(blocks) < 2:
             raise
@@ -777,8 +821,25 @@ async def run_split_xlsx(
         reply = f"[degraded_no_llm] {e}"
         frames_spec = [{"закадр": b} for b in blocks]
 
+    return _split_result(proj_xlsx, reply, frames_spec, vo_text, degraded=degraded)
+
+
+def _split_result(
+    proj_xlsx: Path,
+    reply: str,
+    frames_spec: list[dict],
+    vo_text: str,
+    *,
+    degraded: bool,
+) -> XlsxRoundtripResult:
+    from app.services import content_checks as cc
+
     # Контракт держит только нижнюю границу (≥2 кадра), верхнюю ставим здесь.
     frames_spec = clamp_parent_frames(frames_spec)
+    # Последняя сверка того, что уйдёт в кадры (после крышки и на деградации тоже).
+    problems = cc.split_contract_problems(vo_text, frames_spec)
+    if problems:
+        logger.warning("split_db: склейка кадров не сходится с закадром: {}", problems[0][:300])
     logger.info("split_db: кадров={} degraded_no_llm={}", len(frames_spec), degraded)
     return XlsxRoundtripResult(
         reply_text=reply,
@@ -788,6 +849,8 @@ async def run_split_xlsx(
         frames_spec=frames_spec,
         apply_ops=[{"target": "replace_frames", "frames": frames_spec}],
         degraded_no_llm=degraded,
+        split_verified=not problems,
+        split_source="local" if degraded else "llm",
     )
 
 
@@ -886,8 +949,12 @@ async def _load_img_pr_context(
             continue
         if not _is_real_shot(fr):
             continue
-        # Уже заполненные пропускаем (resume / soft retry).
-        if (fr.image_prompt or "").strip():
+        # Уже заполненные пропускаем (resume / soft retry); промт из одних
+        # заглушек — не заполненный (перенос 144b05d7 из int/chat-v1, то же
+        # правило, что в шаге img_pr).
+        from app.orchestrator.steps.generate_image_prompts import _image_prompt_missing
+
+        if not _image_prompt_missing(fr.image_prompt):
             continue
         selected.append(fr)
     return selected, cards, general_plan, frames
@@ -975,8 +1042,12 @@ async def run_img_pr_xlsx(
     project_id: int | None = None,
     uuid_map_text: str = "",
     n_batches: int | None = None,
+    skip_frame_numbers: set[int] | None = None,
 ) -> XlsxRoundtripResult:
-    """Шаг «Промты картинок»: GPT батчами → apply-ops (DB)."""
+    """Шаг «Промты картинок»: GPT батчами → apply-ops (DB).
+
+    ``skip_frame_numbers`` — кадры, уже признанные «нет данных сцены»: модели не шлём.
+    """
     from app.services import img_pr_batches as ipb
 
     proj_xlsx = _ensure_project_xlsx(project)
@@ -1022,6 +1093,7 @@ async def run_img_pr_xlsx(
     # Этап 2 (C.2): чекпоинт привязан к входу шага — кадры (uuid+закадр),
     # карточки, мастер-промпт+хинт, стиль, контракт, модель. Смена любого
     # компонента (например правка мастер-промпта) сбрасывает done_uuids.
+    from app.generation_options import hollow_prompts_allowed
     from app.services.input_hash import (
         compute_input_hash,
         contract_fingerprint,
@@ -1045,6 +1117,9 @@ async def run_img_pr_xlsx(
             "general_plan": general_plan,
             "style_id": style_id,
             "plastilin": plastilin,
+            # Ops, принятые с IMAGES_ALLOW_HOLLOW_PROMPTS=true (заглушки), после
+            # выключения флага из чекпоинта не применяются.
+            "allow_hollow": hollow_prompts_allowed(),
         },
         fingerprint=contract_fingerprint("vp_img_pr"),
         prompt_hash=prompt_version_hash(master_text, hints=[img_pr_hint]),
@@ -1061,6 +1136,25 @@ async def run_img_pr_xlsx(
     done_set = set(done_uuids)
 
     frames = [fr for fr in frames_full if (fr.uuid or "").strip() not in done_set]
+    if skip_frame_numbers and frames:
+        skip = {int(n) for n in skip_frame_numbers}
+        kept = [fr for fr in frames if int(fr.number) not in skip]
+        if len(kept) != len(frames):
+            logger.info(
+                "img_pr_db: skip no-source frames {} (не шлём модели повторно)",
+                sorted(skip & {int(fr.number) for fr in frames}),
+            )
+        if not kept:
+            # Готовые опы чекпоинта (если есть) шаг применит сам; без них — нечего.
+            return XlsxRoundtripResult(
+                reply_text="(only no-source frames left)",
+                downloaded_path=proj_xlsx,
+                project_xlsx=proj_xlsx,
+                backup_path=None,
+                apply_ops=all_ops,
+                ops_applied_inline=not all_ops,
+            )
+        frames = kept
     if not frames:
         if all_ops:
             logger.info(
@@ -1118,6 +1212,10 @@ async def run_img_pr_xlsx(
     # Этап 5 (C.4): провал батча больше не глотается — копим и валим шаг
     # в конце гейтом покрытия N/N (прогресс других батчей уже в чекпоинте).
     failed_notes: list[str] = []
+    # Повтор шага после сбоя или находки проверки: каждый батч видит прошлую ошибку.
+    from app.services.retry_feedback import prompt_addendum
+
+    retry_note = prompt_addendum(project, "img_pr", "generating_image_prompts")
 
     async def _ask_batch_ops(
         *,
@@ -1154,7 +1252,7 @@ async def run_img_pr_xlsx(
             prompt_file_name=prompt_file.name,
             n_frames=len(batch),
         )
-        chat_msg = f"{chat_msg}{img_pr_hint}\n{footer}\nАдресация:\n{uuid_lines}\n"
+        chat_msg = f"{chat_msg}{img_pr_hint}\n{footer}\nАдресация:\n{uuid_lines}\n{retry_note}"
         if uuid_map_text.strip():
             chat_msg = f"{chat_msg}\n# uuid map (справочно)\n{uuid_map_text.strip()[:2000]}\n"
         attach = ipb.batch_attach_files(
@@ -1241,6 +1339,16 @@ async def run_img_pr_xlsx(
             )
             if batch_ops:
                 break
+            batch_uuid_set = {(fr.uuid or "").strip() for fr in batch if (fr.uuid or "").strip()}
+            if ipb.no_source_uuids_in_reply(last_reply or "") & batch_uuid_set:
+                # «Нет исходных данных»: повтор того же входа даст тот же ответ — не платим за него.
+                logger.warning(
+                    "img_pr_db: batch {}/{} attempt {}: модель ответила «нет исходных данных» — без повтора",
+                    bi,
+                    batch_n,
+                    attempt,
+                )
+                break
             # Текст ошибки контракта — фидбек следующей попытке.
             try:
                 IMG_PR.parse(last_reply or "")
@@ -1270,6 +1378,11 @@ async def run_img_pr_xlsx(
             if attempt < ipb._GPT_ATTEMPTS:
                 await sleep_cancellable(delay, project_id or project.id)
         return batch_ops, last_reply or ""
+
+    # «Нет исходных данных» — детерминированный ответ модели на кадр без полей сцены:
+    # дробление и повтор дают то же самое (380 вызовов 2026-10-22, int/chat-v1 fx/data).
+    # Такие кадры не переспрашиваем; остальные идут прежним путём.
+    no_source_frames: set[int] = set()
 
     async def _run_batches() -> None:
         nonlocal done_uuids, all_ops, done_set, api_batches
@@ -1327,6 +1440,43 @@ async def run_img_pr_xlsx(
                     continue
                 bi, batch, level, batch_ops, last_reply = item
                 replies.append(last_reply)
+                batch_uuids = {(fr.uuid or "").strip() for fr in batch if (fr.uuid or "").strip()}
+                no_source = (
+                    ipb.no_source_uuids_in_reply(last_reply or "")
+                    | ipb.no_source_data_uuids(batch_ops, respect_allow=True)
+                ) & batch_uuids
+                if no_source:
+                    no_source_frames.update(fr.number for fr in batch if (fr.uuid or "").strip() in no_source)
+                    logger.warning(
+                        "img_pr_db: batch {} L{} модель: нет исходных данных для {} кадров — без дробления",
+                        bi,
+                        level,
+                        len(no_source),
+                    )
+                    batch_ops = [op for op in batch_ops if ipb.uuid_of_op(op) not in no_source]
+                    batch = [fr for fr in batch if (fr.uuid or "").strip() not in no_source]
+                    if not batch:
+                        continue
+                    if not batch_ops:
+                        # Остались кадры, которые модель просто пропустила: повтор ответа
+                        # «нет данных» внутри _ask_batch_ops мы сняли, поэтому переспрашиваем
+                        # их здесь, как половинки батча (без кадров «нет данных»).
+                        nxt = next_split_level(level)
+                        if nxt is not None:
+                            for part in split_in_half(batch) if len(batch) >= 2 else [batch]:
+                                work.append((part, nxt))
+                            logger.warning(
+                                "img_pr_db: batch {} L{} пропущено {} кадров → повтор L{}",
+                                bi,
+                                level,
+                                len(batch),
+                                nxt,
+                            )
+                        else:
+                            failed_notes.append(
+                                f"batch {bi} L{level}: пропущено {len(batch)} кадров, split исчерпан"
+                            )
+                        continue
                 if not batch_ops:
                     nxt = next_split_level(level)
                     if nxt is not None and len(batch) >= 4:
@@ -1396,10 +1546,20 @@ async def run_img_pr_xlsx(
                 ops=all_ops,
                 input_hash=step_hash,
             )
-            if not any_ok and not work and not all_ops:
+            if not any_ok and not work and not all_ops and not no_source_frames:
                 raise RuntimeError("img_pr: все параллельные батчи провалились без ops")
 
     await xgf.run_under_xlsx_lock(project.id, "img_pr", _run_batches)
+
+    if no_source_frames:
+        # Не хватает только кадров «нет данных сцены» — свой код ошибки и короткий текст
+        # (error_catalog: img_pr_no_scene_data). Готовые промты остальных кадров — в чекпоинте,
+        # повтор шага после «Работы с GPT» доберёт только недостающее.
+        no_source_uuids = {(fr.uuid or "").strip() for fr in frames if fr.number in no_source_frames}
+        expected_now = {(fr.uuid or "").strip() for fr in frames if (fr.uuid or "").strip()}
+        if not failed_notes and not (expected_now - done_set - no_source_uuids):
+            raise ipb.ImgPrNoSourceData(sorted(no_source_frames), apply_ops=all_ops)
+        failed_notes.append(ipb.no_scene_data_text(sorted(no_source_frames)))
 
     if not all_ops:
         raise RuntimeError(

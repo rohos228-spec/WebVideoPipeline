@@ -6,7 +6,7 @@ import contextlib
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Header, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from loguru import logger
 from sqlalchemy import select
@@ -63,12 +63,22 @@ async def resume_project(project_id: int, session: AsyncSession = Depends(get_se
 
 
 @router.post("/{project_id}/continue")
-async def continue_project(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
-    """Снять stop/паузу и продвинуть проект на следующий шаг (если *_ready)."""
+async def continue_project(
+    project_id: int,
+    action_operator: str | None = Header(default=None, alias="X-Action-Layer-Operator"),
+    action_plan: str | None = Header(default=None, alias="X-Action-Layer-Plan"),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Снять stop/паузу и продвинуть проект на следующий шаг (если *_ready).
+
+    «Продолжить» от задачи чата номер очереди чата не забирает; от человека — забирает.
+    """
     from app.orchestrator.auto_advance import continue_project_pipeline
+    from app.services.action_layer.chat_caller import is_chat_caller
 
     p = _project_or_404(await session.get(Project, project_id))
-    info = await continue_project_pipeline(session, p, bot=None)
+    by_chat = await is_chat_caller(action_operator, action_plan)
+    info = await continue_project_pipeline(session, p, bot=None, by_human=not by_chat)
     await commit_with_retry(session)
     await session.refresh(p)
     await publish_project_event(
@@ -81,11 +91,13 @@ async def continue_project(project_id: int, session: AsyncSession = Depends(get_
 
 @router.post("/{project_id}/stop")
 async def stop_project(project_id: int, session: AsyncSession = Depends(get_session)) -> dict:
-    # Сразу cancel advance/GPT — до любого ожидания SQLite (первый клик ⏹).
+    # Сначала проект под RLS арендатора: чужой id — 404 без ключа стопа и без
+    # отмены задач этого процесса. Затем сразу cancel advance/GPT — до ожиданий
+    # базы ниже (первый клик ⏹).
     from app.services.step_cancel import request_stop
 
-    request_stop(project_id)
     p = _project_or_404(await session.get(Project, project_id))
+    request_stop(project_id)
     info = await stop_project_running(session, p)
     if not info["ok"]:
         raise HTTPException(status_code=400, detail=info["message"])
@@ -809,6 +821,97 @@ async def montage_board_merge_scenes(
     return result
 
 
+def _refuse_if_project_busy(p: Project) -> None:
+    from app.services.project_state import is_running_status
+
+    if is_running_status(p.status):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Сейчас идёт шаг ({p.status.value}): дождитесь окончания "
+                "или остановите его, потом меняйте сцены."
+            ),
+        )
+
+
+def _frame_ids_from_body(body: dict) -> list[int] | None:
+    raw_ids = (body or {}).get("frame_ids") or (body or {}).get("ids")
+    if not raw_ids:
+        return None
+    try:
+        return [int(x) for x in raw_ids]
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="frame_ids — список id") from e
+
+
+@router.post("/{project_id}/montage-board/scenes/split-undo")
+async def montage_board_undo_split(
+    project_id: int,
+    body: dict = Body(default_factory=dict),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Отменить последнее деление сцены (только если кадры с тех пор не правили)."""
+    from app.services.montage_board_frames import undo_montage_split
+
+    p = _project_or_404(await session.get(Project, project_id))
+    _refuse_if_project_busy(p)
+    try:
+        result = await undo_montage_split(session, p, undo_id=(body or {}).get("undo_id"))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={"montage_scenes_split_undone": True, "refresh_board": True},
+    )
+    return result
+
+
+@router.post("/{project_id}/montage-board/scenes/split")
+async def montage_board_split_scenes(
+    project_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Разделить VO-ячейку: кадр и правее — новая сцена, или каждый кадр — сцена."""
+    from app.services.montage_board_frames import (
+        split_montage_scene_at,
+        split_montage_scene_frames,
+    )
+
+    p = _project_or_404(await session.get(Project, project_id))
+    _refuse_if_project_busy(p)
+    try:
+        frame_id = int(body["frame_id"])
+    except (KeyError, TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail="нужен frame_id") from e
+    explode = bool(body.get("all") or body.get("explode"))
+    frame_ids = _frame_ids_from_body(body)
+    try:
+        if explode:
+            result = await split_montage_scene_frames(
+                session, p, frame_id=frame_id, frame_ids=frame_ids
+            )
+        else:
+            result = await split_montage_scene_at(
+                session, p, at_frame_id=frame_id, frame_ids=frame_ids
+            )
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={
+            "montage_scenes_split": True,
+            "refresh_board": True,
+            "frame_id": frame_id,
+        },
+    )
+    return result
+
+
 @router.patch("/{project_id}/montage-board/frames/{frame_id}/voiceover")
 async def montage_board_set_voiceover(
     project_id: int,
@@ -912,6 +1015,171 @@ async def montage_board_scene_editor(
     """Всё редактируемое у кадра: роль, формат сцены, план, действие, якоря."""
     p = _project_or_404(await session.get(Project, project_id))
     return await _scene_editor_state(session, p, frame_id)
+
+
+def _spend_stop_http(e: BaseException) -> HTTPException | None:
+    """Платный шлюз, потолок трат, касса LLM, нехватка кредитов → 402 с причиной.
+
+    Иначе стоп по деньгам уходил бы в общий 400/502 «GPT не ответил».
+    """
+    from app.services import spend_guard
+    from app.services.credit_ledger import InsufficientCredits
+    from app.services.llm_ledger import BudgetExhausted as LedgerBudgetExhausted
+
+    if isinstance(e, InsufficientCredits):
+        return HTTPException(status_code=402, detail=f"Недостаточно кредитов: {e}")
+    if isinstance(e, spend_guard.PaidCallBlocked):
+        return HTTPException(status_code=402, detail=e.message_ru or str(e))
+    if isinstance(e, (spend_guard.BudgetExhausted, LedgerBudgetExhausted)) or (
+        spend_guard.is_budget_exhausted(e)
+    ):
+        return HTTPException(
+            status_code=402, detail=str(getattr(e, "message_ru", "") or e) or "потолок трат"
+        )
+    try:
+        from app.services.api_tracker_hook import ApiEmergencyBlockedError
+    except ImportError:  # pragma: no cover
+        return None
+    if isinstance(e, ApiEmergencyBlockedError):
+        return HTTPException(status_code=423, detail=str(e) or "платные вызовы остановлены")
+    return None
+
+
+@router.post("/{project_id}/montage-board/frames/{frame_id}/scene-action-generate")
+async def montage_board_scene_action_generate(
+    project_id: int,
+    frame_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Сгенерировать сцены одной VO-ячейки промтом action (или пересобрать куски N.)."""
+    from app.services.montage_action_gpt import generate_cell_scene_action, parse_replace_ns
+    from app.services.step_billing import step_billing
+
+    p = _project_or_404(await session.get(Project, project_id))
+    passport = body.get("passport") if isinstance(body.get("passport"), dict) else {}
+    try:
+        # Живой вызов LLM: касса шага, как у вариантов сцены.
+        async with step_billing(p, "scene_action"):
+            result = await generate_cell_scene_action(
+                session,
+                p,
+                frame_id,
+                operator_prompt=str(body.get("prompt") or body.get("operator_prompt") or ""),
+                replace_ns=parse_replace_ns(body.get("replace_ns")),
+                passport=passport,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        stop = _spend_stop_http(e)
+        if stop is not None:
+            raise stop from e
+        if isinstance(e, (RuntimeError, ValueError)):
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        logger.exception(
+            "scene-action-generate failed project={} frame={}", project_id, frame_id
+        )
+        raise HTTPException(
+            status_code=502, detail=f"GPT не ответил: {type(e).__name__}: {e}"
+        ) from e
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={
+            "montage_scene_action_generate": True,
+            "refresh_board": True,
+            "frame_id": frame_id,
+            "replace_ns": result.get("replace_ns") or [],
+        },
+    )
+    return result
+
+
+@router.post("/{project_id}/montage-board/frames/{frame_id}/scene-generate-with-images")
+async def montage_board_scene_generate_with_images(
+    project_id: int,
+    frame_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """GPT-сцены ячейки. Картинки не генерируются: ответ несёт image_ops для очереди."""
+    from app.services.montage_action_gpt import generate_cell_scene_with_images
+    from app.services.step_billing import step_billing
+
+    p = _project_or_404(await session.get(Project, project_id))
+    passport = body.get("passport") if isinstance(body.get("passport"), dict) else {}
+    frame_ids = _frame_ids_from_body(body)
+    mode = str(body.get("mode") or "")
+    try:
+        async with step_billing(p, "scene_improve" if mode == "improve" else "scene_action"):
+            result = await generate_cell_scene_with_images(
+                session,
+                p,
+                frame_id,
+                operator_prompt=str(body.get("prompt") or body.get("operator_prompt") or ""),
+                passport=passport,
+                frame_ids=frame_ids,
+                mode=mode,
+                anchors=body.get("anchors") if isinstance(body.get("anchors"), list) else None,
+            )
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        stop = _spend_stop_http(e)
+        if stop is not None:
+            raise stop from e
+        if isinstance(e, (RuntimeError, ValueError)):
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        logger.exception(
+            "scene-generate-with-images failed project={} frame={}", project_id, frame_id
+        )
+        raise HTTPException(
+            status_code=502, detail=f"GPT не ответил: {type(e).__name__}: {e}"
+        ) from e
+
+    image_ops = result.get("image_ops") or []
+    await commit_with_retry(session)
+    await publish_project_event(
+        project_id,
+        event_type="project_updated",
+        payload={
+            "montage_scene_action_generate": True,
+            "refresh_board": True,
+            "frame_id": frame_id,
+            "with_images": bool(image_ops),
+        },
+    )
+    return {
+        "ok": True,
+        **{k: v for k, v in result.items() if k != "report"},
+        "report": result.get("report"),
+        "image_ops": image_ops,
+        "started": False,
+        "already_running": False,
+        "images": len(image_ops),
+        "message": (
+            "сцены записаны · очередь: сцена → кадры"
+            if image_ops
+            else "сцены записаны"
+        ),
+    }
+
+
+@router.post("/{project_id}/montage-board/frames/{frame_id}/scene-improve")
+async def montage_board_scene_improve(
+    project_id: int,
+    frame_id: int,
+    body: dict = Body(...),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """fw_action → fw_shots → fw_qc на одну ячейку, затем очередь картинок: сцена → кадры."""
+    payload = dict(body or {})
+    payload["mode"] = "improve"
+    return await montage_board_scene_generate_with_images(
+        project_id, frame_id, payload, session
+    )
 
 
 @router.post("/{project_id}/montage-board/frames/{frame_id}/scene-variants")
@@ -1282,6 +1550,8 @@ async def montage_board_move_image(
     from_shot: int = Query(..., ge=1, le=2),
     to_frame: int = Query(..., ge=1),
     to_shot: int = Query(..., ge=1, le=2),
+    from_slot: str = Query(""),
+    to_slot: str = Query(""),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Перенести картинку в другой слот (в т.ч. пустой); если цель занята — swap."""
@@ -1295,6 +1565,8 @@ async def montage_board_move_image(
         from_shot=from_shot,
         to_frame=to_frame,
         to_shot=to_shot,
+        from_slot=from_slot,
+        to_slot=to_slot,
     )
     await commit_with_retry(session)
     if not result.get("ok"):
@@ -1310,13 +1582,14 @@ async def montage_board_delete_image(
     project_id: int,
     frame_number: int = Query(..., ge=1),
     shot: int = Query(1, ge=1, le=2),
+    slot: str = Query(""),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     from app.services.montage_board_assets import delete_scene_image
     from app.services.montage_board_meta import mark_stale_videos, montage_meta, set_montage_meta
 
     p = _project_or_404(await session.get(Project, project_id))
-    deleted = await delete_scene_image(session, p, frame_number, shot=shot)
+    deleted = await delete_scene_image(session, p, frame_number, shot=shot, slot=slot)
     board = montage_meta(p)
     mark_stale_videos(board, frame_number, shot=shot)
     set_montage_meta(p, board)
@@ -1476,6 +1749,7 @@ async def montage_board_upload_image(
     project_id: int,
     frame_number: int = Query(..., ge=1),
     shot: int = Query(1, ge=1, le=2),
+    slot: str = Query(""),
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
@@ -1487,7 +1761,9 @@ async def montage_board_upload_image(
     if not content:
         raise HTTPException(status_code=400, detail="пустой файл")
     suffix = Path(file.filename or "upload.png").suffix or ".png"
-    path = await save_scene_image_upload(session, p, frame_number, shot=shot, content=content, suffix=suffix)
+    path = await save_scene_image_upload(
+        session, p, frame_number, shot=shot, content=content, suffix=suffix, slot=slot
+    )
     board = montage_meta(p)
     mark_stale_videos(board, frame_number, shot=shot)
     set_montage_meta(p, board)
@@ -2575,9 +2851,12 @@ async def harness_verify(
     project_id: int,
     allow_repair: bool = Query(False),
     include_http: bool = Query(True),
+    action_operator: str | None = Header(default=None, alias="X-Action-Layer-Operator"),
+    action_plan: str | None = Header(default=None, alias="X-Action-Layer-Plan"),
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Проверить disk/R48/node_runs + HTTP artifacts/assets/xlsx; опц. soft-start одного шага."""
+    from app.services.action_layer.chat_caller import is_chat_caller
     from app.services.agent_harness import HARNESS_FORBIDDEN_STEPS, run_harness_verify
 
     p = _project_or_404(await session.get(Project, project_id))
@@ -2589,6 +2868,8 @@ async def harness_verify(
         p,
         allow_repair=allow_repair,
         include_http=include_http,
+        # Починку запросил человек — номер очереди чата переходит к нему; задача чата — нет.
+        keep_chat_owner=await is_chat_caller(action_operator, action_plan),
     )
     await commit_with_retry(session)
     await session.refresh(p)

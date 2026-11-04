@@ -1,6 +1,8 @@
-"""Главный pipeline в ручном режиме (управляется из Telegram-меню).
+"""Главный pipeline: запуск шагов воркером (в ручном режиме шаг запускает человек из Studio).
 
-Никаких авто-переходов между шагами. Воркер видит только «running»-статусы и
+Сам этот модуль авто-переходов не делает. Переходы «*_ready -> следующий running» при ``auto_mode`` проекта
+выполняет ``app.orchestrator.auto_advance.maybe_auto_advance`` (его зовёт воркер); без ``auto_mode`` шаг
+запускает человек (C-28). Воркер видит только «running»-статусы и
 запускает соответствующий шаг. После шага статус становится «*_ready», и
 проект ждёт действия пользователя из бота. Все «ready»-статусы воркером
 пропускаются.
@@ -120,10 +122,10 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
     _lease_renewer: asyncio.Task | None = None
     _step_failed = False
     try:
-        abort_if_cancelled(project.id)
+        abort_if_cancelled(pid)
         status = project.status
         ran_status = status
-        logger.debug("advance #{} status={}", project.id, status.value)
+        logger.debug("advance #{} status={}", pid, status.value)
 
         from app.services.llm_override import bind_project_llm
 
@@ -181,7 +183,7 @@ async def advance_project(session: AsyncSession, project: Project, bot: Any = No
         except Exception:  # noqa: BLE001
             logger.debug(
                 "advance #{}: prepare NodeRun for {} failed",
-                project.id,
+                pid,
                 status.value,
                 exc_info=True,
             )

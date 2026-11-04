@@ -38,6 +38,7 @@ from app.generation_options import (
     VIDEO_GENERATORS_BY_ID,
     VIDEO_RESOLUTIONS_BY_ID,
     build_gen_id_prefix,
+    is_skippable_empty_prompt,
 )
 from app.models import (
     Artifact,
@@ -65,6 +66,8 @@ from app.services.img_streams import (
 from app.services.outsee_retry import generate_video_with_retries
 from app.services.plan_shot2 import (
     MIN_SHOT2_VIDEO_PROMPT_LEN,
+    SHOT2_PROMPT_ATTR,
+    SHOT2_STATUS_ATTR,
     SHOT2_VIDEO_PROMPT_ATTR,
     disk_has_shot2_video,
     effective_shot_from_artifact,
@@ -128,8 +131,54 @@ def resolve_scene_image_path(
 
 
 def _skip_frame_video_generation(fr: Frame, has_video_file: bool) -> bool:
-    """Не гонять outsee, если клип уже есть на диске."""
+    """Не гонять outsee, если кадр скрыт или клип уже есть на диске."""
+    # Скрытый кадр не идёт в платную генерацию (наша линия 25835a70, R0a #352 п.8).
+    from app.orchestrator.steps.generate_images import frame_hidden_from_paid_generation
+
+    if frame_hidden_from_paid_generation(fr):
+        return True
     return bool(has_video_file)
+
+
+def _frame_is_freeze(fr: Frame) -> bool:
+    """Кадр с раскладкой СТАРТ/КОНЕЦ (наша линия ab1028f6, f947d05e).
+
+    Сервис app.services.freeze_stills переносится отдельно; пока его нет,
+    кадр не считается freeze и основной путь новой линии не меняется.
+    """
+    try:
+        from app.services.freeze_stills import frame_is_freeze
+    except ImportError:
+        return False
+    return bool(frame_is_freeze(fr))
+
+
+def _freeze_end_still(scenes_dir: Path, fr: Frame) -> Path | None:
+    """END-still freeze-кадра = last_frame клипа shot_01 (ab1028f6, f947d05e)."""
+    try:
+        from app.services.freeze_stills import video_end_still
+    except ImportError:
+        return None
+    return video_end_still(scenes_dir, fr.number, 1, frame=fr)
+
+
+def _end_still_kwargs(end: Path | None) -> dict[str, Any]:
+    """last_frame_image уходит в генератор только когда END-still реально есть."""
+    return {"last_frame_image": end} if end is not None else {}
+
+
+def _mark_model_substitution(fr: Frame, result: Any, meta: dict[str, Any]) -> dict[str, Any]:
+    """Лестница видео ушла на Kling: строка в meta и на карточке кадра (наша линия d704ef1f)."""
+    sub_line = getattr(result, "model_substitution", None)
+    if not sub_line:
+        return meta
+    try:
+        from app.services.model_substitution import frame_card_with_substitution
+    except ImportError:
+        pass
+    else:
+        fr.attrs = frame_card_with_substitution(fr.attrs, str(sub_line))
+    return {**meta, "model_substitution": str(sub_line)}
 
 
 VIDEO_FAIL_ATTR = "video_gen_fail_count"
@@ -194,8 +243,19 @@ def _video_opts(project: Project) -> tuple[str | None, str | None, str, bool]:
         resolve_node_media_settings,
     )
 
-    vg = VIDEO_GENERATORS_BY_ID.get(effective_video_generator_id(project, node_type="videos"))
-    vr_o = VIDEO_RESOLUTIONS_BY_ID.get(project.video_resolution or DEFAULTS["video_resolution"])
+    vg_id = effective_video_generator_id(project, node_type="videos")
+    vg = VIDEO_GENERATORS_BY_ID.get(vg_id)
+    res_id = project.video_resolution or DEFAULTS["video_resolution"]
+    # Veo 3.1 Lite у Outsee отдаёт только 720p: заявляем то, что реально
+    # получится (наша линия c8733af1). Хелпер в generation_options переносится
+    # отдельно; без него остаётся поведение новой линии.
+    try:
+        from app.generation_options import effective_video_resolution_id
+    except ImportError:
+        pass
+    else:
+        res_id = effective_video_resolution_id(vg_id, res_id)
+    vr_o = VIDEO_RESOLUTIONS_BY_ID.get(res_id)
     media = resolve_node_media_settings(project, node_type="videos")
     aspect = media["aspect_slug"] or "9:16"
     return (
@@ -435,12 +495,33 @@ async def _claim_shot2_video_batch(
         .scalars()
         .all()
     )
+    from app.orchestrator.steps.generate_images import frame_hidden_from_paid_generation
+    from app.services.vo_shot_expand import is_shot_child
+
     claimed: list[tuple[Frame, str, Path]] = []
     for fr in frames:
-        info = shot2_by.get(fr.number)
-        if info is None or not info.has_shot2:
+        # Скрытый кадр: не платим за shot_02 (25835a70).
+        if frame_hidden_from_paid_generation(fr):
             continue
         attrs = dict(fr.attrs or {})
+        if str(attrs.get(SHOT2_STATUS_ATTR) or "") == "skipped":
+            continue
+        info = shot2_by.get(fr.number)
+        has_plan = info is not None and info.has_shot2
+        # Freeze END still это last_frame shot_01, а не старт второго клипа (f947d05e).
+        if (
+            not has_plan
+            and _frame_is_freeze(fr)
+            and not str(attrs.get(SHOT2_VIDEO_PROMPT_ATTR) or "").strip()
+        ):
+            continue
+        # Без плана в xlsx shot_02 берём из attrs; дочерний шот покрытия идёт
+        # от PNG родителя (250ec4fc).
+        if not has_plan and is_skippable_empty_prompt(
+            str(attrs.get(SHOT2_VIDEO_PROMPT_ATTR) or attrs.get(SHOT2_PROMPT_ATTR) or "")
+        ):
+            if not is_shot_child(fr):
+                continue
         if attrs.get(VIDEO_INFLIGHT_ATTR):
             continue
         if attrs.get(VIDEO_SKIP_ATTR):
@@ -454,10 +535,13 @@ async def _claim_shot2_video_batch(
         if len(prompt2) < MIN_SHOT2_VIDEO_PROMPT_LEN:
             prompt2 = (attrs.get(SHOT2_VIDEO_PROMPT_ATTR) or "").strip()
         if len(prompt2) < MIN_SHOT2_VIDEO_PROMPT_LEN:
+            prompt2 = (fr.animation_prompt or "").strip()
+        if len(prompt2) < MIN_SHOT2_VIDEO_PROMPT_LEN:
             continue
-        shot1 = await _scene_video_file_on_disk(session, project.id, fr.id, shot=1)
-        if shot1 is None:
-            continue
+        if not is_shot_child(fr):
+            shot1 = await _scene_video_file_on_disk(session, project.id, fr.id, shot=1)
+            if shot1 is None:
+                continue
         attrs[VIDEO_INFLIGHT_ATTR] = True
         fr.attrs = attrs
         claimed.append((fr, prompt2, s2_img))
@@ -512,6 +596,7 @@ async def _generate_shot1_one(
     if not fr.animation_prompt:
         raise RuntimeError(f"у кадра {fr.number} нет animation_prompt")
     start = await _shot1_start_frame(session, project, fr, scenes_dir)
+    end = _freeze_end_still(scenes_dir, fr)
     short_uuid = uuid.uuid4().hex[:8]
     file_path = out_dir / f"clip_{fr.number:03d}_{short_uuid}.mp4"
     async with clips_lock:
@@ -526,6 +611,7 @@ async def _generate_shot1_one(
         gpt_rewrite=True,
         project_id=project.id,
         start_frame=start,
+        **_end_still_kwargs(end),
         aspect_ratio=aspect,
         timeout=1200,
         model_slug=model_slug,
@@ -543,7 +629,7 @@ async def _generate_shot1_one(
             kind=ArtifactKind.scene_video,
             uuid=uuid.uuid4().hex,
             path=str(result.file_path),
-            meta={"shot": 1},
+            meta=_mark_model_substitution(fr, result, {"shot": 1}),
         )
     )
     fr.status = FrameStatus.video_generated
@@ -706,6 +792,7 @@ async def _shot1_job(
             if not fr.animation_prompt:
                 raise RuntimeError(f"у кадра {fr.number} нет animation_prompt")
             start = await _shot1_start_frame(session, project, fr, scenes_dir)
+            end = _freeze_end_still(scenes_dir, fr)
             prompt = fr.animation_prompt
             frame_number = fr.number
             model_slug, res_slug, aspect, relax = _video_opts(project)
@@ -729,6 +816,7 @@ async def _shot1_job(
                 gpt_rewrite=True,
                 project_id=project_id,
                 start_frame=start,
+                **_end_still_kwargs(end),
                 aspect_ratio=aspect,
                 timeout=1200,
                 model_slug=model_slug,
@@ -803,7 +891,7 @@ async def _shot1_job(
                     kind=ArtifactKind.scene_video,
                     uuid=uuid.uuid4().hex,
                     path=str(result.file_path),
-                    meta={"shot": 1},
+                    meta=_mark_model_substitution(fr, result, {"shot": 1}),
                 )
             )
             fr.status = FrameStatus.video_generated

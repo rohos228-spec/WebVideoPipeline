@@ -681,10 +681,10 @@ let titlesPromise: Promise<Record<string, string>> | null = null;
 export function loadActionTitles(): Promise<Record<string, string>> {
   if (!titlesPromise) {
     titlesPromise = getCatalog()
-      .then((c: any) => Object.fromEntries(((c?.actions || []) as any[]).map((a: any) => [a.id, a.title_ru])))
+      .then((c) => Object.fromEntries(c.actions.map((a) => [a.id, a.title_ru])))
       .catch(() => { titlesPromise = null; return {} as Record<string, string>; });
   }
-  return titlesPromise ?? Promise.resolve({});
+  return titlesPromise;
 }
 
 export function useActionTitles(): Record<string, string> {

@@ -94,6 +94,9 @@ from app.web.routers import (
     my_prompts as my_prompts_router,
 )
 from app.web.routers import (
+    nii67 as nii67_router,
+)
+from app.web.routers import (
     node_groups as node_groups_router,
 )
 from app.web.routers import (
@@ -127,6 +130,9 @@ from app.web.routers import (
     prompts as prompts_router,
 )
 from app.web.routers import (
+    publications as publications_router,
+)
+from app.web.routers import (
     ratings as ratings_router,
 )
 from app.web.routers import (
@@ -146,6 +152,9 @@ from app.web.routers import (
 )
 from app.web.routers import (
     studio_chat as studio_chat_router,
+)
+from app.web.routers import (
+    style_agent as style_agent_router,
 )
 from app.web.routers import (
     text_llm as text_llm_router,
@@ -240,6 +249,74 @@ async def _start_engine() -> asyncio.Task | None:
 
 
 
+def _start_observer() -> list[asyncio.Task]:
+    """Цикл наблюдения прогонов и сторож его пульса — перенос int/chat-v1 (bf984a81b).
+
+    Старая линия поднимала их в lifespan безусловно; здесь — по тому же флагу, что
+    фон движка (ENGINE_STARTUP), а сторож пульса ещё и по VP_SUPERVISOR_HEARTBEAT.
+
+    Что делает цикл (``Observer.loop``): перекладывает журнал наблюдения из outbox,
+    диагностика по правилам (инциденты и уведомления чата, без моделей), сверка
+    билетов восстановления, которые уже выдал человек, шаг решений, сторож зависаний,
+    уборка тел запросов. Сам по себе он ничего не запускает и не платит:
+
+    * шаг решений работает только для выполнения, где человек включил режим решений
+      (``/decisions/control``) поверх выданного управляемого разрешения, и только при
+      настроенной модели (``ORCHESTRATOR_RUNTIME_CONFIG``); без конфигурации модели нет;
+    * сторож зависаний пишет инцидент «stalled» и уведомление в чат. Аварийный стоп
+      он включает ТОЛЬКО при ``WATCHDOG_KILL_SWITCH_ON_STALL=true`` (по умолчанию
+      выключено): стоп глобальный, один на сервер, и сам собой он не включается.
+
+    Возвращает задачи, которые lifespan гасит на остановке (пустой список — ничего
+    не поднято).
+    """
+    from app.settings import settings
+
+    if not settings.engine_startup:
+        logger.info("observation loop off (ENGINE_STARTUP=0)")
+        return []
+    tasks: list[asyncio.Task] = []
+    try:
+        from app.services.diagnosis import register_default_escalation_notifier
+
+        register_default_escalation_notifier()
+    except Exception:  # noqa: BLE001
+        logger.exception("escalation notifier registration failed (non-fatal)")
+    try:
+        from app.services.observation import get_observer
+
+        tasks.append(asyncio.create_task(get_observer().loop(), name="observation-consumer"))
+    except Exception:  # noqa: BLE001
+        logger.exception("observation loop failed to start (non-fatal)")
+        return tasks
+    try:
+        from app.services import supervisor_heartbeat
+
+        if supervisor_heartbeat.enabled():
+            tasks.append(
+                asyncio.create_task(supervisor_heartbeat.run_checker(), name="observer-heartbeat-checker")
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("observer heartbeat checker failed to start (non-fatal)")
+    return tasks
+
+
+async def _stop_observer(tasks: list[asyncio.Task]) -> None:
+    """Погасить сторожа, затем цикл; отметить пульс «остановлен» (как старая линия)."""
+    if not tasks:
+        return
+    for task in reversed(tasks):
+        task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await task
+    try:
+        from app.services import supervisor_heartbeat
+
+        supervisor_heartbeat.mark_stopped()
+    except Exception:  # noqa: BLE001
+        logger.exception("observer heartbeat stop mark failed (non-fatal)")
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Идемпотентная инициализация:
@@ -304,6 +381,11 @@ async def _lifespan(app: FastAPI):
         # падать в lifespan значит не показать пользователю ни одной страницы
         # с причиной. Логируем и продолжаем — роуты отдадут ошибку сами.
         logger.exception("миграции не прошли — схема может быть неактуальной")
+
+    try:
+        await _ensure_engine_schema()
+    except Exception:  # noqa: BLE001
+        logger.exception("схема движка (action_layer/change_control) не создана")
 
     # Изоляция арендаторов — единственная проверка, после которой не
     # продолжают. Все три способа её потерять бесшумны: таблица без политики
@@ -437,11 +519,16 @@ async def _lifespan(app: FastAPI):
     except Exception:  # noqa: BLE001
         logger.exception("startup reconcile failed (non-fatal)")
 
+    # Движок оркестратора (перенесён из video-pipeline int/chat-v1): фоновая
+    # часть только по ENGINE_STARTUP, см. `_start_engine`.
     approval_expiry_task = await _start_engine()
+    # Цикл наблюдения и сторож пульса (ENGINE_STARTUP), см. `_start_observer`.
+    observer_tasks = _start_observer()
 
     try:
         yield
     finally:
+        await _stop_observer(observer_tasks)
         if approval_expiry_task is not None:
             approval_expiry_task.cancel()
             with suppress(asyncio.CancelledError, Exception):
@@ -466,6 +553,9 @@ def create_app() -> FastAPI:
     # CORS-заголовка, и кросс-доменный фронт ложился бы целиком, ещё не
     # успев отправить токен. Проверено `test_cors_preflight_is_not_refused`.
     # В режиме владельца слой не делает ничего (`settings.accounts_enabled`).
+    # Участнику — без денег в JSON чата, слоя действий и уведомлений. Добавлен ДО
+    # IdentityMiddleware, значит стоит внутри неё и видит личность запроса.
+
     app.add_middleware(MemberMoneyMiddleware)
     app.add_middleware(IdentityMiddleware)
 
@@ -479,7 +569,26 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(workflows_router.router, prefix=API_PREFIX)
+    # Отчёты движка раньше projects: `/projects/reports/{name}` не должен
+    # попасть в `/{project_id}/...`. Доступ: только админ (engine_access).
+    from app.web.routers import project_reports as project_reports_router
+
+    app.include_router(project_reports_router.router, prefix=API_PREFIX)
     app.include_router(projects_router.router, prefix=API_PREFIX)
+    # Правка нод (модель, параметры, откат) — те же /api/projects/{id}/..., что у projects.
+    from app.web.routers import node_edit as node_edit_router
+
+    app.include_router(node_edit_router.router, prefix=API_PREFIX)
+    # Восстановление медиа без новой оплаты: действия media.* (оценка, блокировки неизвестного исхода).
+    from app.web.routers import media_recovery as media_recovery_router
+
+    app.include_router(media_recovery_router.router, prefix=API_PREFIX)
+    # Наблюдение прогонов, управляемый запуск, аварийный стоп (глобальный, только админ),
+    # траты (только админ) и журнал проекта (timeline) — перенос int/chat-v1 d4413ede9.
+    from app.web.routers import observations as observations_router
+
+    app.include_router(observations_router.router, prefix=API_PREFIX)
+    app.include_router(observations_router.timeline_router, prefix=API_PREFIX)
     app.include_router(project_ops_router.router, prefix=API_PREFIX)
     app.include_router(generation_options_router.router, prefix=API_PREFIX)
     app.include_router(generation_router.router, prefix=API_PREFIX)
@@ -524,33 +633,36 @@ def create_app() -> FastAPI:
     app.include_router(profile_router.router, prefix=API_PREFIX)
     app.include_router(ratings_router.router, prefix=API_PREFIX)
     app.include_router(node_reviews_router.router, prefix=API_PREFIX)
-
-    from app.web.routers import project_reports as project_reports_router
-
-    app.include_router(project_reports_router.router, prefix=API_PREFIX)
-
-    # Chat-supervisor оркестратор (порт из video-pipeline-orchestrator@orchestrator).
-    # /api/orchestrator/chat — отдельно от studio /api/chat.
+    # Карточка NII 67 и агент стиля (перенесены из video-pipeline): под
+    # /api/projects/{id}/nii67* и /api/projects/{id}/style-agent*.
+    app.include_router(nii67_router.router, prefix=API_PREFIX)
+    app.include_router(style_agent_router.router, prefix=API_PREFIX)
+    # Публикации в модели заказчика: только чтение состояния по площадкам.
+    app.include_router(publications_router.router, prefix=API_PREFIX)
+    # Чат оркестратора (движок). /api/orchestrator/chat/ в TENANT_ALLOWED_PREFIXES:
+    # участник ходит в свой чат (сессия несёт арендатора, строки под RLS 0023);
+    # роутер требует живую личность (engine_access.require_engine_member).
+    # Прочее под /api/orchestrator/ — вне списка, участнику 404.
     from app.orchestrator import app_ref
     from app.web.routers import orchestrator_chat as orchestrator_chat_router
 
     app.include_router(orchestrator_chat_router.router, prefix=API_PREFIX)
+    # Слой действий (планы, одобрения, резервы, вложения) и контроль изменений
+    # движка. Поддеревья /api/action-layer/ и /api/change-control/ в
+    # TENANT_ALLOWED_PREFIXES: данные арендатора под RLS (ревизия 0023); каждая
+    # ручка берёт EngineAuthDep (живая личность), инструменты студии (реестр
+    # резервов) — EngineAdminDep (только админ, 403 участнику).
+    # Подключать до catch-all `api_write_not_found` ниже, иначе POST сюда
+    # ловил бы он.
     from app.services.action_layer.router import router as action_layer_router
     from app.services.change_control.router import router as change_control_router
 
     app.include_router(action_layer_router, prefix=API_PREFIX)
     app.include_router(change_control_router, prefix=API_PREFIX)
+    # Лента уведомлений чата оркестратора (таблица арендатора, RLS).
     from app.web.routers import chat_notices as chat_notices_router
 
     app.include_router(chat_notices_router.router, prefix=API_PREFIX)
-
-    from app.web.routers import node_edit as node_edit_router
-
-    app.include_router(node_edit_router.router, prefix=API_PREFIX)
-
-    from app.web.routers import media_recovery as media_recovery_router
-
-    app.include_router(media_recovery_router.router, prefix=API_PREFIX)
     app_ref.bind(app)
 
     @app.api_route(f"{API_PREFIX}/{{rest:path}}", methods=["POST", "PUT", "PATCH", "DELETE"])
@@ -606,9 +718,15 @@ def create_app() -> FastAPI:
                         t.cancel()
                     if get_event_task in done:
                         try:
-                            evt = get_event_task.result()
+                            evt: dict | None = get_event_task.result()
                         except Exception:  # noqa: BLE001
                             break
+                        # Уведомления чата: только своему арендатору, участнику — без сумм.
+                        from app.web.member_money import ws_event_for_viewer
+
+                        evt = ws_event_for_viewer(evt)
+                        if evt is None:
+                            continue
                         await ws.send_text(json.dumps(evt, default=str))
                     if recv_task in done:
                         # Игнорируем содержимое (пока что), но обработка нужна

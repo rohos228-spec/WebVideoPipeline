@@ -30,6 +30,8 @@ def _empty_layout() -> dict[str, Any]:
         "project_layout": {},
         "gen_queue": [],
         "gen_queue_halted": False,
+        "gen_queue_halted_tenants": [],
+        "tenant_folders": {},
     }
 
 
@@ -52,23 +54,161 @@ def load_layout() -> dict[str, Any]:
         "project_layout": project_layout if isinstance(project_layout, dict) else {},
         "gen_queue": gen_queue if isinstance(gen_queue, list) else [],
         "gen_queue_halted": bool(data.get("gen_queue_halted")),
+        "gen_queue_halted_tenants": _tenant_list(data.get("gen_queue_halted_tenants")),
+        "tenant_folders": _tenant_folders(data.get("tenant_folders")),
     }
 
 
+def _tenant_folders(raw: Any) -> dict[str, list[dict[str, Any]]]:
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        str(t): [f for f in folders if isinstance(f, dict)]
+        for t, folders in raw.items()
+        if t and isinstance(folders, list)
+    }
+
+
+def _folders_of(data: dict[str, Any], tenant: str | None) -> list[dict[str, Any]]:
+    """Папки сайдбара того, кто смотрит.
+
+    Папки — свои у каждого арендатора (участники одного арендатора видят общие
+    папки арендатора). Владелец (режим без арендатора) — прежний общий список
+    ``folders``: старые папки остаются у владельца, ничего не переносится.
+    """
+    if tenant is None:
+        return [f for f in (data.get("folders") or []) if isinstance(f, dict)]
+    return list((data.get("tenant_folders") or {}).get(str(tenant)) or [])
+
+
+def _all_folder_ids(data: dict[str, Any]) -> set[str]:
+    """Номера всех папок файла: владельца и каждого арендатора."""
+    ids = {str(f.get("id")) for f in (data.get("folders") or []) if isinstance(f, dict) and f.get("id")}
+    for folders in (data.get("tenant_folders") or {}).values():
+        ids.update(str(f.get("id")) for f in folders or [] if isinstance(f, dict) and f.get("id"))
+    return ids
+
+
+def _new_folder_id(taken: set[str]) -> str:
+    while True:
+        fid = uuid.uuid4().hex[:12]
+        if fid not in taken:
+            return fid
+
+
+def _dedupe_incoming_folders(
+    data: dict[str, Any], tenant: str | None, folders: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Папки из ``PUT`` без чужих номеров.
+
+    Номер папки приходит от клиента. Новый номер, совпавший с номером папки
+    владельца или другого арендатора, заменяется свежим: иначе удаление «своей»
+    папки снимало бы с места чужие проекты, а место в ней показывалось бы у
+    обоих. Возвращает папки и замену номеров (старый → новый) для раскладки той
+    же правки.
+    """
+    mine = {str(f.get("id")) for f in _folders_of(data, tenant) if f.get("id")}
+    taken = _all_folder_ids(data)
+    foreign = taken - mine
+    remap: dict[str, str] = {}
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for f in folders:
+        rec = dict(f)
+        fid = str(rec.get("id") or "")
+        if not fid or fid in foreign or fid in seen:
+            new_id = _new_folder_id(taken | seen | set(remap.values()))
+            # Раскладка идёт за первой копией номера: чужой номер — в первую
+            # свежую, а повтор своего номера в той же правке её не перетягивает
+            # (иначе первая папка осталась бы пустой).
+            if fid and fid in foreign:
+                remap.setdefault(fid, new_id)
+            rec["id"] = new_id
+            fid = new_id
+        seen.add(fid)
+        out.append(rec)
+    return out, remap
+
+
+def _own_folder_ref(data: dict[str, Any], tenant: str | None, folder_id: Any) -> str | None:
+    """Номер папки из запроса арендатора — только его собственной.
+
+    Номер приходит от клиента (``PUT project_layout``, ``POST /projects``). Чужой
+    номер (папка владельца, общая папка до разделения, папка другого арендатора)
+    иначе попал бы в раскладку, а чтение копировало бы общую папку с её именем.
+    Номер общей папки, которую арендатор уже получил копией (старая вкладка),
+    ведёт в эту копию; любой другой чужой — в корень. Владелец — без проверки.
+    """
+    if not folder_id:
+        return None
+    fid = str(folder_id)
+    if tenant is None:
+        return fid
+    mine = _folders_of(data, tenant)
+    if any(str(f.get("id")) == fid for f in mine):
+        return fid
+    for f in mine:
+        if str(f.get("adopted_from") or "") == fid:
+            return str(f.get("id"))
+    return None
+
+
+def _set_folders(data: dict[str, Any], tenant: str | None, folders: list[dict[str, Any]]) -> None:
+    if tenant is None:
+        data["folders"] = folders
+        return
+    by_tenant = dict(data.get("tenant_folders") or {})
+    by_tenant[str(tenant)] = folders
+    data["tenant_folders"] = by_tenant
+
+
+def _tenant_list(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return sorted({str(t) for t in raw if t})
+
+
+def _tenant_now() -> str | None:
+    from app.services.tenant import current_tenant
+
+    return current_tenant()
+
+
 def is_gen_queue_halted() -> bool:
-    return bool(load_layout().get("gen_queue_halted"))
+    """Стоп очереди после ⏹ — свой у каждого арендатора.
+
+    Файл очереди общий для студии, а ⏹ клиента А не должен останавливать
+    очередь клиента Б (и снимать стоп Б при постановке А). Без арендатора
+    (режим владельца, проекты владельца) — прежний общий флаг.
+    """
+    data = load_layout()
+    tenant = _tenant_now()
+    if tenant is None:
+        return bool(data.get("gen_queue_halted"))
+    return str(tenant) in data.get("gen_queue_halted_tenants", [])
 
 
 def set_gen_queue_halted(halted: bool, *, reason: str = "") -> None:
-    """Глобальный стоп очереди: после ⏹ следующий слот сам не стартует."""
+    """Стоп очереди арендатора: после ⏹ его следующий слот сам не стартует."""
     data = load_layout()
-    prev = bool(data.get("gen_queue_halted"))
-    data["gen_queue_halted"] = bool(halted)
+    tenant = _tenant_now()
+    if tenant is None:
+        prev = bool(data.get("gen_queue_halted"))
+        data["gen_queue_halted"] = bool(halted)
+    else:
+        tenants = set(data.get("gen_queue_halted_tenants") or [])
+        prev = str(tenant) in tenants
+        if halted:
+            tenants.add(str(tenant))
+        else:
+            tenants.discard(str(tenant))
+        data["gen_queue_halted_tenants"] = sorted(tenants)
     save_layout(data)
     if prev != bool(halted):
         logger.info(
-            "gen_queue_halted={}{}",
+            "gen_queue_halted={}{}{}",
             bool(halted),
+            f" tenant={tenant}" if tenant is not None else "",
             f" ({reason})" if reason else "",
         )
 
@@ -137,13 +277,57 @@ def set_gen_queue(queue: list[int]) -> list[int]:
     return data["gen_queue"]
 
 
+def merge_own_queue(current: list[int], own_ids: set[int] | None, wanted: list[int]) -> list[int]:
+    """Очередь после правки арендатора: меняются только его номера.
+
+    Файл очереди один на студию. Правка клиента (порядок, массовая постановка)
+    раньше записывала его список целиком — и выбрасывала номера других
+    клиентов. Здесь чужие номера стоят на своих местах и в прежнем порядке;
+    места, где стояли свои номера, по порядку занимают свои из ``wanted``;
+    лишние свои — в конец. Чужой номер в ``wanted`` не попадает в очередь.
+    ``own_ids=None`` — видно всё (режим владельца): ``wanted`` и есть очередь.
+    """
+    wanted_n = _normalize_gen_queue(wanted)
+    if own_ids is None:
+        return wanted_n
+    mine = [pid for pid in wanted_n if pid in own_ids]
+    out: list[int] = []
+    it = iter(mine)
+    for pid in _normalize_gen_queue(current):
+        if pid in own_ids:
+            nxt = next(it, None)
+            if nxt is not None:
+                out.append(nxt)
+        else:
+            out.append(pid)
+    out.extend(it)
+    return out
+
+
+def set_own_gen_queue(wanted: list[int], own_ids: set[int] | None) -> list[int]:
+    """Записать свою часть общей очереди (см. ``merge_own_queue``). Возвращает очередь целиком."""
+    data = load_layout()
+    data["gen_queue"] = merge_own_queue(data.get("gen_queue") or [], own_ids, wanted)
+    save_layout(data)
+    return data["gen_queue"]
+
+
+def own_queue_view(queue: list[int], own_ids: set[int] | None) -> dict[str, Any]:
+    """Очередь для ответа клиенту: только его номера, места — среди его номеров."""
+    mine = _normalize_gen_queue(queue)
+    if own_ids is not None:
+        mine = [pid for pid in mine if pid in own_ids]
+    return {"gen_queue": mine, "gen_queue_positions": {pid: idx + 1 for idx, pid in enumerate(mine)}}
+
+
 def create_folder(name: str) -> dict[str, Any]:
     clean = (name or "").strip()
     if not clean:
         raise ValueError("name is required")
     data = load_layout()
-    folders: list[dict[str, Any]] = list(data.get("folders") or [])
-    folder_id = uuid.uuid4().hex[:12]
+    tenant = _tenant_now()
+    folders: list[dict[str, Any]] = _folders_of(data, tenant)
+    folder_id = _new_folder_id(_all_folder_ids(data))
     order = max((int(f.get("order") or 0) for f in folders), default=-1) + 1
     record = {
         "id": folder_id,
@@ -152,7 +336,7 @@ def create_folder(name: str) -> dict[str, Any]:
         "created_at": _now_iso(),
     }
     folders.append(record)
-    data["folders"] = folders
+    _set_folders(data, tenant, folders)
     save_layout(data)
     return record
 
@@ -162,7 +346,8 @@ def rename_folder(folder_id: str, name: str) -> dict[str, Any]:
     if not clean:
         raise ValueError("name is required")
     data = load_layout()
-    folders: list[dict[str, Any]] = list(data.get("folders") or [])
+    tenant = _tenant_now()
+    folders: list[dict[str, Any]] = _folders_of(data, tenant)
     found: dict[str, Any] | None = None
     for f in folders:
         if str(f.get("id")) == folder_id:
@@ -172,24 +357,32 @@ def rename_folder(folder_id: str, name: str) -> dict[str, Any]:
             break
     if found is None:
         raise KeyError(f"folder not found: {folder_id}")
-    data["folders"] = folders
+    _set_folders(data, tenant, folders)
     save_layout(data)
     return found
 
 
-def delete_folder(folder_id: str) -> bool:
+def delete_folder(folder_id: str, own_ids: set[int] | None = None) -> bool:
+    """Удалить свою папку; её проекты — в корень.
+
+    ``own_ids`` задан (арендатор) — в корень уходят только его проекты: чужие
+    места не трогаются, даже если номер папки где-то совпал.
+    """
     data = load_layout()
-    folders: list[dict[str, Any]] = list(data.get("folders") or [])
+    tenant = _tenant_now()
+    folders: list[dict[str, Any]] = _folders_of(data, tenant)
     new_folders = [f for f in folders if str(f.get("id")) != folder_id]
     if len(new_folders) == len(folders):
         return False
     layout: dict[str, Any] = dict(data.get("project_layout") or {})
     for key, val in list(layout.items()):
+        if own_ids is not None and not (str(key).lstrip("-").isdigit() and int(key) in own_ids):
+            continue
         if isinstance(val, dict) and str(val.get("folder_id") or "") == folder_id:
             val = dict(val)
             val["folder_id"] = None
             layout[key] = val
-    data["folders"] = new_folders
+    _set_folders(data, tenant, new_folders)
     data["project_layout"] = layout
     save_layout(data)
     return True
@@ -218,6 +411,7 @@ def ensure_project_layout(project_id: int, *, folder_id: str | None = None) -> N
     key = str(project_id)
     if key in layout:
         return
+    folder_id = _own_folder_ref(data, _tenant_now(), folder_id)
     siblings = [
         _project_layout_entry(layout, int(k))
         for k in layout
@@ -248,14 +442,50 @@ def update_layout(
     folders: list[dict[str, Any]] | None = None,
     project_layout: dict[str, Any] | None = None,
     gen_queue: list[int] | None = None,
+    own_ids: set[int] | None = None,
 ) -> dict[str, Any]:
+    """``own_ids`` — проекты, видимые автору правки. Задан — правка трогает только их:
+    чужие места в сайдбаре и чужие номера очереди остаются как были.
+    ``folders`` — папки того, кто правит (арендатора или владельца), см. ``_folders_of``."""
     data = load_layout()
+    tenant = _tenant_now()
     if folders is not None:
-        data["folders"] = folders
+        clean, remap = _dedupe_incoming_folders(data, tenant, [f for f in folders if isinstance(f, dict)])
+        _set_folders(data, tenant, clean)
+        if remap and project_layout is not None:
+            project_layout = {
+                k: (
+                    {**v, "folder_id": remap[str(v["folder_id"])]}
+                    if isinstance(v, dict) and v.get("folder_id") and str(v["folder_id"]) in remap
+                    else v
+                )
+                for k, v in project_layout.items()
+            }
+    if project_layout is not None and tenant is not None:
+        # Место арендатора — только в его папке (см. ``_own_folder_ref``).
+        project_layout = {
+            k: (
+                {**v, "folder_id": _own_folder_ref(data, tenant, v.get("folder_id"))}
+                if isinstance(v, dict) and v.get("folder_id")
+                else v
+            )
+            for k, v in project_layout.items()
+        }
     if project_layout is not None:
-        data["project_layout"] = project_layout
+        if own_ids is None:
+            data["project_layout"] = project_layout
+        else:
+            kept = {
+                k: v
+                for k, v in dict(data.get("project_layout") or {}).items()
+                if not (str(k).lstrip("-").isdigit() and int(k) in own_ids)
+            }
+            for k, v in project_layout.items():
+                if str(k).lstrip("-").isdigit() and int(k) in own_ids:
+                    kept[str(k)] = v
+            data["project_layout"] = kept
     if gen_queue is not None:
-        data["gen_queue"] = _normalize_gen_queue(gen_queue)
+        data["gen_queue"] = merge_own_queue(data.get("gen_queue") or [], own_ids, gen_queue)
     save_layout(data)
     return data
 
@@ -294,8 +524,68 @@ def sync_projects(
         save_layout(data)
 
 
+def _adopt_legacy_folders(data: dict[str, Any], tenant: str, project_ids: set[int] | None) -> bool:
+    """Папки арендатора, созданные до разделения папок, — ему копией.
+
+    Раньше папки были общими (список владельца ``folders``). Проекты арендатора,
+    разложенные по ним, после разделения оказались бы в корне. Папку из общего
+    списка, в которой лежит проект арендатора, копируем арендатору под новым
+    номером и перекладываем туда его проекты. У владельца папка остаётся как
+    была — ничего не удаляется и не переименовывается. Возвращает, было ли что
+    записать.
+    """
+    if not project_ids:
+        return False
+    legacy = {str(f.get("id")): f for f in (data.get("folders") or []) if isinstance(f, dict) and f.get("id")}
+    if not legacy:
+        return False
+    mine = _folders_of(data, tenant)
+    known = {str(f.get("id")) for f in mine}
+    layout: dict[str, Any] = dict(data.get("project_layout") or {})
+    # Общая папка, уже скопированная арендатору, второй копии не получает:
+    # место, позже указавшее на её прежний номер, идёт в ту же копию.
+    adopted = {str(f.get("adopted_from")): str(f.get("id")) for f in mine if f.get("adopted_from")}
+    remap: dict[str, str] = {}
+    changed = False
+    taken = _all_folder_ids(data)
+    for key, val in layout.items():
+        if not (str(key).lstrip("-").isdigit() and int(key) in project_ids) or not isinstance(val, dict):
+            continue
+        fid = str(val.get("folder_id") or "")
+        if not fid or fid in known or fid not in legacy:
+            continue
+        if fid in adopted:
+            layout[key] = {**val, "folder_id": adopted[fid]}
+            changed = True
+            continue
+        if fid not in remap:
+            new_id = _new_folder_id(taken)
+            taken.add(new_id)
+            remap[fid] = new_id
+            src = legacy[fid]
+            mine.append(
+                {
+                    "id": new_id,
+                    "name": src.get("name"),
+                    "order": src.get("order") or 0,
+                    "created_at": src.get("created_at") or _now_iso(),
+                    "adopted_from": fid,
+                }
+            )
+        layout[key] = {**val, "folder_id": remap[fid]}
+    if not remap and not changed:
+        return False
+    if remap:
+        _set_folders(data, tenant, mine)
+    data["project_layout"] = layout
+    return True
+
+
 def layout_for_api(project_ids: set[int] | None = None) -> dict[str, Any]:
     data = load_layout()
+    tenant = _tenant_now()
+    if tenant is not None and _adopt_legacy_folders(data, str(tenant), project_ids):
+        save_layout(data)
     layout: dict[str, Any] = dict(data.get("project_layout") or {})
     if project_ids is not None:
         layout = {k: v for k, v in layout.items() if int(k) in project_ids}
@@ -303,9 +593,20 @@ def layout_for_api(project_ids: set[int] | None = None) -> dict[str, Any]:
     if project_ids is not None:
         gen_queue = [p for p in gen_queue if p in project_ids]
     folders = sorted(
-        [f for f in (data.get("folders") or []) if isinstance(f, dict)],
+        _folders_of(data, tenant),
         key=lambda f: (int(f.get("order") or 0), str(f.get("name") or "").lower()),
     )
+    if tenant is not None:
+        # Место в чужой папке (номер папки другого арендатора) — показываем в корне.
+        known = {str(f.get("id")) for f in folders}
+        layout = {
+            k: (
+                {**v, "folder_id": None}
+                if isinstance(v, dict) and v.get("folder_id") and str(v["folder_id"]) not in known
+                else v
+            )
+            for k, v in layout.items()
+        }
     queue_map = {pid: idx + 1 for idx, pid in enumerate(gen_queue)}
     return {
         "folders": folders,

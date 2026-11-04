@@ -1220,6 +1220,15 @@ async def _paid_gate(provider, what, estimate_usd, pid, run_id, register, contro
         if any(c[key] > 0 and applies for _code, key, applies in windows):
             async with _sessions()() as session:
                 sums = await conservative_sums(session, project_id=pid, run_id=run_id)
+        if bound is not None and run_id == bound[0] and pid is not None and c["run"] > 0:
+            # Потолок цепочки из чата общий: GPT той же цепочки тоже съедает его.
+            from app.services import llm_ledger
+
+            try:
+                sums["run"] = sums["run"] + await llm_ledger.chain_llm_spent_usd(int(pid))
+            except Exception as exc:  # noqa: BLE001 — не прочитали GPT: считаем потолок занятым
+                logger.warning("paid gate: GPT цепочки не прочитан: {}", exc)
+                sums["run"] = max(sums["run"], c["run"])
         fly = inflight_usd(project_id=pid, run_id=run_id)
         over = [
             (code, key)
@@ -1471,23 +1480,7 @@ async def correlation_chain(session, request_id: str) -> list[dict]:
 
 from contextlib import contextmanager
 
-try:
-    from app.services.style_agent.budget import LlmBudget
-except ImportError:
-    class BudgetExceeded(RuntimeError):  # type: ignore[no-redef]
-        pass
-
-    class LlmBudget:  # type: ignore[no-redef]
-        def __init__(self, max_calls: int = 10**9) -> None:
-            self.max_calls = max_calls
-            self.calls = 0
-
-        def reserve(self, label: str = "") -> None:
-            if self.calls >= self.max_calls:
-                raise BudgetExceeded(f"LLM budget exceeded: {self.calls}/{self.max_calls} ({label})")
-
-        def note_spent(self, label: str = "") -> None:
-            self.calls += 1
+from app.services.style_agent.budget import LlmBudget
 
 _active: contextvars.ContextVar[LlmBudget | None] = contextvars.ContextVar("spend_budget", default=None)
 _pipeline: LlmBudget | None = None

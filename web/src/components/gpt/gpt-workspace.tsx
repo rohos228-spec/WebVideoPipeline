@@ -44,6 +44,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  ApiError,
   type GptWorkspaceFile,
   type GptWorkspaceMessage,
   type GptWorkspaceSession,
@@ -52,6 +53,40 @@ import {
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "./markdown-renderer";
+
+const GPT_ERR_NETWORK = "Нет связи с сервером. Проверьте интернет и повторите.";
+const GPT_ERR_UNAVAILABLE = "Модель сейчас недоступна, попробуйте чуть позже.";
+const GPT_ERR_MODEL = "Модель ответила ошибкой, попробуйте ещё раз.";
+const GPT_ERR_TIMEOUT = "Модель долго не отвечает, попробуйте ещё раз.";
+const GPT_ERR_GENERIC = "Не получилось получить ответ, попробуйте ещё раз.";
+
+/**
+ * Понятный текст ошибки чата для тоста. Сырые строки сервера (английский,
+ * коды, стек) пользователю не показываем — их пишет console.error.
+ */
+function friendlyGptError(err: unknown, fallback: string = GPT_ERR_GENERIC): string {
+  let raw = "";
+  if (err instanceof ApiError) {
+    if (err.status === 503) return GPT_ERR_UNAVAILABLE;
+    if (err.status === 504 || err.status === 408) return GPT_ERR_TIMEOUT;
+    if (err.status === 500 || err.status === 502) return GPT_ERR_MODEL;
+    raw = `${err.message} ${typeof err.detail === "string" ? err.detail : ""}`;
+  } else if (err instanceof Error) {
+    if (err.name === "TypeError") return GPT_ERR_NETWORK;
+    raw = `${err.name} ${err.message}`;
+  } else if (typeof err === "string") {
+    raw = err;
+  }
+  const t = raw.toLowerCase();
+  if (/failed to fetch|networkerror|network error|load failed|err_connection|econnrefused|нет связи/.test(t)) {
+    return GPT_ERR_NETWORK;
+  }
+  if (/timeout|timed out|не ответил за|долго не отвечает|\b504\b/.test(t)) return GPT_ERR_TIMEOUT;
+  if (/gptapiunavailable|unavailable|не настроен|\b503\b/.test(t)) return GPT_ERR_UNAVAILABLE;
+  if (/\b50[02]\b|internal server error|bad gateway/.test(t)) return GPT_ERR_MODEL;
+  if (/прервана пользователем/.test(t)) return "Генерация остановлена";
+  return fallback;
+}
 
 function stemOf(name: string): string {
   const i = name.lastIndexOf(".");
@@ -356,13 +391,24 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
   const handleAsk = async (promptOverride?: string) => {
     let sid = sessionId;
     if (!sid) {
-      const s = await api.gptCreateSession();
-      sid = s.id;
-      setSessionId(sid);
+      try {
+        const s = await api.gptCreateSession();
+        sid = s.id;
+        setSessionId(sid);
+      } catch (e) {
+        console.error("[gpt-workspace] gptCreateSession failed", e);
+        toast.error(friendlyGptError(e, "Не получилось создать чат, попробуйте ещё раз."));
+        return;
+      }
     }
     const msg = (promptOverride !== undefined ? promptOverride : draft).trim();
     if (!msg && (session?.attachments?.length ?? 0) === 0) return;
-    if (promptOverride === undefined) setDraft("");
+    const clearedDraft = promptOverride === undefined;
+    if (clearedDraft) setDraft("");
+    // Запрос не дошёл — возвращаем набранный текст в поле, если человек не начал новый.
+    const restoreDraft = () => {
+      if (clearedDraft && msg) setDraft((prev) => (prev.trim() ? prev : msg));
+    };
 
     const currentAttachments = withAttachments && session?.attachments
       ? session.attachments.map((f) => f.name)
@@ -407,7 +453,9 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             setStreamingText(null);
             setStreamingPhase(null);
             setIsStreaming(false);
-            toast.error(err);
+            console.error("[gpt-workspace] stream error:", err);
+            toast.error(friendlyGptError(err));
+            restoreDraft();
             void qc.invalidateQueries({ queryKey: ["gpt-workspace", "session", sid] });
           },
         },
@@ -417,7 +465,9 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
       if (e?.name === "AbortError") {
         toast.info("Генерация остановлена");
       } else {
-        toast.error(errorMessageFromUnknown(e));
+        console.error("[gpt-workspace] gptAskStream failed", e);
+        toast.error(friendlyGptError(e));
+        restoreDraft();
       }
       void qc.invalidateQueries({ queryKey: ["gpt-workspace", "session", sid] });
     } finally {

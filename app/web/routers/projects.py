@@ -5,14 +5,14 @@ import re
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, status
 from loguru import logger
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer, selectinload
 
 from app.db import commit_with_retry
-from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus, WorkflowRun
+from app.models import ArtifactKind, BatchProject, Frame, Project, ProjectStatus
 from app.services.default_project import default_auto_mode_for_new_project
 from app.services.event_bus import publish_project_event
 from app.services.mass_factory import mass_parent_id
@@ -165,7 +165,11 @@ async def list_projects(
     # Позиции очереди — по полной gen_queue (включая дочерние mass/manual).
     # layout_for_api(sidebar_project_ids) выкидывает children из queue_map,
     # из‑за этого круг в сайдбаре оставался без цифры при живом toast.
-    queue_pos = {pid: idx + 1 for idx, pid in enumerate(get_gen_queue())}
+    # Файл очереди общий для студии: место считается среди своих проектов
+    # арендатора (как в GET /sidebar-layout), иначе номер выдавал бы чужие.
+    from app.services.gen_queue import own_gen_queue
+
+    queue_pos = {pid: idx + 1 for idx, pid in enumerate(await own_gen_queue(session, get_gen_queue()))}
     out: list[ProjectSummary] = []
     for p in rows:
         qpos = queue_pos.get(p.id)
@@ -195,6 +199,25 @@ async def steps_catalog() -> list[dict[str, str]]:
     return list_step_codes()
 
 
+@router.get("/{project_id}/shots-report")
+async def project_shots_report(project_id: int, session: AsyncSession = Depends(get_session)):
+    """HTML ноды fw_report. GET только отдаёт файл, кадры не пересчитывает."""
+    from fastapi.responses import HTMLResponse
+
+    from app.services.shots_report import existing_shots_report_path
+
+    p = await session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    existing = existing_shots_report_path(p)
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail="отчёт пишет нода fw_report — сначала прогон группы script_frames_qc",
+        )
+    return HTMLResponse(existing.read_text(encoding="utf-8"))
+
+
 @router.get("/{project_id}", response_model=ProjectDetail)
 async def get_project(project_id: int, session: AsyncSession = Depends(get_session)) -> ProjectDetail:
     p = await session.get(Project, project_id)
@@ -217,25 +240,6 @@ async def get_project(project_id: int, session: AsyncSession = Depends(get_sessi
     await commit_with_retry(session)
     await session.refresh(p)
     return project_to_detail(p)
-
-
-@router.get("/{project_id}/run", response_model=WorkflowRunDetail)
-async def get_project_run(
-    project_id: int,
-    session: AsyncSession = Depends(get_session),
-) -> WorkflowRun:
-    """Возвращает последний WorkflowRun проекта (snapshot нод и рёбер)."""
-    run = (
-        await session.execute(
-            select(WorkflowRun)
-            .where(WorkflowRun.project_id == project_id)
-            .order_by(WorkflowRun.id.desc())
-            .options(selectinload(WorkflowRun.node_runs))
-        )
-    ).scalars().first()
-    if run is None:
-        raise HTTPException(status_code=404, detail="run not found")
-    return run
 
 
 @router.post("", response_model=ProjectDetail, status_code=status.HTTP_201_CREATED)
@@ -347,6 +351,48 @@ async def create_child_project(
         payload={"slug": child.slug, "title": child.title, "topic": child.topic, "parent_id": project_id},
     )
     return project_to_detail(child)
+
+
+@router.get("/{project_id}/run", response_model=WorkflowRunDetail)
+async def get_project_run(project_id: int, session: AsyncSession = Depends(get_session)):
+    """Прогон канваса проекта с node_runs (его читает чат: статусы нод, ошибки, окна трат).
+
+    Перенос из video-pipeline int/chat-v1 без project.db: одна база, снимок
+    прогона догоняет холст через ``sync_run_snapshot_from_canvas_graph``.
+    """
+    from app.models import WorkflowRun
+    from app.services.canvas_graph import sync_run_snapshot_from_canvas_graph
+
+    p = await session.get(Project, project_id)
+    if p is None:
+        raise HTTPException(status_code=404, detail="project not found")
+
+    async def _load():
+        return (
+            await session.execute(
+                select(WorkflowRun)
+                .where(WorkflowRun.project_id == project_id)
+                .options(selectinload(WorkflowRun.node_runs))
+            )
+        ).scalar_one_or_none()
+
+    created = False
+    if await _load() is None:
+        wf_id = await _get_default_workflow_id(session)
+        if wf_id is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        try:
+            await ensure_run_for_project(project_id, wf_id, session=session)
+        except ValueError as exc:  # сценарий по умолчанию не найден в базе
+            raise HTTPException(status_code=404, detail="run not found") from exc
+        created = True
+    changed = await sync_run_snapshot_from_canvas_graph(session, p)
+    if created or changed:
+        await commit_with_retry(session)
+    run = await _load()
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    return run
 
 
 @router.post("/{project_id}/ensure-run")
@@ -563,6 +609,18 @@ async def media_review(
     return out
 
 
+async def _from_action_layer(action_operator: str | None, action_plan: str | None = None) -> bool:
+    """▶ дала задача чата (слой действий), а не человек в Studio.
+
+    Заголовки ``X-Action-Layer-Operator``/``X-Action-Layer-Plan`` шлёт только
+    ActionContext.call, вместе с токеном оператора. Чат — когда оператор или создатель
+    плана ``orchestrator:task-N``; панель «Действия» и Studio — человек.
+    """
+    from app.services.action_layer.chat_caller import is_chat_caller
+
+    return await is_chat_caller(action_operator, action_plan)
+
+
 @router.post("/{project_id}/steps/{step_code}/run", response_model=ProjectDetail)
 async def run_project_step(
     project_id: int,
@@ -571,9 +629,17 @@ async def run_project_step(
     node_key: str | None = None,
     mode: str = Query("resume", pattern="^(full|resume)$"),
     force_wipe: bool | None = None,
+    only_node: bool = False,
+    run_cap_credits: Annotated[float | None, Query(gt=0, le=1_000_000)] = None,
+    run_tag: Annotated[str | None, Query(min_length=1, max_length=40, pattern=r"^[A-Za-z0-9_-]+$")] = None,
+    action_operator: Annotated[str | None, Header(alias="X-Action-Layer-Operator")] = None,
+    action_plan: Annotated[str | None, Header(alias="X-Action-Layer-Plan")] = None,
     session: AsyncSession = Depends(get_session),
 ) -> Project:
     """Запустить шаг: статус → running, воркер выполнит advance_project.
+    only_node=true (excel_gpt + node_key): после ноды цепочка по стрелкам не идёт.
+    run_cap_credits + run_tag (чат с автопродвижением): потолок трат на всю цепочку,
+    воркер останавливает её на превышении. Запуск без них снимает прежний потолок.
     Wipe только при явном force_wipe=true. mode=full без force_wipe — как resume
     (старый UI слал full на каждый ▶ и сжигал выход).
     """
@@ -594,6 +660,26 @@ async def run_project_step(
         )
         return p
     resolved_force_wipe = bool(force_wipe) if force_wipe is not None else False
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from app.services import spend_guard
+
+    _meta = dict(p.meta or {})
+    if run_cap_credits is not None and run_tag:
+        _meta[spend_guard.CHAIN_BUDGET_META] = spend_guard.chain_budget_meta(
+            project_id, run_cap_credits, run_tag
+        )
+    else:
+        _meta.pop(spend_guard.CHAIN_BUDGET_META, None)
+    # Стоп-ключ only_node и потолок цепочки пишем ДО start_step и коммитим —
+    # иначе воркер успевает взять проект без них и цепочка идёт дальше.
+    if only_node and node_key:
+        _meta["excel_gpt_stop_after_key"] = node_key
+    if _meta != dict(p.meta or {}):
+        p.meta = _meta
+        flag_modified(p, "meta")
+        await commit_with_retry(session)
+        await session.refresh(p)
     try:
         await start_step(
             session,
@@ -603,6 +689,7 @@ async def run_project_step(
             require_node_fsm=True,
             explicit_ui_start=True,
             force_wipe=resolved_force_wipe,
+            keep_chat_owner=await _from_action_layer(action_operator, action_plan),
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

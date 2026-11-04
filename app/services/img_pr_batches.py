@@ -11,7 +11,10 @@ import math
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, TypeVar
+from types import SimpleNamespace
+from typing import Any, TypeVar, cast
+
+from loguru import logger
 
 from app.contracts.prompt_ops import MIN_IMAGE_PROMPT_CHARS
 from app.services.db_apply import extract_apply_ops_json
@@ -333,6 +336,28 @@ def filter_prompt_ops(ops: list[Any]) -> list[dict]:
     return clean
 
 
+def no_source_uuids_in_reply(reply: str, *, respect_allow: bool = True) -> set[str]:
+    """То же по сырому ответу: здесь короткий «Нет исходных данных…» отбрасывает уже
+    ``filter_prompt_ops`` (вырожденный промт короче MIN_IMAGE_PROMPT_CHARS), и в ops его не видно."""
+    from app.generation_options import hollow_prompts_allowed
+
+    if respect_allow and hollow_prompts_allowed():
+        return set()
+    data = extract_apply_ops_json(reply or "")
+    raw = list((data or {}).get("ops") or []) if isinstance(data, dict) else []
+    out: set[str] = set()
+    for op in raw:
+        if not isinstance(op, dict):
+            continue
+        fields = raw_fields if isinstance(raw_fields := op.get("fields"), dict) else {}
+        merged = {**{k: op[k] for k in _PROMPT_FIELD_KEYS if k in op}, **fields}
+        if _op_is_no_source_data(_shot1_prompt_of(merged), _shot2_prompt_of(merged), respect_allow=False):
+            uid = uuid_of_op(op)
+            if uid:
+                out.add(uid)
+    return out
+
+
 def _read_json_string(text: str, start: int) -> tuple[str, int] | None:
     """Прочитать JSON-строку начиная с start (символ сразу после открывающей \")."""
     if start < 0 or start > len(text):
@@ -493,3 +518,212 @@ def write_rejected_reply(tmp_dir: Path, *, batch_i: int, attempt: int, reply: st
 
 def uuid_of_op(op: dict) -> str:
     return str(op.get("frame_uuid") or op.get("uuid") or "").strip()
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+_SHOT1_PROMPT_KEYS = (
+    "промт_картинки",
+    "image_prompt",
+    "промпт_картинки",
+)
+
+
+_SHOT2_PROMPT_KEYS = (
+    "промт_картинки_2",
+    "image_prompt_shot2",
+)
+
+
+# Запись в DB: короче — заглушка (портрет 1 строка / «…»), не сцена+STYLE.
+IMG_PR_MIN_WRITE_CHARS = 200
+
+
+def _field_prompt(fields: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for key in keys:
+        text = str(fields.get(key) or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _shot1_prompt_of(fields: dict[str, Any]) -> str:
+    return _field_prompt(fields, _SHOT1_PROMPT_KEYS)
+
+
+def _shot2_prompt_of(fields: dict[str, Any]) -> str:
+    return _field_prompt(fields, _SHOT2_PROMPT_KEYS)
+
+
+def writeable_img_pr_ops(ops: list[Any]) -> list[dict]:
+    """Ops, которые можно писать в DB: реальный uuid + полный промт."""
+    kept: list[dict] = []
+    for op in filter_prompt_ops(ops):
+        fields = op.get("fields") or {}
+        shot1 = _shot1_prompt_of(fields)
+        shot2 = _shot2_prompt_of(fields)
+        if len(shot1) < IMG_PR_MIN_WRITE_CHARS and len(shot2) < IMG_PR_MIN_WRITE_CHARS:
+            logger.warning(
+                "img_pr: промт короче {} симв., кадр {} не записан (shot1={} shot2={})",
+                IMG_PR_MIN_WRITE_CHARS,
+                op.get("frame_uuid") or op.get("uuid") or "?",
+                len(shot1),
+                len(shot2),
+            )
+            continue
+        if _op_is_no_source_data(shot1, shot2):
+            logger.warning(
+                "img_pr: модель ответила «нет исходных данных», кадр {} не записан",
+                op.get("frame_uuid") or op.get("uuid") or "?",
+            )
+            continue
+        kept.append(op)
+    return kept
+
+
+class ImgPrNoSourceData(RuntimeError):
+    """Модель ответила «нет исходных данных»: у кадров нет входа для сцены.
+
+    Повтор/дробление батча того же входа даёт тот же ответ (детерминированный
+    отказ), поэтому шаг сообщает причину, а не перезапрашивает.
+    """
+
+    # Код в app/services/error_catalog.py (ERROR_CATALOG / describe_error).
+    ERROR_CODE = "img_pr_no_scene_data"
+
+    def __init__(
+        self,
+        frame_numbers: Sequence[int],
+        *,
+        apply_ops: Sequence[dict] | None = None,
+        scene_fingerprint: str | None = None,
+    ) -> None:
+        self.frame_numbers = sorted({int(n) for n in frame_numbers})
+        # Готовые промты остальных кадров (этот прогон + чекпоинт): шаг пишет их
+        # в базу до того, как сообщить об ошибке, иначе они живут только в чекпоинте.
+        self.apply_ops = [op for op in (apply_ops or []) if isinstance(op, dict)]
+        self.context = {"error_kind": self.ERROR_CODE, "frame_numbers": list(self.frame_numbers)}
+        if scene_fingerprint:
+            # Слепок входа сцен: пока он тот же, шаг не зовёт модель (step_failure_policy).
+            self.context["scene_fingerprint"] = scene_fingerprint
+        super().__init__(no_scene_data_text(self.frame_numbers))
+
+
+# Ключ в meta.step_failure: кадры без данных сцены и слепок их входа на момент паузы.
+NO_SOURCE_GUARD_KEY = "img_pr_no_source"
+_FALLBACK_SCENE_STEP_RU = "Работа с GPT"
+
+
+def _fp_attrs(attrs: Any) -> Any:
+    """attrs без полей промтов: их пишет сам img_pr, это не вход сцены."""
+    if not isinstance(attrs, dict):
+        return attrs
+    return {
+        str(k): v
+        for k, v in attrs.items()
+        if "промт" not in str(k).lower() and "prompt" not in str(k).lower()
+    }
+
+
+def scene_input_fingerprint(frames: Sequence[Any], scenes: Sequence[Any] = ()) -> str:
+    """Слепок того, что модель видит как «данные сцены» у этих кадров.
+
+    Если его не поменяли (не перезапустили «Работу с GPT», не поправили сцену),
+    повтор даст тот же ответ «нет исходных данных» — платный вызов не нужен.
+    """
+    import hashlib
+
+    rows = [
+        [
+            int(getattr(fr, "number", 0) or 0),
+            getattr(fr, "voiceover_text", None),
+            getattr(fr, "meaning", None),
+            getattr(fr, "transition_from", None),
+            getattr(fr, "transition_to", None),
+            getattr(fr, "scene_id", None),
+            _fp_attrs(getattr(fr, "attrs", None)),
+        ]
+        for fr in sorted(frames, key=lambda f: int(getattr(f, "number", 0) or 0))
+    ]
+    sc = [
+        [
+            getattr(s, "id", None),
+            getattr(s, "title", None),
+            getattr(s, "place", None),
+            getattr(s, "meaning", None),
+            getattr(s, "scene_type", None),
+            _fp_attrs(getattr(s, "attrs", None)),
+        ]
+        for s in sorted(scenes, key=lambda x: int(getattr(x, "id", 0) or 0))
+    ]
+    raw = json.dumps([rows, sc], ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
+def upstream_scene_step_ru(meta: Any) -> str:
+    """Шаг, который заполняет место/фон/действие: ближняя «Работа с GPT» выше промтов картинок.
+
+    Берётся с канваса проекта (стрелки к ноде image_prompts). Нет канваса — общее имя.
+    """
+    try:
+        from app.services.action_layer.builtin_group import node_label_ru
+        from app.services.canvas_graph import find_canvas_node_key_by_type
+        from app.services.excel_gpt_node import overflow_excel_gpt_predecessors
+
+        meta = meta if isinstance(meta, dict) else {}
+        img_key = find_canvas_node_key_by_type(meta, "image_prompts")
+        if img_key:
+            preds = overflow_excel_gpt_predecessors(cast(Any, SimpleNamespace(meta=meta)), img_key)
+            if preds:
+                return node_label_ru(meta, preds[0]) or _FALLBACK_SCENE_STEP_RU
+    except Exception as e:  # noqa: BLE001
+        logger.warning("img_pr: не нашёл шаг сцен на канвасе: {}", e)
+    return _FALLBACK_SCENE_STEP_RU
+
+
+def no_scene_data_pause_text(frame_numbers: Sequence[int], upstream: str) -> str:
+    """Причина паузы для человека и чата оркестратора."""
+    nums = sorted({int(n) for n in frame_numbers})
+    shown = ", ".join(str(n) for n in nums[:12]) + ("…" if len(nums) > 12 else "")
+    word = "кадр" if len(nums) == 1 else "кадры"
+    return (
+        f"у сцен нет исходных данных ({word} {shown}, нет места, фона и действия). "
+        f"Сначала запустите шаг «{upstream}», потом продолжите проект. "
+        "Пока данные сцен те же, промты картинок модель заново не спрашивает."
+    )
+
+
+def no_scene_data_text(frame_numbers: Sequence[int]) -> str:
+    """Короткий текст для человека: каким кадрам не хватает данных сцены."""
+    nums = sorted({int(n) for n in frame_numbers})
+    shown = ", ".join(str(n) for n in nums[:12]) + ("…" if len(nums) > 12 else "")
+    word = "кадра" if len(nums) == 1 else "кадров"
+    return (
+        f"У {word} {shown} нет данных сцены (место, фон, действие) — "
+        "сначала нужна работа с GPT, потом промты картинок."
+    )
+
+
+def _op_is_no_source_data(shot1: str, shot2: str, *, respect_allow: bool = True) -> bool:
+    """respect_allow: при IMAGES_ALLOW_HOLLOW_PROMPTS=true заглушку пишем (как и картинки)."""
+    from app.generation_options import hollow_prompts_allowed, is_no_source_data_prompt
+
+    if respect_allow and hollow_prompts_allowed():
+        return False
+    slots = [s for s in (shot1, shot2) if (s or "").strip()]
+    return bool(slots) and all(is_no_source_data_prompt(s) for s in slots)
+
+
+def no_source_data_uuids(ops: list[Any], *, respect_allow: bool = False) -> set[str]:
+    """uuid кадров, на которые модель ответила только «нет исходных данных»."""
+    out: set[str] = set()
+    for op in filter_prompt_ops(ops):
+        fields = op.get("fields") or {}
+        if _op_is_no_source_data(
+            _shot1_prompt_of(fields), _shot2_prompt_of(fields), respect_allow=respect_allow
+        ):
+            uid = uuid_of_op(op)
+            if uid:
+                out.add(uid)
+    return out

@@ -273,6 +273,15 @@ IMAGE_QUALITIES_BY_ID = _by_id(IMAGE_QUALITIES)
 VIDEO_GENERATORS_BY_ID = _by_id(VIDEO_GENERATORS)
 VIDEO_RESOLUTIONS_BY_ID = _by_id(VIDEO_RESOLUTIONS)
 
+
+def normalize_aspect_ratio_id(value: object) -> str | None:
+    """'9:16' / '9_16' / '9x16' / '9х16' -> id из ASPECT_RATIOS ('9_16'); неизвестное -> None."""
+    raw = "".join(str(value or "").split()).lower()
+    for sep in (":", "x", "х"):
+        raw = raw.replace(sep, "_")
+    return raw if raw in ASPECT_RATIOS_BY_ID else None
+
+
 # ---- Video retry ladder (Veo primary → Kling 2.6 fallback) -----------------
 #
 # Контракт на клип:
@@ -328,6 +337,35 @@ DEFAULTS = {
     "video_generator": "veo_3_1_lite",
     "video_resolution": "720p",
 }
+
+
+def effective_video_resolution_id(
+    generator_id: str | None,
+    resolution_id: str | None,
+) -> str:
+    """Разрешение, которое реально получится у видео-генератора.
+
+    Outsee Veo 3.1 Lite отдаёт только 720p (1080p → invalid_request), и
+    app/bots/outsee_http.generate_video молча шлёт 720p. Так же туда уходят
+    studio-id без своей записи в VIDEO_GENERATORS (например дефолтный
+    ``veo_3_fast``): generate_videos передаёт model_slug=None → дефолт Outsee.
+    План и цена должны заявлять то же, что получится, а не 1080p.
+    """
+    rid = str(resolution_id or DEFAULTS["video_resolution"]).strip().lower()
+    from app.bots import outsee_http
+    from app.services.media_route import video_provider_for
+
+    # Константа живёт в outsee_http; пока её там нет — тот же набор локально.
+    only_720p = getattr(outsee_http, "OUTSEE_720P_ONLY_VIDEO_MODELS", frozenset({"veo-3-1-lite"}))
+
+    vg = VIDEO_GENERATORS_BY_ID.get(str(generator_id or DEFAULTS["video_generator"]).strip())
+    slug = vg.outsee_slug if vg else None
+    # Тот же выбор бэкенда, что в outsee_retry (model_slug or "veo").
+    if video_provider_for(slug or "veo") != "outsee":
+        return rid
+    if outsee_http.studio_id_to_outsee_video_slug(slug) in only_720p:
+        return "720p"
+    return rid
 
 
 def resolve_image_quality_slug(
@@ -453,6 +491,44 @@ _SHOT2_PREFIX_ONLY = (
 
 def _normalize_prompt_ws(text: str) -> str:
     return " ".join(text.lower().split())
+
+
+def placeholder_count(prompt: str) -> int:
+    low = (prompt or "").lower()
+    return sum(low.count(p) for p in _PLACEHOLDER_PHRASES)
+
+
+def is_scene_prompt_hollow(prompt: str, *, min_placeholders: int = 3) -> bool:
+    return placeholder_count(prompt) >= min_placeholders
+
+
+def hollow_prompts_allowed() -> bool:
+    """IMAGES_ALLOW_HOLLOW_PROMPTS=true: промт-заглушку принимаем везде (img_pr и картинки)."""
+    from app.settings import settings
+
+    return bool(getattr(settings, "images_allow_hollow_prompts", False))
+
+
+def is_no_source_data_prompt(prompt: str | None) -> bool:
+    """Непустой промт, в котором вместо сцены заглушки («нет исходных данных…»).
+
+    Единый детектор — img_pr_guard.prompt_is_hollow (по разделам Фон/Действие/…):
+    «Нет исходных данных для заполнения. STYLE: …» (#14 кадры 5–8), «Фон: данных
+    о фоне нет…» (#14 9–13), «Референс: … Фон: исходные данные … отсутствуют» (#12).
+    Пустая строка — не «заглушка», а просто нет промта (см. image_prompt_missing).
+    """
+    from app.services.action_layer.img_pr_guard import prompt_is_hollow
+
+    body = strip_prompt_id_lines((prompt or "").strip())
+    return bool(body) and prompt_is_hollow(body)
+
+
+def image_prompt_missing(prompt: str | None) -> bool:
+    """img_pr должен (пере)сделать промт: пусто или одни заглушки, которые шаг картинок не примет."""
+    text = (prompt or "").strip()
+    if not text:
+        return True
+    return not hollow_prompts_allowed() and is_no_source_data_prompt(text)
 
 
 def is_skippable_empty_prompt(prompt: str) -> bool:

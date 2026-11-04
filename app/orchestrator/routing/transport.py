@@ -231,14 +231,19 @@ def _json_data(line: str) -> dict[str, Any] | None:
     return payload
 
 
-def _chat_deltas(payload: dict[str, Any]) -> list[str]:
+def _chat_deltas(payload: dict[str, Any], *, allow_message: bool = True) -> list[str]:
+    """Куски текста чанка. ``message.content`` — полный ответ: берётся, только пока дельт не было.
+
+    52pay в последнем чанке шлёт ``message`` со всем текстом рядом с пустым ``delta``:
+    дописанный к дельтам, он задваивал ответ чата («…пройдены.Закадровый текст…»).
+    """
     pieces: list[str] = []
     for choice in payload.get("choices") or []:
         if not isinstance(choice, dict):
             continue
         delta = choice.get("delta") or {}
         piece = delta.get("content") if isinstance(delta, dict) else None
-        if piece is None and isinstance(choice.get("message"), dict):
+        if piece is None and allow_message and isinstance(choice.get("message"), dict):
             piece = choice["message"].get("content")
         if isinstance(piece, str) and piece:
             pieces.append(piece)
@@ -294,7 +299,7 @@ class _ChatStream:
         self.model = str(payload.get("model") or self.model)
         if isinstance(payload.get("usage"), dict):
             self.usage = payload["usage"]
-        deltas = _chat_deltas(payload)
+        deltas = _chat_deltas(payload, allow_message=not self.parts)
         self.parts.extend(deltas)
         finish = _chat_finish(payload)
         if finish:

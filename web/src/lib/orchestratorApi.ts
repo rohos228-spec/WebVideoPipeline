@@ -253,12 +253,14 @@ function apiUrl(apiBase: string, path: string): string {
   return `${apiBase}${path}`;
 }
 
-/** Bearer всегда. X-Orch-Scenario — только в тестовой сборке, значение сценария не важно. */
+/**
+ * Заголовки запросов чата. Bearer больше не шлём: бэкенд не проверяет
+ * `ORCH_API_TOKEN` (см. `app/web/engine_access.py`), личность ставит cookie входа
+ * `vp_session`, а чужой заголовок `Authorization` её перебил бы и дал 401.
+ * X-Orch-Scenario — только в тестовой сборке, значение сценария не важно.
+ */
 export function orchAuthHeaders(cfg: OrchClientConfig, extra?: Record<string, string>): Headers {
   const headers = new Headers(extra);
-  if (cfg.token && /^[\x20-\x7E]+$/.test(cfg.token)) {
-    headers.set("Authorization", `Bearer ${cfg.token}`);
-  }
   if (orchTestModeEnabled() && cfg.scenario && /^[\x20-\x7E]+$/.test(cfg.scenario)) {
     headers.set("X-Orch-Scenario", cfg.scenario);
   }
@@ -457,8 +459,14 @@ export function postOrchProject(
   );
 }
 
+/** Стоп задачи чата: `POST /api/orchestrator/chat/{session}/kill`, тело KillIn `{reason?, project_id?}`. */
 export function postOrchKill(cfg: OrchClientConfig, body: OrchKillRequest, signal?: AbortSignal): Promise<OrchKillResult> {
-  return postJson(cfg, "/api/orchestrator/kill", body, signal);
+  const payload: OrchKillRequest = {};
+  if (typeof body.reason === "string" && body.reason) payload.reason = body.reason.slice(0, 500);
+  if (typeof body.project_id === "number" && Number.isInteger(body.project_id) && body.project_id > 0) {
+    payload.project_id = body.project_id;
+  }
+  return postJson(cfg, `/api/orchestrator/chat/${encodeURIComponent(cfg.session)}/kill`, payload, signal);
 }
 
 /** Ответ POST /api/orchestrator/chat/{session}/resume. Тела у ручки нет. */
@@ -646,7 +654,7 @@ function readTaskId(value: unknown): number | null {
   return null;
 }
 
-/** data — JSON OrchEvent: type, task_id (int|null), payload, seq, session_id. id кадра = seq. */
+/** data — JSON OrchEvent: type, task_id (int|null), payload, seq, session_id, created_at. id кадра = seq. */
 export function eventFromSse(parsed: ParsedSse): OrchEvent | null {
   try {
     const json = JSON.parse(parsed.data) as Partial<OrchEvent> & { seq?: number };
@@ -662,6 +670,7 @@ export function eventFromSse(parsed: ParsedSse): OrchEvent | null {
       payload,
       seq,
       session_id: typeof json.session_id === "string" ? json.session_id : "",
+      created_at: typeof json.created_at === "string" && json.created_at ? json.created_at : undefined,
     };
   } catch {
     return null;
@@ -742,5 +751,46 @@ export function sleepWithSignal(ms: number, signal: AbortSignal): Promise<void> 
       reject(new DOMException("aborted", "AbortError"));
     };
     signal.addEventListener("abort", onAbort);
+  });
+}
+
+/** Переключатели автономии чата при сбое ноды (`GET/PUT /api/orchestrator/chat/autonomy`). */
+export interface OrchAutonomySettings {
+  auto_retry: boolean;
+  auto_model_switch: boolean;
+  auto_fix_on_failure: boolean;
+  max_auto_retries_per_node: number;
+  auto_spend_limit_usd: number;
+}
+
+export interface OrchAutonomyView extends OrchAutonomySettings {
+  modes: Partial<Record<"auto_retry" | "auto_model_switch" | "auto_fix_on_failure", string>>;
+  updated_by: string | null;
+  updated_at: string | null;
+  defaults: OrchAutonomySettings;
+  limits: { max_auto_retries_per_node: [number, number]; auto_spend_limit_usd: [number, number] };
+}
+
+const AUTONOMY_PATH = "/api/orchestrator/chat/autonomy";
+
+async function autonomyRequest(init: RequestInit): Promise<OrchAutonomyView> {
+  const apiBase = envOrchApiBase();
+  assertBearerTarget(apiBase);
+  const res = await fetch(apiUrl(apiBase, AUTONOMY_PATH), init);
+  if (!res.ok) throw new OrchApiError(res.status, await readError(res));
+  return (await res.json()) as OrchAutonomyView;
+}
+
+export function getOrchAutonomy(signal?: AbortSignal): Promise<OrchAutonomyView> {
+  return autonomyRequest({ method: "GET", signal });
+}
+
+/** Частичная правка: неназванные поля сервер оставляет как были. */
+export function putOrchAutonomy(body: Partial<OrchAutonomySettings>, signal?: AbortSignal): Promise<OrchAutonomyView> {
+  return autonomyRequest({
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal,
   });
 }

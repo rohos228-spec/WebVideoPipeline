@@ -20,7 +20,7 @@ import mimetypes
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -147,7 +147,7 @@ async def list_artifacts(
 async def get_project_cover(
     project_id: int,
     session: AsyncSession = Depends(get_session),
-) -> FileResponse:
+) -> Response:
     """Отдаёт изображение-обложку проекта для карточек в сайдбаре / профиле."""
 
     project = (await session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
@@ -287,7 +287,9 @@ async def get_project_cover(
                                 headers={"Cache-Control": "private, max-age=60, must-revalidate"},
                             )
 
-    raise HTTPException(status_code=404, detail="project cover not found")
+    # Обложки нет — это не ошибка: 404 на каждую карточку без картинок сыпал красным в консоль.
+    # 204 без тела: <img> так же уходит в onError, карточка прячет обложку.
+    return Response(status_code=204, headers={"Cache-Control": "private, max-age=60, must-revalidate"})
 
 
 @router.get("/{artifact_uuid}", response_model=ArtifactDTO)

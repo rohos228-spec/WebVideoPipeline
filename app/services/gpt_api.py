@@ -26,6 +26,7 @@ from urllib.parse import urlparse
 import httpx
 from loguru import logger
 
+from app.services.provider_breaker import ProviderCircuitOpen
 from app.settings import settings
 
 # Коды, при которых повтор бессмысленен (не ретраим).
@@ -85,6 +86,11 @@ _XLSX_PINNED_PLAN_ROWS: tuple[int, ...] = (15, 45, 46, 48, 49, 50, 64)
 
 
 _REASONING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
+
+
+def is_anthropic_model(model_name: str | None) -> bool:
+    """Модель Anthropic (``claude-*``): уровень рассуждений с ноды ей не передаётся."""
+    return bool(model_name and str(model_name).strip().lower().startswith("claude"))
 
 
 def _responses_reasoning_block(effort_override: str | None = None) -> dict[str, str] | None:
@@ -317,6 +323,23 @@ def _node_vibecode_override() -> bool:
         return False
     ov = current_override()
     return bool(ov and ov.kind == "text" and ov.provider == "vibecode")
+
+
+def _pay52_override() -> Any:
+    """Маршрут 52pay, если шаг сам попросил 52pay (агент стиля, границы сцен).
+
+    Раньше provider="52pay" в override молча игнорировался: вызовы шли в общий
+    провайдер (kie). Ключа нет — None, остаётся общий провайдер.
+    """
+    try:
+        from app.services.llm_override import current_override
+        from app.services.pay52_routes import resolve_text
+    except Exception:  # noqa: BLE001
+        return None
+    ov = current_override()
+    if not (ov and ov.kind == "text" and ov.provider == "52pay"):
+        return None
+    return resolve_text(ov.model_id)
 
 
 def _override_vibecode_base_url() -> str:
@@ -898,7 +921,7 @@ def split_input_paths(
 
 def is_responses_mode() -> bool:
     """API формата Responses (input/output) вместо chat/completions?"""
-    if _node_vibecode_override():
+    if _node_vibecode_override() or _pay52_override() is not None:
         return False
     mode = (settings.gpt_api_mode_effective or "auto").strip().lower()
     if mode == "responses":
@@ -2085,7 +2108,14 @@ async def _chat_completions_nostream(
     timeout: float,
     use_model: str,
 ) -> GptChatResult:
-    """Один non-stream POST — когда SSE пришёл пустым или без ``data:``."""
+    """Один non-stream POST — когда SSE пришёл пустым или без ``data:``.
+
+    Повторный запрос уходит уже после начала стрима: рубильник могли включить
+    за это время, поэтому проверяем его заново перед отправкой.
+    """
+    from app.services.api_tracker_hook import check_api_allowed
+
+    check_api_allowed(provider="gpt", model=use_model)
     nostream = {**body, "stream": False}
     async with _async_client(timeout=_http_timeout(timeout)) as client:
         resp = await client.post(url, headers=headers, json=nostream)
@@ -2665,17 +2695,78 @@ async def chat(**kwargs: Any) -> GptChatResult:
             fallback_hash = ""
     with llm_ledger.logical_call_scope(), llm_ledger.bind_prompt_hash(fallback_hash, fallback=True):
         # Бюджет-предохранитель: ДО платного вызова (вложенные вызовы
-        # проверяют тоже — дёшево, по кэшу).
-        await _check_budget_before_call()
-        return await _chat_unscoped(**kwargs)
+        # проверяют тоже — дёшево, по кэшу). Потолок цепочки из чата: с оценкой
+        # этого вызова и резервом на время вызова (параллельные видят друг друга).
+        pid, token = await _check_budget_before_call(kwargs)
+        with llm_ledger.hold_reservation(pid, token):
+            try:
+                return await _chat_unscoped(**kwargs)
+            except (GptApiError, ProviderCircuitOpen) as e:
+                fallback = provider_fallback(e, kwargs)
+                if fallback is None:
+                    raise
+                from app.services.llm_override import use_override
+
+                logger.warning(
+                    "gpt_api.chat: kie недоступен ({}), повтор того же запроса через 52pay ({})",
+                    str(e)[:160],
+                    fallback.model_id,
+                )
+                with use_override(fallback):
+                    return await _chat_unscoped(**kwargs)
 
 
-async def _check_budget_before_call() -> None:
+def provider_fallback(error: BaseException, kwargs: dict[str, Any]) -> Any:
+    """Запасной маршрут 52pay для общего провайдера kie, когда тот лежит. None — не переключаемся.
+
+    Только инфраструктурный сбой (сеть, 5xx, 429 после всех повторов, открытый
+    предохранитель): ошибки содержания и бюджета не переключают. Не трогаем шаги со
+    своим провайдером (override), вызовы с файлами и нативными инструментами.
+    """
+    if not getattr(settings, "text_llm_fallback_52pay", False):
+        return None
+    if settings.text_llm_is_vibecode or settings.text_llm_is_pay52:
+        return None
+    if isinstance(error, GptApiError):
+        if not error.retryable or str(error.context.get("error_kind") or "") in {"no_key", "budget"}:
+            return None
+    elif not isinstance(error, ProviderCircuitOpen):
+        return None
+    if kwargs.get("input_paths") or kwargs.get("tools"):
+        return None
+    try:
+        from app.services.llm_override import NodeLlmOverride, current_override
+        from app.services.pay52_routes import resolve_text
+    except Exception:  # noqa: BLE001
+        return None
+    if current_override() is not None:
+        return None
+    model = str(kwargs.get("model") or settings.gpt_model or "").strip()
+    if resolve_text(model) is None:
+        return None
+    return NodeLlmOverride(model_id=model, channel="stable", kind="text", provider="52pay", label="52pay (запасной)")
+
+
+async def _check_budget_before_call(kwargs: dict | None = None) -> tuple[int | None, int | None]:
     from app.services import llm_ledger
     from app.services.llm_override import current_accounting
 
     acct = current_accounting()
-    await llm_ledger.check_budget(acct.project_id if acct else None)
+    pid = acct.project_id if acct else None
+    if pid is None:
+        return None, None
+    kw = kwargs or {}
+    chars = len(str(kw.get("prompt") or "")) + len(str(kw.get("accompanying") or "")) + len(
+        str(kw.get("system") or "")
+    )
+    est = llm_ledger.estimate_call_usd(kw.get("model"), chars)
+    token = await llm_ledger.check_run_cap(pid, estimate_usd=est, reserve=True)
+    try:
+        await llm_ledger.check_budget(pid, run_cap=False)
+    except BaseException:
+        llm_ledger.release_run_cap(pid, token)
+        raise
+    return pid, token
 
 
 async def _chat_unscoped(
@@ -2755,10 +2846,15 @@ async def _chat_unscoped(
             if _node_vibecode_override()
             else settings.gpt_api_effective_base_url
         )
+    pay52 = _pay52_override()
+    if pay52 is not None:
+        headers, use_model, url, anthropic_route = pay52.headers(), pay52.api_model, pay52.url, False
     use_timeout = float(timeout if timeout is not None else settings.gpt_timeout_s)
     retries = int(max_retries if max_retries is not None else settings.gpt_max_retries)
     ov_model = current_text_model_id()
     provider_label = f"vibecode ({ov_model})" if _node_vibecode_override() else settings.text_llm_label
+    if pay52 is not None:
+        provider_label = f"52pay ({pay52.api_model})"
     proxy = _gpt_proxy_url()
     via = "vps-relay" if _vps_relay_base() else ("proxy" if proxy else "direct")
     logger.info(
@@ -2843,6 +2939,8 @@ async def _chat_unscoped(
     from app.services import provider_breaker
 
     _provider = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "pay52")
+    if pay52 is not None:
+        _provider = "52pay"
     _transport = "messages" if anthropic_route else ("responses" if responses_mode else "chat")
     breaker_key = f"{_provider}:{_transport}"
 

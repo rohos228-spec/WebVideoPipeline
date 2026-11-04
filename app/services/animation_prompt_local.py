@@ -1,15 +1,18 @@
 """Локальный fallback промтов анимации (Veo), когда kie.ai на maintenance.
 
 Не заменяет GPT-vision качеством, но даёт валидные R48/DB промты:
-NO VOICE · continuous take · без новых props · 9:16.
+NO VOICE · continuous take · без новых props · формат кадра проекта (дефолт 9:16).
 """
 
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from app.models import Frame
 from app.services.animation_prompt_gpt import MIN_ANIM_PROMPT_LEN
+
+_DEFAULT_ASPECT = "9:16"
 
 _NO_TAIL = (
     "--no voice, speech, dialogue, lip-sync, narration, text, subtitles, logos, "
@@ -80,7 +83,23 @@ def _gist_from_image_prompt(image_prompt: str, *, max_chars: int = 420) -> str:
     return gist or "the reference still image"
 
 
-def compose_local_animation_prompt(frame: Frame) -> str:
+def project_aspect_slug(project: Any) -> str:
+    """Формат кадра для видео-промта: нода видео на канвасе -> Project.aspect_ratio -> дефолт.
+
+    Тот же порядок, что у шагов картинок/видео (``resolve_node_media_settings``).
+    """
+    if project is None:
+        return _DEFAULT_ASPECT
+    try:
+        from app.services.vibecode_catalog import resolve_node_media_settings
+
+        slug = resolve_node_media_settings(project, node_type="videos").get("aspect_slug")
+    except Exception:  # noqa: BLE001
+        slug = None
+    return str(slug or _DEFAULT_ASPECT)
+
+
+def compose_local_animation_prompt(frame: Frame, *, aspect: str = _DEFAULT_ASPECT) -> str:
     """Собрать один Veo-промт из image_prompt + voiceover (без GPT)."""
     gist = _gist_from_image_prompt(frame.image_prompt or "")
     vo = re.sub(r"\s+", " ", (frame.voiceover_text or "").strip())
@@ -109,7 +128,7 @@ def compose_local_animation_prompt(frame: Frame) -> str:
         "Constraints: NO VOICE, silent, no speech, no dialogue, no lip-sync, mouth closed or idle, "
         "no new objects/props, no new characters, keep composition and style of the reference PNG, "
         "single continuous take, no cuts, no shot/scene changes, no text/subtitles/logos, "
-        "aspect 9:16, duration 8s. "
+        f"aspect {aspect or _DEFAULT_ASPECT}, duration 8s. "
         f"{_NO_TAIL}"
     )
     prompt = re.sub(r"\s+", " ", prompt).strip()
@@ -126,6 +145,7 @@ def build_local_ops_for_missing(
     *,
     shot: int = 1,
     force: bool = False,
+    aspect: str = _DEFAULT_ASPECT,
 ) -> list[dict]:
     """apply-ops для кадров без animation_prompt (shot_01 → промт_видео).
 
@@ -138,6 +158,6 @@ def build_local_ops_for_missing(
             continue
         if not force and shot == 1 and len((fr.animation_prompt or "").strip()) >= MIN_ANIM_PROMPT_LEN:
             continue
-        text = compose_local_animation_prompt(fr)
+        text = compose_local_animation_prompt(fr, aspect=aspect)
         ops.append({"frame_uuid": fr.uuid, "fields": {field: text}})
     return ops

@@ -93,11 +93,9 @@ def effects_text(params: dict) -> str:
         f"Готовый ролик проекта {params.get('project_id')} будет ОПУБЛИКОВАН на площадки: {names}. "
         f"Аккаунт: {account_text(list(params.get('platforms') or []))}. Подпись дословно: «{caption}». "
         f"Файл (sha256): {sha}. Подпись (sha256): {csha}. "
-        "Опубликованное нельзя отозвать из студии; если сбой случится после нажатия «Опубликовать», "
-        "автоповтора не будет и итог нужно проверить на площадке вручную. "
-        "Клик возможен только после отдельного подтверждения человека на каждую площадку в панели "
-        "«Публикации» для этого файла и этой подписи: шаг попросит подтверждение для всех площадок "
-        f"без публикации, а опубликует только там, где его дадут - подтвердите только {names}."
+        "Шаг публикации выкладывает ролик сразу на все площадки, где его ещё нет; уже "
+        "опубликованные пропускает. Опубликованное нельзя отозвать из студии; если сбой случится "
+        "после нажатия «Опубликовать», итог нужно проверить на площадке вручную."
     )
 
 
@@ -167,14 +165,12 @@ def _pending_platforms(project: dict) -> list[str]:
     return [p for p in registry_platforms() if p not in done]
 
 
-async def _approved_platforms(ctx: ActionContext, params: dict) -> set[str]:
-    facts = await ctx.call("GET", f"/projects/{params['project_id']}/publications")
-    items = (facts or {}).get("platforms") if isinstance(facts, dict) else None
-    return {str(i.get("platform")) for i in items or [] if isinstance(i, dict) and i.get("approved")}
-
-
 async def _platforms_expected(ctx: ActionContext, params: dict) -> str | None:
-    """Шаг сам площадки не выбирает: жмёт там, где нет публикации и есть подтверждение человека."""
+    """Шаг сам площадки не выбирает: выкладывает везде, где публикации ещё нет.
+
+    Поэтому в карточке должны быть ровно эти площадки — иначе человек подтвердил бы
+    меньше, чем шаг сделает.
+    """
     pending = _pending_platforms(await _project(ctx, params))
     got = list(params.get("platforms") or [])
     done = [p for p in got if p not in pending]
@@ -183,15 +179,11 @@ async def _platforms_expected(ctx: ActionContext, params: dict) -> str | None:
             f"на площадках {_titles(done)} ролик уже опубликован; публикации ещё нет на: "
             f"{_titles(pending) or 'таких нет'}"
         )
-    try:
-        approved = await _approved_platforms(ctx, params)
-    except ActionCallError as exc:
-        return f"не удалось прочитать подтверждения публикаций ({exc.detail})"
-    extra = [p for p in pending if p in approved and p not in got]
+    extra = [p for p in pending if p not in got]
     if extra:
         return (
-            f"в панели «Публикации» уже подтверждена площадка {_titles(extra)}: шаг опубликует и туда. "
-            "Назовите её в просьбе тоже или снимите там подтверждение"
+            f"шаг публикации выложит ролик на все площадки без публикации, в том числе {_titles(extra)}. "
+            f"Назовите в просьбе все: {_titles(pending)}"
         )
     return None
 
@@ -204,7 +196,7 @@ PRECONDITIONS = (
     Precondition("caption_matches", "Подпись совпадает с темой проекта", _caption_matches),
     Precondition(
         "platforms_expected",
-        "Площадки ещё без публикации, других подтверждённых площадок нет",
+        "В карточке все площадки без публикации, и только они",
         _platforms_expected,
     ),
 )
@@ -247,18 +239,15 @@ async def _publish_poll(ctx: ActionContext, params: dict, started: dict) -> JobS
             f"Ролик опубликован: {_titles(p for p in asked if p in published) or _titles(published)}."
         )
         return JobState(done=True, ok=True, note="площадки подтвердили публикацию", result=result)
-    if waiting and not unconfirmed and not meta.get("publish_needs_human"):
-        mine = [p for p in asked if p in waiting] or waiting
-        result["text_ru"] = (
-            f"Публикация ждёт вашего подтверждения в панели «Публикации»: {_titles(mine)}. "
-            "После подтверждения шаг опубликует ролик сам."
-        )
-        return JobState(done=True, ok=True, note="ждёт подтверждения человека", result=result)
+    missing = [p for p in asked if p not in published]
     return JobState(
         done=True,
         ok=False,
         result=result,
-        error="публикация подтверждена не везде: проверьте журнал публикаций и площадки вручную",
+        error=(
+            f"публикация не прошла на: {_titles(missing) or 'часть площадок'}. "
+            "Причины в разделе «Публикации» и в журнале; уже опубликованное повтор пропустит"
+        ),
     )
 
 

@@ -12,6 +12,8 @@ BASE_READ_IDS: tuple[str, ...] = (
     "diag.incidents",
     # «Разберись, почему упала нода»: разбор до причины всегда в каталоге, до любой правки.
     "diag.node_failure",
+    # «Проверь результат разбивки / всё ли сходится в кадрах»: проверка содержания шага.
+    "diag.content_checks",
     "logs.tail",
     "node.output",
     "spend.summary",
@@ -27,6 +29,14 @@ LAUNCH_IDS: tuple[str, ...] = ("step.run_step",)
 # и планировщик берёт node.describe — там только текущая модель.
 MODELS_ID = "node.list_models"
 _LAUNCH_RE = re.compile(r"(?<![a-zа-я0-9_])(?:(?:пере)?запуст|прогон|прогна|стартуй|пусти|дальше)")
+# «Напиши сценарий», «сделай картинки», «озвучь ролик», «собери видео» — тоже запуск шага.
+# Без этого «напиши сценарий по брифингу» получал «Этого чат пока не умеет».
+_MAKE_STEP_RE = re.compile(
+    r"(?<![a-zа-я0-9_])(?:напиши|напишите|сделай|сделайте|создай|создайте|сгенер\w*|генерир\w*|"
+    r"нарисуй|озвучь|собери|смонтируй)"
+    r"[^.!?\n]{0,40}?"
+    r"(?:сценари|план\b|закадр|разбивк|картинк|изображени|видео|озвучк|музык|звук|промт|промпт|ролик)"
+)
 _DESC_LIMIT = 140
 
 
@@ -340,7 +350,8 @@ def select_ids(text: str, specs: list[Any], max_catalog: int) -> list[str]:
 
 
 def wants_launch(text: str) -> bool:
-    return bool(_LAUNCH_RE.search((text or "").lower().replace("ё", "е")))
+    low = (text or "").lower().replace("ё", "е")
+    return bool(_LAUNCH_RE.search(low) or _MAKE_STEP_RE.search(low))
 
 
 def wants_models(text: str) -> bool:

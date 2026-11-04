@@ -45,6 +45,21 @@ class GenQueueEnqueue(BaseModel):
     mode: Literal["full", "until_node"] = "full"
     target_node_key: str | None = None
     target_node_type: str | None = None
+    # Ставит чат (action layer): id сессии чата. Аварийный стоп чата снимает с очереди
+    # только номера своей сессии. ``True`` — старая метка без сессии: стоп её не трогает.
+    by_chat: bool | str = False
+
+
+async def _own_ids(session) -> set[int] | None:
+    """Проекты автора запроса, если запрос идёт от арендатора; ``None`` — режим владельца.
+
+    Файл очереди и раскладки сайдбара общий для студии. Под арендатором правка
+    трогает только его номера, ответ показывает только их (см.
+    ``gen_queue.own_project_ids``).
+    """
+    from app.services.gen_queue import own_project_ids
+
+    return await own_project_ids(session)
 
 
 @router.get("")
@@ -56,8 +71,9 @@ async def get_sidebar_layout() -> dict:
     from app.services.gen_queue import get_gen_queue_idle_info
 
     async with session_scope() as session:
+        own = await _own_ids(session)
         ids = {int(pid) for pid in (await session.execute(select(Project.id))).scalars().all()}
-        payload = layout_svc.layout_for_api(ids)
+        payload = layout_svc.layout_for_api(ids if own is None else own)
         payload["gen_queue_idle"] = await get_gen_queue_idle_info(session)
         await session.commit()
     return payload
@@ -71,19 +87,18 @@ async def put_sidebar_layout(body: LayoutUpdate) -> dict:
             k: v.model_dump() if isinstance(v, ProjectPlacement) else dict(v)
             for k, v in body.project_layout.items()
         }
+    async with session_scope() as session:
+        own = await _own_ids(session)
+        ids = {int(pid) for pid in (await session.execute(select(Project.id))).scalars().all()}
+    # Под арендатором правка трогает только его проекты: номера других клиентов в
+    # очереди и их места в сайдбаре (ответ их не показывает) остаются как были.
     layout_svc.update_layout(
         folders=body.folders,
         project_layout=project_layout,
         gen_queue=body.gen_queue,
+        own_ids=own,
     )
-    from sqlalchemy import select
-
-    from app.db import session_scope
-    from app.models import Project
-
-    async with session_scope() as session:
-        ids = {int(pid) for pid in (await session.execute(select(Project.id))).scalars().all()}
-    return layout_svc.layout_for_api(ids)
+    return layout_svc.layout_for_api(ids if own is None else own)
 
 
 @router.post("/folders")
@@ -106,7 +121,10 @@ async def rename_folder(folder_id: str, body: FolderRename) -> dict:
 
 @router.delete("/folders/{folder_id}")
 async def delete_folder(folder_id: str) -> dict:
-    if not layout_svc.delete_folder(folder_id):
+    # Под арендатором в корень уходят только его проекты (см. ``delete_folder``).
+    async with session_scope() as session:
+        own = await _own_ids(session)
+    if not layout_svc.delete_folder(folder_id, own_ids=own):
         raise HTTPException(status_code=404, detail="folder not found")
     return {"ok": True}
 
@@ -119,6 +137,7 @@ async def toggle_gen_queue(body: GenQueueToggle) -> dict:
         ).scalar_one_or_none()
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
+        own = await _own_ids(session)
         queue = layout_svc.get_gen_queue()
         if body.project_id in queue:
             queue = layout_svc.toggle_gen_queue(body.project_id)
@@ -132,12 +151,8 @@ async def toggle_gen_queue(body: GenQueueToggle) -> dict:
                 status_code=400,
                 detail="use POST /gen-queue/enqueue to add with run target",
             )
-    positions = {pid: idx + 1 for idx, pid in enumerate(queue)}
-    return {
-        "gen_queue": queue,
-        "gen_queue_positions": positions,
-        "position": positions.get(body.project_id),
-    }
+    view = layout_svc.own_queue_view(queue, own)
+    return {**view, "position": view["gen_queue_positions"].get(body.project_id)}
 
 
 class GenQueueBulkEnqueue(BaseModel):
@@ -171,15 +186,12 @@ async def bulk_enqueue_gen_queue(body: GenQueueBulkEnqueue) -> dict:
                 target_node_key=body.target_node_key,
                 target_node_type=body.target_node_type,
             )
-        layout_svc.set_gen_queue(body.project_ids)
+        own = await _own_ids(session)
+        # Свои номера очереди — ровно этот список; номера других клиентов остаются.
+        layout_svc.set_own_gen_queue(body.project_ids, own)
         layout_svc.clear_gen_queue_halted(reason="bulk-enqueue")
         await session.commit()
-    queue = layout_svc.get_gen_queue()
-    positions = {pid: idx + 1 for idx, pid in enumerate(queue)}
-    return {
-        "gen_queue": queue,
-        "gen_queue_positions": positions,
-    }
+    return layout_svc.own_queue_view(layout_svc.get_gen_queue(), own)
 
 
 @router.post("/gen-queue/enqueue")
@@ -195,7 +207,25 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
                 status_code=400,
                 detail="Включите auto_mode (режим ИИ) для проекта перед добавлением в очередь",
             )
+        from app.services.gen_queue import CHAT_OWNER_KEY, chat_queue_owner
+
+        already_queued = body.project_id in layout_svc.get_gen_queue()
+        prev_owner = chat_queue_owner(project) if already_queued else None
         clear_user_stop_gate(project)
+        if isinstance(body.by_chat, str):
+            from app.services.orch_tenancy import owns_session
+
+            wanted_owner: str | bool | None = body.by_chat.strip() or None
+            # Метка — внутреннее имя сессии чата, в нём арендатор: сессию другого
+            # арендатора хозяином номера не ставим (номер тогда — человека).
+            if isinstance(wanted_owner, str) and not owns_session(wanted_owner):
+                wanted_owner = None
+        else:
+            wanted_owner = True if body.by_chat else None
+        # Чат повторно ставит номер, который уже стоит в очереди, — хозяин номера не
+        # меняется (человек или та сессия чата, что ставила первой). Человек ставит
+        # сам — номер его, даже если раньше ставил чат.
+        chat_owned = (prev_owner if already_queued else wanted_owner) if wanted_owner else None
         try:
             await set_gen_queue_run(
                 session,
@@ -206,6 +236,12 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+        if chat_owned:
+            meta = dict(project.meta or {})
+            run = dict(meta.get("gen_queue_run") or {})
+            run[CHAT_OWNER_KEY] = chat_owned
+            meta["gen_queue_run"] = run
+            project.meta = meta
         run_meta = (
             dict(project.meta.get("gen_queue_run") or {})
             if isinstance(project.meta, dict) and isinstance(project.meta.get("gen_queue_run"), dict)
@@ -217,11 +253,12 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
         else:
             queue = layout_svc.get_gen_queue()
         layout_svc.clear_gen_queue_halted(reason=f"enqueue #{body.project_id}")
+        own = await _own_ids(session)
         await session.commit()
-    positions = {pid: idx + 1 for idx, pid in enumerate(queue)}
+    view = layout_svc.own_queue_view(queue, own)
     return {
-        "gen_queue": queue,
-        "gen_queue_positions": positions,
-        "position": positions.get(body.project_id),
+        **view,
+        "position": view["gen_queue_positions"].get(body.project_id),
         "gen_queue_run": run_meta,
+        "already_queued": already_queued,
     }

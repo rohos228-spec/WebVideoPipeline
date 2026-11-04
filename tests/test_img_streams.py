@@ -182,6 +182,6 @@ def test_claim_shot1_waits_for_cell_parent_png(tmp_path: Path, monkeypatch: pyte
     batch = asyncio.run(gi._claim_shot1_batch(_Sess(), 1, out, project=p, limit=4))
     assert [f.number for f in batch] == [13]
 
-    (out / "frame_013_parent.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 200_000)
+    (out / "frame_013_shot1.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 200_000)
     batch_ready = asyncio.run(gi._claim_shot1_batch(_Sess(), 1, out, project=p, limit=4))
     assert [f.number for f in batch_ready] == [14]

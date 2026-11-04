@@ -99,6 +99,12 @@ export function RunProgress({planId, onFinished}: Props) {
                 {s.cost?.actual != null ? ` · фактически ${formatCredits(s.cost.actual, s.cost.actual)}` : " · факт пока неизвестен"}
               </p>
             )}
+            {/* «Проверить, что отдала нода» из уведомления: без текста результата видно только «готово». */}
+            {s.status === "succeeded" && typeof s.result?.text_ru === "string" && s.result.text_ru.trim() && (
+              <p data-testid="action-step-result" className="whitespace-pre-wrap text-white/75">
+                {s.result.text_ru.length > 1500 ? `${s.result.text_ru.slice(0, 1500)}…` : s.result.text_ru}
+              </p>
+            )}
             {s.error && (s.status === "cancelled"
               ? <p className="text-white/50">Остановлено: {serverTextRu(s.error)}</p>
               : <p role="alert" className="text-red-300">Ошибка: {serverTextRu(s.error)}</p>)}

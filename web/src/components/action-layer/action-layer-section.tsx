@@ -42,7 +42,7 @@ export function ActionLayerSection({projectId, sceneId, frameId}: {projectId: nu
     void (async () => {
       try {
         const {items} = await listPlans("running");
-        const mine = items.find((p: any) => p.project_id == null || p.project_id === projectId);
+        const mine = items.find((p) => p.project_id == null || p.project_id === projectId);
         if (!mine || cancelled) return;
         const v = await getPlan(mine.id);
         if (cancelled || v.status !== "running") return;

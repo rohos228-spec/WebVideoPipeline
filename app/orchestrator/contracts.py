@@ -589,6 +589,8 @@ class OrchEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     seq: int
     session_id: str = ""
+    # Время записи события (ISO UTC). По нему чат ставит карточки сбоев между репликами.
+    created_at: str = ""
 
 
 class ClassifyResult(BaseModel):
@@ -906,7 +908,26 @@ DELETION_ACTIONS: frozenset[str] = frozenset(
 )
 APPROVAL_RISKS: frozenset[str] = frozenset({"medium", "high"})
 # Destructive без медиа. Другие имена с destructive=True остаются deletion_blocked.
-APPROVABLE_DESTRUCTIVE = frozenset({"revert_node_to_git", "prompt.retire_master", "frame.restore"})
+# Ничего не стирают безвозвратно (кадры, картинки и видео остаются или уходят в old/): это
+# карточка с предупреждением, а не запрет как удаление.
+APPROVABLE_DESTRUCTIVE = frozenset(
+    {
+        "revert_node_to_git",
+        "prompt.retire_master",
+        "frame.restore",
+        "montage.merge_scenes",
+        "montage.split_scene",
+        "montage.explode_scene",
+        # Запрет ловил их по слову scene в имени. По риску они как set_anchors и apply_queue,
+        # которые идут карточкой: перезапись полей шотов / замена картинок с архивом в old/.
+        "montage.set_scene_chain",
+        "montage.generate_scene_images",
+        # «Улучши/сгенерируй сцену» из дока падали в «план удалял данные»: сцена переписывается,
+        # прежние картинки уходят в old/ — карточка с ценой и последствиями, а не запрет.
+        "montage.improve_scene",
+        "montage.generate_scene",
+    }
+)
 PIPELINE_FORECAST_LIMIT_USD = 40.0
 _RISK_RANK: dict[Risk, int] = {Risk.none: 0, Risk.low: 1, Risk.medium: 2, Risk.high: 3}
 
@@ -1039,6 +1060,9 @@ _DELETION_TOKENS = frozenset(
         "rm",
     }
 )
+# «unlink» в имени, но файлов и кадров не трогает: скрывает реф ячейки или отвязывает
+# приложенный готовый ассет (builtin_montage_more._unlink_ref). Иначе «убери реф» всегда блок.
+_NAMED_NOT_DELETION = frozenset({"montage.unlink_ref"})
 # Сцены, кадры, персонажи и VO не удаляются никогда.
 _PROTECTED_OBJECTS = frozenset(
     {
@@ -1088,7 +1112,7 @@ def is_deletion_verb(action: str) -> bool:
 def is_deletion_action(action: str) -> bool:
     """Имя с маркером удаления или точное действие из ``DELETION_ACTIONS``."""
     name = (action or "").strip()
-    if not name:
+    if not name or name in _NAMED_NOT_DELETION:
         return False
     if name in DELETION_ACTIONS:
         return True
@@ -1096,6 +1120,8 @@ def is_deletion_action(action: str) -> bool:
 
 
 _HTTP_PARAM_KEYS = frozenset({"method", "httpmethod", "httpverb", "verb"})
+# Здесь ``method`` — способ разбора аудио из enum схемы (nemo_auto, ...), не HTTP-глагол.
+_METHOD_NOT_HTTP = frozenset({"montage.align_audio"})
 _SQL_PARAM_KEYS = frozenset({"sql", "query", "statement", "statements"})
 _KNOWN_HTTP_METHODS = frozenset(
     {"get", "head", "options", "post", "put", "patch", "delete", "trace", "connect"}
@@ -1157,7 +1183,7 @@ def params_request_deletion(value: Any, *, action: str = "") -> bool:
     if isinstance(value, dict):
         for key, item in value.items():
             kind = _param_key(key)
-            if kind in _HTTP_PARAM_KEYS and _http_method_unproven(item):
+            if kind in _HTTP_PARAM_KEYS and action not in _METHOD_NOT_HTTP and _http_method_unproven(item):
                 return True
             if kind in _OP_PARAM_KEYS and _op_requests_deletion(item):
                 return True

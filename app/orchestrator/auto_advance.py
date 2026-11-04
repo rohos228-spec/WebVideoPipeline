@@ -521,7 +521,9 @@ async def _next_status_after_hero_approve(
     return skip_disabled_running(project, nxt) or nxt
 
 
-async def _hide_hitl_buttons_with_badge(bot: Any = None, hitl: HITLRequest | None = None, badge: str = "") -> None:
+async def _hide_hitl_buttons_with_badge(
+    bot: Any = None, hitl: HITLRequest | None = None, badge: str = ""
+) -> None:
     """(single-mass parity #5) Убирает inline-кнопки С HITL-карточки
     в TG после auto-решения и добавляет подпись-бейдж в текст/caption.
 
@@ -698,8 +700,35 @@ async def _prepare_node_run_for_status(
             pass
         meta = dict(project.meta) if isinstance(project.meta, dict) else {}
         node_key = str(meta.get("active_excel_gpt_node_key") or "").strip() or None
+        from app.services.excel_gpt_node import active_key_belongs_to_other_slot
+
+        if active_key_belongs_to_other_slot(project, node_key, slot):
+            logger.warning(
+                "auto_advance: #{} active_excel_gpt_node_key={} не из слота {} ({}) — re-resolve",
+                project.id,
+                node_key,
+                slot,
+                running_status.value,
+            )
+            node_key = None
         # Stale active: уже done → иначе снова крутим ноду ДО hero.
+        # НО: ▶ overflow (slot 0) живёт в enriching_1. Если шаг уже running
+        # с этим active_key, re-resolve(slot=1) стартует чужую линейную ноду
+        # параллельно, а выбранная через секунду heal'ится в done (#63).
+        already_running = project.status is running_status
         if node_key and node_key in completed_node_keys(project):
+            if already_running:
+                # Leftover worker tick после успеха: ключ уже в
+                # completed_keys, статус ещё enriching_N. Раньше pop
+                # completed_keys + allow_restart заново гнал GPT.
+                logger.info(
+                    "auto_advance: #{} keep active_excel_gpt_node_key={} "
+                    "(already {}, still in completed_keys — no restart)",
+                    project.id,
+                    node_key,
+                    running_status.value,
+                )
+                return False
             logger.warning(
                 "auto_advance: #{} stale active_excel_gpt_node_key={} (already completed) — re-resolve",
                 project.id,
@@ -721,6 +750,29 @@ async def _prepare_node_run_for_status(
                     slot,
                     node_key,
                 )
+        if node_key:
+            # scene-агент (sd_agent: world/style/…) — это шаги scene_d/scene_asm,
+            # его нельзя гнать как обычную excel_gpt.
+            from app.services.canvas_graph import canvas_graph_from_meta
+            from app.services.excel_gpt_node import sd_agent_marker
+
+            _cg = canvas_graph_from_meta(project.meta if isinstance(project.meta, dict) else {}) or {}
+            _node = next(
+                (
+                    n
+                    for n in (_cg.get("nodes") or [])
+                    if isinstance(n, dict) and str(n.get("id") or "").strip() == node_key
+                ),
+                None,
+            )
+            if _node is not None and sd_agent_marker(_node):
+                logger.warning(
+                    "auto_advance: #{} slot={} active/resolve sd_agent {} — не запускаем как excel_gpt",
+                    project.id,
+                    slot,
+                    node_key,
+                )
+                return False
     else:
         node_type = RUNNING_TO_NODE_TYPE.get(running_status)
         if node_type is not None:
@@ -1087,11 +1139,14 @@ async def _apply_regen(
         await _prepare_node_run_for_status(session, project, back_to, allow_restart=True)
         project.status = back_to
 
-    # Передаём fix_hints в gpt_text_override, чтобы шаг увидел их и
-    # передал в промт.
+    # Передаём fix_hints шагу: план, закадр и разбивка дописывают их в промт
+    # блоком «ЗАМЕЧАНИЯ РЕВЬЮЕРА» (retry_feedback), после успеха шага снимаются.
     meta = dict(project.meta or {})
     if result.fix_hints:
         meta["auto_fix_hints"] = result.fix_hints
+        # Чей это список: замечания к сценарию не должны уйти в промт разбивки.
+        if back_to is not None:
+            meta["auto_fix_hints_for"] = back_to.value
     project.meta = meta
     await session.flush()
     logger.info(
@@ -1181,20 +1236,25 @@ async def advance_after_gpt_verdict(
 
 
 async def continue_project_pipeline(
-    session: AsyncSession, project: Project, *, bot: Any = None
+    session: AsyncSession,
+    project: Project,
+    *,
+    bot: Any = None,
+    by_human: bool = True,
 ) -> dict[str, object]:
-    """Продолжить пайплайн: снять stop/паузу и продвинуть *_ready → running."""
+    """Продолжить пайплайн: снять stop/паузу и продвинуть *_ready → running.
+
+    ``by_human=False`` — «Продолжить» дала задача чата: номер очереди чата остаётся
+    за ним, метка «человек снял стоп» не ставится.
+    """
+    from app.services.project_control import clear_user_stop_gate
     from app.services.project_control import resume_project as resume_project_svc
     from app.services.step_cancel import clear_stop
 
     clear_stop(project.id)
-    meta = dict(project.meta or {})
-    cleared: list[str] = []
-    for key in ("user_stop", "mass_lane_user_stop"):
-        if meta.pop(key, None) is not None:
-            cleared.append(key)
-    if cleared:
-        project.meta = meta
+    # Тот же помощник, что ▶ и постановка в очередь: метка «стоп снят» и номер очереди
+    # чата переходит к человеку (аварийный стоп чата его больше не снимет).
+    cleared = [k for k in clear_user_stop_gate(project, by_human=by_human) if k != "chat_queue_owner"]
 
     if project.status is ProjectStatus.paused:
         new_status = await resume_project_svc(session, project)
@@ -1351,9 +1411,9 @@ async def maybe_auto_advance(
         )
         return False
 
-    from app.services.gen_queue import project_gated_by_gen_queue
+    from app.services.gen_queue import project_gated_by_own_gen_queue
 
-    if project_gated_by_gen_queue(project.id):
+    if await project_gated_by_own_gen_queue(session, project):
         from app.services.gen_queue import enrich_ready_bypasses_gen_queue
 
         if enrich_ready_bypasses_gen_queue(project):

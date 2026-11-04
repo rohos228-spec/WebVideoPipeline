@@ -48,11 +48,17 @@ const NODE_CATEGORY: Record<NodeCategory, string> = {
   hitl: "проверка",
 };
 
+/** WorkflowRunStatus и NodeRunStatus из app/models.py (+ старое completed). */
 const RUN_STATUS: Record<string, string> = {
   new: "новый",
+  pending: "ожидает",
+  queued: "в очереди",
   running: "работает",
   paused: "пауза",
+  waiting_hitl: "ждёт проверки",
+  done: "готово",
   completed: "завершён",
+  skipped: "пропущен",
   cancelled: "отменён",
   failed: "ошибка",
 };
@@ -129,12 +135,15 @@ export function humanizeSlug(value: string | null | undefined): string {
  * null — пустой ответ (`[]`, null) или объект без status-slug: оверлей
  * показывает «не запущен», а не вызывает humanizeSlug(undefined).
  */
-export function formatRunOverlayLabel(run: unknown): string | null {
+export function formatRunOverlayLabel(run: unknown, projectStatus?: string | null): string | null {
   if (run == null || typeof run !== "object" || Array.isArray(run)) return null;
   const rec = run as { id?: unknown; status?: unknown };
   if (typeof rec.status !== "string" || rec.status.trim() === "") return null;
   if (typeof rec.id !== "number" && typeof rec.id !== "string") return null;
-  const label = formatRunStatus(rec.status);
+  // Запись прогона остаётся running, когда проект встал на паузу (бюджет, стоп, сбой):
+  // «работает» при стоящем проекте вводило в заблуждение.
+  const status = rec.status === "running" && projectStatus === "paused" ? "paused" : rec.status;
+  const label = formatRunStatus(status);
   if (!label) return null;
   return `#${rec.id} · ${label}`;
 }

@@ -59,6 +59,7 @@ NODE_LABELS: dict[str, str] = {
     "hitl_videos": "Проверка: видео",
     "hitl_final": "Проверка: финал",
     "hitl_gate": "Проверка человеком",
+    "hitl_style": "Проверка: стиль",
 }
 
 #: Роли узла «Работа с GPT» в веере сцен — то, что лежит в `data.sd_agent`.

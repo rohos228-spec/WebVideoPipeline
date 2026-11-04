@@ -1,67 +1,81 @@
-"""Отчёты по проектам: скачивание сводных таблиц и HTML."""
-
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Project
-from app.settings import settings
 from app.web.deps import get_session
+from app.web.engine_access import require_engine_admin, require_engine_member
 
-router = APIRouter(tags=["reports"])
+# Отчёт проекта лежит в папке проекта, а проект найден под RLS: участник
+# скачивает только отчёты своих проектов, чужой проект — 404. Общие отчёты по
+# нескольким проектам (DATA_DIR/reports) не принадлежат ни одному арендатору —
+# это инструмент студии, только админ.
+router = APIRouter(prefix="/projects", tags=["reports"], dependencies=[Depends(require_engine_member)])
 
+REPORTS_DIR = "reports"
 SHARED_PREFIX = "projects_report_"
-_SAFE_NAME = re.compile(r"^[A-Za-z0-9_.-]+\.(html|xlsx)$")
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.\-]{0,150}\.(xlsx|md|json|csv|html)$")
+_MEDIA = {
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "md": "text/markdown; charset=utf-8",
+    "json": "application/json",
+    "csv": "text/csv; charset=utf-8",
+    "html": "text/html; charset=utf-8",
+}
 
 
-def shared_report_url(path: Path) -> str:
-    return f"/api/projects/reports/{path.name}"
+def report_url(project_id: int, path: str | Path) -> str:
+    return f"/api/projects/{int(project_id)}/reports/{Path(str(path)).name}"
 
 
-def report_url(project_id: int, path: Path) -> str:
-    return f"/api/projects/{project_id}/reports/{path.name}"
+def shared_report_url(path: str | Path) -> str:
+    """Отчёт по нескольким проектам: файл в DATA_DIR/reports."""
+    return f"/api/projects/{REPORTS_DIR}/{Path(str(path)).name}"
 
 
-@router.get("/projects/reports/{file_name}")
-async def get_shared_report(file_name: str) -> Response:
-    if not file_name.startswith(SHARED_PREFIX) or not _SAFE_NAME.match(file_name):
-        raise HTTPException(404, "Отчёт не найден")
-    reports_dir = (Path(settings.data_dir) / "reports").resolve()
-    path = (reports_dir / file_name).resolve()
-    if path.parent != reports_dir or not path.is_file():
-        raise HTTPException(404, "Отчёт не найден")
-    media_type = (
-        "text/html; charset=utf-8"
-        if file_name.endswith(".html")
-        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+def _headers(path: Path) -> dict[str, str]:
+    headers = {"Cache-Control": "private, no-store"}
+    if path.suffix.lower() == ".html":
+        # HTML-отчёт только смотрят: без скриптов и доступа к API студии, даже если открыт по ссылке.
+        headers["Content-Security-Policy"] = "sandbox"
+    return headers
+
+
+def report_file(data_dir: str | Path, name: str) -> Path:
+    if not _NAME.fullmatch(name or "") or ".." in name:
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+    root = (Path(data_dir) / REPORTS_DIR).resolve()
+    path = (root / name).resolve()
+    if path.parent != root or not path.is_file():
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+    return path
+
+
+@router.get("/reports/{name}", dependencies=[Depends(require_engine_admin)])
+async def download_shared_report(name: str) -> FileResponse:
+    from app.settings import settings
+
+    if not str(name or "").startswith(SHARED_PREFIX):
+        raise HTTPException(status_code=404, detail="Отчёт не найден")
+    path = report_file(settings.data_dir, name)
+    return FileResponse(
+        path, media_type=_MEDIA[path.suffix.lstrip(".").lower()], filename=path.name, headers=_headers(path)
     )
-    headers = {"content-security-policy": "sandbox"} if file_name.endswith(".html") else {}
-    return FileResponse(path, media_type=media_type, headers=headers)
 
 
-@router.get("/projects/{project_id}/reports/{file_name}")
-async def get_project_report(
-    project_id: int, file_name: str, session: AsyncSession = Depends(get_session)
-) -> Response:
-    if not _SAFE_NAME.match(file_name):
-        raise HTTPException(404, "Отчёт не найден")
-    proj = await session.get(Project, project_id)
-    if proj is None:
-        raise HTTPException(404, "Проект не найден")
-    project_dir = Path(proj.data_dir).resolve()
-    reports_dir = (project_dir / "reports").resolve()
-    path = (reports_dir / file_name).resolve()
-    if path.parent != reports_dir or not path.is_file():
-        raise HTTPException(404, "Отчёт не найден")
-    media_type = (
-        "text/html; charset=utf-8"
-        if file_name.endswith(".html")
-        else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+@router.get("/{project_id}/reports/{name}")
+async def download_report(
+    project_id: int, name: str, session: AsyncSession = Depends(get_session)
+) -> FileResponse:
+    project = await session.get(Project, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    path = report_file(project.data_dir, name)
+    return FileResponse(
+        path, media_type=_MEDIA[path.suffix.lstrip(".").lower()], filename=path.name, headers=_headers(path)
     )
-    headers = {"content-security-policy": "sandbox"} if file_name.endswith(".html") else {}
-    return FileResponse(path, media_type=media_type, headers=headers)

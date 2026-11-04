@@ -1296,6 +1296,11 @@ async def _run_excel(
         # иначе refresh читает снимок до волны и затирает её статусы.
         await session.commit()
         await session.refresh(project)
+        # Персонаж волны мог откатить проект в frames_ready (модерация, пропали
+        # референсы) и выйти без raise. Не затираем откат: иначе цикл снова
+        # отправит тот же платный запрос.
+        if project.status is ProjectStatus.frames_ready:
+            return
         project.status = ProjectStatus.generating_hero
 
         if regen_ids and ok_ids:

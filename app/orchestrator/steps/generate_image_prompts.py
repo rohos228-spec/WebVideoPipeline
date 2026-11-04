@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy import select
@@ -14,9 +14,34 @@ from app.services.step_cancel import StepCancelledError, raise_if_cancelled
 from app.services.xlsx_step_runners import _is_real_shot  # единый отбор, не дублировать
 from app.storage import for_project as _sheet_for_project
 
+# Перенос из int/chat-v1 (8d1fa5c0, 144b05d7): промт, собранный из одних
+# заглушек «нет исходных данных для заполнения», считается отсутствующим.
+# Шаг картинок такой промт не примет, а img_pr без этого правила повторным
+# запуском сразу выходил «уже в БД» — тупик для пользователя.
+_HOLLOW_PLACEHOLDER = "нет исходных данных для заполнения"
+
+
+def _is_scene_prompt_hollow(prompt: str, *, min_placeholders: int = 3) -> bool:
+    try:
+        from app.generation_options import is_scene_prompt_hollow
+    except ImportError:
+        return (prompt or "").lower().count(_HOLLOW_PLACEHOLDER) >= min_placeholders
+    return is_scene_prompt_hollow(prompt, min_placeholders=min_placeholders)
+
+
+def _image_prompt_missing(prompt: str | None) -> bool:
+    """Промта нет: пусто или одни заглушки (если заглушки не разрешены настройкой).
+
+    Один детектор заглушек на img_pr, картинки и чат: generation_options.image_prompt_missing
+    (img_pr_guard.prompt_is_hollow по разделам Фон/Действие/…).
+    """
+    from app.generation_options import image_prompt_missing
+
+    return image_prompt_missing(prompt)
+
 
 def _frames_needing_image_prompt(frames: list[Frame]) -> list[Frame]:
-    return [fr for fr in frames if _is_real_shot(fr) and not (fr.image_prompt or "").strip()]
+    return [fr for fr in frames if _is_real_shot(fr) and _image_prompt_missing(fr.image_prompt)]
 
 
 _STAGING_ATTRS = (
@@ -58,6 +83,63 @@ async def _reload_frames(session: AsyncSession, project_id: int) -> list[Frame]:
         .scalars()
         .all()
     )
+
+
+async def _scene_fingerprint(session: AsyncSession, frames: list[Frame], numbers: set[int]) -> str:
+    """Слепок входа сцен для кадров ``numbers`` (поля кадра + их строки Scene)."""
+    from app.models import Scene
+    from app.services import img_pr_batches as ipb
+
+    picked = [fr for fr in frames if fr.number in numbers]
+    scene_ids = {fr.scene_id for fr in picked if fr.scene_id}
+    scenes: list = []
+    if scene_ids:
+        scenes = list((await session.execute(select(Scene).where(Scene.id.in_(scene_ids)))).scalars().all())
+    return ipb.scene_input_fingerprint(picked, scenes)
+
+
+async def _raise_if_no_source_unchanged(
+    session: AsyncSession, project: Project, frames: list[Frame], need: list[Frame]
+) -> None:
+    """Прошлый запуск встал на «нет исходных данных», а данные сцен те же — модель не зовём.
+
+    Повтор того же входа даёт тот же ответ (платный вызов впустую). Шаг сразу
+    сообщает ту же причину, политика отказов снова ставит проект на паузу.
+    """
+    from app.services import img_pr_batches as ipb
+
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    fs = cast(dict[str, Any], meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {})
+    guard = fs.get(ipb.NO_SOURCE_GUARD_KEY)
+    if not isinstance(guard, dict):
+        return
+    if not guard.get("fingerprint"):
+        logger.warning(
+            "[#{}] img_pr: пауза «нет исходных данных» (кадры {}) без слепка данных сцен — "
+            "проверка до вызова модели отключена, шаг пойдёт в модель",
+            project.id,
+            guard.get("frame_numbers"),
+        )
+        return
+    try:
+        nums = {int(n) for n in guard.get("frame_numbers") or []}
+    except (TypeError, ValueError):
+        return
+    if not nums or not nums <= {fr.number for fr in need}:
+        return
+    fp = await _scene_fingerprint(session, frames, nums)
+    if fp != guard.get("fingerprint"):
+        logger.info(
+            "[#{}] img_pr: данные сцен изменились после паузы «нет исходных данных» — запускаю",
+            project.id,
+        )
+        return
+    logger.warning(
+        "[#{}] img_pr: данные сцен кадров {} не менялись с паузы — без вызова модели",
+        project.id,
+        sorted(nums),
+    )
+    raise ipb.ImgPrNoSourceData(sorted(nums), scene_fingerprint=fp)
 
 
 async def _finish_success(session: AsyncSession, project: Project, frames: list[Frame]) -> None:
@@ -109,6 +191,41 @@ async def _finish_success(session: AsyncSession, project: Project, frames: list[
     )
 
 
+async def _apply_img_pr_ops_once(project_id: int, ops: list[dict]) -> None:
+    """apply-ops img_pr в DB одной короткой сессией; повтор при занятой базе."""
+    import asyncio
+
+    from app.db import SessionLocal
+    from app.services import db_apply
+
+    for apply_try in range(1, 6):
+        try:
+            async with SessionLocal() as apply_session:
+                proj = await apply_session.get(Project, project_id)
+                if proj is None:
+                    raise RuntimeError("project gone during img_pr apply")
+                await db_apply.apply_ops(
+                    apply_session,
+                    proj,
+                    ops,
+                    export_xlsx=False,
+                    node_kind="img_pr",
+                )
+                await apply_session.commit()
+            return
+        except Exception as apply_err:  # noqa: BLE001
+            if not is_db_busy(apply_err) or apply_try >= 5:
+                raise
+            wait_s = min(2 * apply_try, 10)
+            logger.warning(
+                "[#{}] img_pr final apply locked try {}/5 — sleep {}s",
+                project_id,
+                apply_try,
+                wait_s,
+            )
+            await asyncio.sleep(wait_s)
+
+
 async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     if project.status is not ProjectStatus.generating_image_prompts:
         return
@@ -151,6 +268,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             bare[:12],
         )
 
+    # До любого вызова модели: пауза «нет исходных данных» и вход сцен не менялся.
+    await _raise_if_no_source_unchanged(session, project, frames, need)
+
     uuid_map = "\n".join(f"кадр {fr.number} = {fr.uuid}" for fr in need if fr.uuid)
     if not uuid_map.strip():
         raise RuntimeError("у кадров нет uuid — backfill не сработал")
@@ -163,6 +283,9 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
     cancelled = False
     last_err: Exception | None = None
+    # Кадры «нет данных сцены» с 1-й попытки: во 2-ю их не шлём (тот же вход — тот же
+    # ответ, лишний платный батч); пауза потом называет их вместе с остальными.
+    no_source_skip: set[int] = set()
     # Отпустить write-txn на время GPT — иначе SQLite lock / UI 500.
     await session.commit()
     for attempt in range(1, 3):
@@ -173,15 +296,17 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             cancelled = True
             break
         try:
-            from app.db import SessionLocal
-            from app.services import db_apply
             from app.services import xlsx_step_runners as xsr
 
+            run_kwargs: dict = {}
+            if no_source_skip:
+                run_kwargs["skip_frame_numbers"] = set(no_source_skip)
             result = await xsr.run_img_pr_xlsx(
                 project,
                 n_frames=len(need),
                 project_id=project.id,
                 uuid_map_text=uuid_map,
+                **run_kwargs,
             )
             ops = list(result.apply_ops or [])
             if ops:
@@ -192,40 +317,7 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 raise RuntimeError("пустой apply-ops после GPT")
             # Один apply в конце (не по батчам) — отдельная короткая сессия.
             if ops and not result.ops_applied_inline:
-                import asyncio
-
-                last_apply_err: Exception | None = None
-                for apply_try in range(1, 6):
-                    try:
-                        async with SessionLocal() as apply_session:
-                            proj = await apply_session.get(Project, project.id)
-                            if proj is None:
-                                raise RuntimeError("project gone during img_pr apply")
-                            await db_apply.apply_ops(
-                                apply_session,
-                                proj,
-                                ops,
-                                export_xlsx=False,
-                                node_kind="img_pr",
-                            )
-                            await apply_session.commit()
-                        last_apply_err = None
-                        break
-                    except Exception as apply_err:  # noqa: BLE001
-                        last_apply_err = apply_err
-                        locked = is_db_busy(apply_err)
-                        if not locked or apply_try >= 5:
-                            raise
-                        wait_s = min(2 * apply_try, 10)
-                        logger.warning(
-                            "[#{}] img_pr final apply locked try {}/5 — sleep {}s",
-                            project.id,
-                            apply_try,
-                            wait_s,
-                        )
-                        await asyncio.sleep(wait_s)
-                if last_apply_err is not None:
-                    raise last_apply_err
+                await _apply_img_pr_ops_once(project.id, ops)
                 logger.info(
                     "[#{}] generate_image_prompts: single apply ops={}",
                     project.id,
@@ -257,6 +349,10 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             if not need:
                 break
             missing = [fr.number for fr in need]
+            if no_source_skip and set(missing) <= no_source_skip:
+                from app.services.img_pr_batches import ImgPrNoSourceData
+
+                raise ImgPrNoSourceData(sorted(set(missing)))
             raise RuntimeError(
                 f"после apply-ops промты не заполнены (попытка {attempt}): "
                 f"кадры {missing[:20]}{'…' if len(missing) > 20 else ''} "
@@ -270,7 +366,71 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
                 attempt,
                 e,
             )
-            if attempt >= 2:
+            from app.services.img_pr_batches import ImgPrNoSourceData
+
+            no_source = isinstance(e, ImgPrNoSourceData)
+            ns_err = cast(ImgPrNoSourceData, e)
+            if no_source and no_source_skip and not no_source_skip <= set(ns_err.frame_numbers):
+                # 2-я попытка: свои «нет данных» + пропущенные с 1-й — одна пауза на все.
+                ns_err = ImgPrNoSourceData(
+                    sorted(set(ns_err.frame_numbers) | no_source_skip), apply_ops=ns_err.apply_ops
+                )
+                e = ns_err
+                last_err = e
+            only_no_source = False
+            if no_source and ns_err.apply_ops:
+                # Готовые промты остальных кадров (прогон + чекпоинт) — в базу до
+                # решения о повторе: иначе 2-я попытка видит их пустыми и снова
+                # платно спрашивает кадры «нет данных».
+                from app.services.node_write_contract import filter_ops_for_node
+
+                good_ops = filter_ops_for_node(list(ns_err.apply_ops), node_kind="img_pr")
+                if good_ops:
+                    await _apply_img_pr_ops_once(project.id, good_ops)
+                    # Промты уже в базе — чекпоинт своё отработал. Иначе кадр, который
+                    # человек потом очистил, при повторе получил бы промт из чекпоинта
+                    # вместо новой генерации.
+                    from app.services import img_pr_batches as ipb
+
+                    ipb.clear_checkpoint(project.data_dir)
+                    logger.info(
+                        "[#{}] generate_image_prompts: no-source, applied ready ops={}",
+                        project.id,
+                        len(good_ops),
+                    )
+            if no_source:
+                # 2-ю попытку пропускаем, только если ВСЕ недостающие кадры — «нет
+                # данных сцены»; пропущенные моделью кадры переспрашиваются как раньше.
+                try:
+                    await session.refresh(project)
+                    still = _frames_needing_image_prompt(await _reload_frames(session, project.id))
+                    only_no_source = {fr.number for fr in still} <= set(ns_err.frame_numbers)
+                except Exception as reload_err:  # noqa: BLE001
+                    logger.warning(
+                        "[#{}] img_pr: reload after no-source failed: {}",
+                        project.id,
+                        reload_err,
+                    )
+            if no_source and not only_no_source:
+                no_source_skip |= set(ns_err.frame_numbers)
+            if attempt >= 2 or only_no_source:
+                if no_source:
+                    # Свой код ошибки (error_catalog: img_pr_no_scene_data) и
+                    # короткий текст для человека — без обёртки с именами шагов.
+                    # Слепок входа сцен: по нему следующий запуск не зовёт модель зря.
+                    try:
+                        ns_err.context["scene_fingerprint"] = await _scene_fingerprint(
+                            session,
+                            await _reload_frames(session, project.id),
+                            set(ns_err.frame_numbers),
+                        )
+                    except Exception as fp_err:  # noqa: BLE001
+                        logger.warning(
+                            "[#{}] img_pr: слепок данных сцен не снят: {}",
+                            project.id,
+                            fp_err,
+                        )
+                    raise e
                 raise RuntimeError(f"generate_image_prompts: не удалось получить промты: {e}") from e
 
     if cancelled:

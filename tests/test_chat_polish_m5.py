@@ -1,0 +1,163 @@
+from app.orchestrator.agents.action_catalog import _frame_hints
+from app.orchestrator.queue import is_go_ahead
+from app.services.orch_bridge import _frame_note, goal_limit, over_goal_limit
+
+
+def test_done_text_names_frame():
+    assert _frame_note({"frame_numbers": [1]}) == " (кадр 1)"
+    assert _frame_note({"frame_numbers": [1, 2]}) == " (кадры 1, 2)"
+    assert _frame_note({"frame_number": 5}) == " (кадр 5)"
+    assert _frame_note({"project_id": 3}) == ""
+
+
+def test_goal_limit_parsed_only_in_dollars():
+    assert goal_limit("сгенерируй видео кадра 1, лимит $0.2") == 0.2
+    assert goal_limit("лимит 0,5$") == 0.5
+    assert goal_limit("лимит 100 рублей") is None
+    assert goal_limit("сделай картинки") is None
+
+
+def test_card_warns_when_estimate_above_goal_limit():
+    assert "$0.94" in over_goal_limit(0.94, "видео кадра 1, лимит $0.2")
+    assert over_goal_limit(0.1, "видео кадра 1, лимит $0.2") == ""
+    assert over_goal_limit(None, "лимит $0.2") == ""
+
+
+def test_go_on_words_are_go_ahead():
+    assert is_go_ahead("давай дальше")
+    assert is_go_ahead("продолжай")
+    assert not is_go_ahead("давай дальше картинки для кадра 3 и видео")
+
+
+def test_shot_hint_for_queue_ops_without_frame_id():
+    rows = [{"p": "project_id*:int,ops*:[{type*:{video_regen},frame_number*:int,shot:{1|2}}]"}]
+    assert any("шот" in line.lower() for line in _frame_hints(rows))
+    assert _frame_hints([{"p": "project_id*:int,screenshot:str"}]) == []
+
+
+def test_coverage_role_in_russian_becomes_child_or_parent():
+    from app.services.action_layer.planner_rules import _normalize_values
+
+    out = {"type": "coverage_kind", "value": "дочерний", "parent_number": 1}
+    _normalize_values("montage.set_coverage", out, [])
+    assert out == {"type": "coverage_kind", "value": "child", "parent_number": 1}
+    out = {"type": "coverage_kind", "value": "Родитель"}
+    _normalize_values("montage.set_coverage", out, [])
+    assert out["value"] == "parent"
+
+
+def test_coverage_role_text_is_russian():
+    from app.orchestrator.agents.summarizer import _coverage_text
+
+    body = {"ok": True, "type": "coverage_kind", "value": "child", "frame_number": 2}
+    assert _coverage_text(body) == "Кадр 2: тип кадра — дочерний."
+
+
+def test_delete_request_gets_a_clear_refusal():
+    from app.orchestrator.agents.summarizer import DELETE_REFUSED, delete_refusal_text
+
+    for q in ("удали кадр 5 в проекте 12", "в проекте 12 убери кадр 6 совсем", "сотри кадр 7 из проекта 12"):
+        assert delete_refusal_text(q) == DELETE_REFUSED, q
+    for q in ("убери реф с кадра 1", "сделай кадр 2 дочерним", "убери все правки из очереди"):
+        assert delete_refusal_text(q) == "", q
+
+
+def test_light_words_normalized_to_catalog():
+    from app.services.action_layer.planner_rules import _normalize_values
+
+    for raw, want in (("ночное", "ночной"), ("закатный", "закат"), ("рассветный", "рассвет")):
+        out = {"type": "coverage_light", "value": raw}
+        _normalize_values("montage.set_coverage", out, [])
+        assert out["value"] == want
+
+
+def _queue_step(text):
+    from app.orchestrator.contracts import PlanStep
+
+    ops = [{"type": "image_regen_correction", "frame_number": 8, "correction": text}]
+    return [PlanStep(action="montage.queue_ops", params={"project_id": 12, "ops": ops}, mutating=True)]
+
+
+def test_light_phrase_is_coverage_not_redraw():
+    from app.orchestrator.agents.light_scope import light_as_coverage
+
+    plan = light_as_coverage(_queue_step("ночное освещение"), "проект 12, кадр 8: ночное освещение")
+    assert [(s.action, s.params["type"], s.params["value"], s.params["frame_number"]) for s in plan] == [
+        ("montage.set_coverage", "coverage_light", "ночной", 8)
+    ]
+
+
+def test_redraw_request_stays_in_queue():
+    from app.orchestrator.agents.light_scope import light_as_coverage
+
+    plan = light_as_coverage(
+        _queue_step("ночное освещение"), "перерисуй картинку кадра 8 с ночным освещением"
+    )
+    assert plan[0].action == "montage.queue_ops"
+
+
+def test_frame_value_in_quotes_is_a_task():
+    from app.orchestrator.queue import classify_deterministic
+
+    for q in (
+        "в проекте 12 у кадра 14 действие: «сова поворачивает голову»",
+        "кадр 15: опиши действие «птенец открывает клюв»",
+    ):
+        assert classify_deterministic(q).mode.value == "task", q
+    assert classify_deterministic("какой закадр у кадра 3 «тест»?").mode.value != "task"
+
+
+def test_shot_question_answer_is_merged_with_request():
+    from app.orchestrator.queue import answered_request
+
+    prev = [
+        ("assistant", "У кадра 1 видео есть в обоих шотах. Какой взять: шот 1 или шот 2?"),
+        ("user", "в проекте 4 у кадра 1 используй только первые 2 секунды видео"),
+    ]
+    assert answered_request(prev, "шот 1").endswith("уточнение: шот 1")
+    assert answered_request([("assistant", "Готово: обрезка задана."), prev[1]], "шот 1") is None
+
+
+def test_to_queue_without_verb_is_a_task():
+    from app.orchestrator.queue import classify_deterministic
+
+    assert (
+        classify_deterministic("проект 4: в очередь ИИзменение видео кадра 1, сова моргает").mode.value
+        == "task"
+    )
+    found = classify_deterministic("что в очереди правок проекта 10")
+    assert found is None or found.mode.value != "task"
+
+
+def test_frame_field_value_without_verb_is_task():
+    from app.orchestrator.queue import classify_deterministic as c
+
+    for q in ("проект 12, кадр 8: ночное освещение", "проект 12: для кадра 11 стык — монтаж по взгляду"):
+        r = c(q)
+        assert r is not None and r.mode.value == "task", q
+    for q in ("какой свет у кадра 8", "покажи действие кадра 3"):
+        r = c(q)
+        assert r is None or r.mode.value != "task", q
+
+
+def test_media_file_path_without_verb_is_task():
+    from app.orchestrator.queue import classify_deterministic as c
+
+    r = c(r"музыка для проекта 4 — файл C:/data/uploads/music.wav")
+    assert r is not None and r.mode.value == "task"
+    r = c(r"что за файл C:/data/uploads/music.wav")
+    assert r is None or r.mode.value != "task"
+
+
+def test_upload_step_takes_path_from_goal():
+    from app.orchestrator.agents.upload_scope import upload_source_from_goal
+    from app.orchestrator.contracts import PlanStep
+
+    goal = "музыка для проекта 4 — файл C:/data/uploads/music.wav"
+    step = PlanStep(action="montage.upload_music", params={"project_id": 4}, expected="музыка")
+    out = upload_source_from_goal([step], goal)
+    assert out[0].params["source_path"] == "C:/data/uploads/music.wav"
+    kept = PlanStep(
+        action="montage.upload_music", params={"project_id": 4, "source_path": "C:/x.wav"}, expected="м"
+    )
+    assert upload_source_from_goal([kept], goal)[0].params["source_path"] == "C:/x.wav"

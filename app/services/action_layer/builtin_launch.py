@@ -142,7 +142,7 @@ async def _pre_runnable(ctx, params):
     code = params["step_code"]
     if code == "excel_gpt":
         if not params.get("node_key"):
-            return "не указано, какую ноду «Работа с GPT» запускать (нужен node_key): напишите, например, «запусти работу с gpt 1»"
+            return "не указано, какую ноду «Работа с GPT» запускать: напишите, например, «запусти работу с gpt 1»"
         return await _node_is_gpt(ctx, params)
     if params.get("node_key") and code not in NODE_KEY_STEPS:
         return "node_key указывается только для шагов excel_gpt, scene_d и scene_asm"
@@ -334,8 +334,33 @@ async def step_risks(ctx, params) -> list[dict]:
     )
 
 
+async def text_budget_warning(project_id: int) -> str | None:
+    """Бюджет текстов проекта уже исчерпан: шаг встанет на паузу на первом вызове модели."""
+    from app.services import llm_ledger
+    from app.services.action_layer.node_failure import suggest_budget_usd
+
+    try:
+        budget = await llm_ledger.budget_usd(int(project_id), fresh=True)
+        if budget <= 0:
+            return None
+        spent = await llm_ledger.spent_usd(int(project_id), fresh=True)
+    except Exception:  # noqa: BLE001 — нет данных: карточка без предупреждения, лимит всё равно сработает
+        return None
+    if spent < budget:
+        return None
+    amount = suggest_budget_usd(spent, budget)
+    return (
+        f"Бюджет текстов проекта уже исчерпан: потрачено ${spent:.2f} из ${budget:.2f}. "
+        "Шаг встанет на паузу на первом же вызове текстовой модели. Сначала поднимите бюджет: "
+        f"«подними бюджет текстов проекта {int(project_id)} до {amount:g} доллара»."
+    )
+
+
 async def _step_warnings(ctx, params) -> list[str]:
     out = [r["text"] for r in await step_risks(ctx, params)]
+    budget_note = await text_budget_warning(params["project_id"])
+    if budget_note:
+        out.append(budget_note)
     if params["step_code"] in sc.SOUND_STEPS:
         notice = (await sc.load_basis(params["project_id"], params["step_code"])).notice
         if notice:
@@ -358,8 +383,10 @@ async def _run_any_step(ctx, params):
     if params.get("node_key"):
         query["node_key"] = params["node_key"]
     await _arm_stop_point(ctx, params)
-    if params.get("allow_auto_chain") and (params.get("ceiling_credits") or 0) > 0:
-        # Потолок на всю цепочку доходит до воркера, а не только до резерва плана.
+    bounded = params.get("allow_auto_chain") or params.get("stop_after_node_key")
+    if bounded and (params.get("ceiling_credits") or 0) > 0:
+        # Потолок доходит до воркера, а не только до резерва плана: цепочка и запуск одной
+        # ноды (автоповтор) останавливаются на нём, GPT шага тоже (llm_ledger.check_run_cap).
         query["run_cap_credits"] = params["ceiling_credits"]
         query["run_tag"] = _chain_tag(ctx)
     before = await _get_project(ctx, params["project_id"])

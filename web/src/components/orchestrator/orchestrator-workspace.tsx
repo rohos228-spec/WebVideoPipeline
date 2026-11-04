@@ -121,7 +121,7 @@ function stepChangeIdsOf(tasks: TaskView[], taskId: string | null): string[] {
   return task?.checkpoints.at(-1)?.changeIds ?? [];
 }
 
-function killBannerText(notice: KillNoticeView): string {
+export function killBannerText(notice: KillNoticeView): string {
   if (notice.phase === "stopping") return "Останавливаю…";
   if (notice.phase === "unconfirmed") {
     return notice.text.trim() || "Задача отменена, стоп-ключ не подтверждён.";
@@ -136,7 +136,7 @@ function killBannerText(notice: KillNoticeView): string {
   return extra ? `${lead}. ${KILL_HONEST} ${extra}` : `${lead}. ${KILL_HONEST}`;
 }
 
-function statusBadgeVariant(status: string): "default" | "success" | "warning" | "destructive" | "info" | "muted" {
+export function statusBadgeVariant(status: string): "default" | "success" | "warning" | "destructive" | "info" | "muted" {
   if (status === "done" || status === "idle") return "success";
   if (status === "failed" || status === "cancelled") return "destructive";
   if (status === "paused" || status === "waiting_approval" || status === "waiting") return "warning";

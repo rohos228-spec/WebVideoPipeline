@@ -99,3 +99,19 @@ async def test_normal_stream_unchanged() -> None:
 def test_parse_chat_sse_only_error_raises() -> None:
     with pytest.raises(ProviderError, match="upstream error"):
         parse_chat_sse(UPSTREAM_ERROR_SSE)
+
+
+def test_final_chunk_with_full_message_does_not_double_text() -> None:
+    """52pay: последний чанк несёт ``message`` со всем текстом при пустом ``delta``."""
+    raw = (
+        'data: {"choices":[{"delta":{"content":"Привет, "}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"мир."}}]}\n\n'
+        'data: {"choices":[{"delta":{},"message":{"content":"Привет, мир."},"finish_reason":"stop"}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+    assert parse_chat_sse(raw).text == "Привет, мир."
+
+
+def test_message_only_stream_still_returns_text() -> None:
+    raw = 'data: {"choices":[{"message":{"content":"целиком"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+    assert parse_chat_sse(raw).text == "целиком"

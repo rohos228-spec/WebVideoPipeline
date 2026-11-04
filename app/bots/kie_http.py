@@ -53,6 +53,20 @@ class KieHttpError(KieKlingError):
     """Ошибка kie Market/Create — совместима с outsee_retry."""
 
 
+class KieUncertainError(KieHttpError):
+    """Исход запроса к kie неизвестен: повторная отправка может задвоить оплату."""
+
+
+class KieSubmitUnknownError(KieUncertainError):
+    """Submit мог дойти до kie, а ответа нет: повторять нельзя, только сверка."""
+
+    def __init__(self, message: str, *, context: dict[str, Any] | None = None):
+        super().__init__(
+            message,
+            context={**(context or {}), "uncertain": True, "no_resubmit": True, "submit_unknown": True},
+        )
+
+
 def kie_configured() -> bool:
     return bool(kie_api_key())
 
@@ -533,7 +547,10 @@ async def generate_kie_video(
 
     kie_id = VIDEO_GENERATOR_TO_KIE_ID.get(model_slug) or model_slug.replace("_", "-")
     spec = kie_catalog.get_model(kie_id)
-    is_pay52 = bool((spec and spec.get("api") == "pay52") or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec)))
+    is_pay52 = bool(
+        (spec and spec.get("api") == "pay52")
+        or ("seedance" in str(kie_id).lower() and pay52_video.pay52_video_configured(spec))
+    )
 
     if not kie_configured() and not is_pay52:
         raise KieHttpError(
@@ -727,3 +744,19 @@ async def generate_kie_image(
         result = await run_generation(spec, payload, out_path, timeout_s=timeout)
         call.external_id = str(getattr(result, "gen_id", "") or "")
         return result
+
+
+# --- Перенесено из video-pipeline int/chat-v1 (волна 2 слияния движка) ---
+
+
+async def task_status(api: str, task_id: str) -> tuple[str, dict[str, Any]]:
+    path = _POLL_PATHS.get(api, _POLL_PATHS["jobs"])
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(f"{kie_api_base_url()}{path}", headers=_headers(), params={"taskId": task_id})
+    try:
+        payload = r.json()
+    except Exception:
+        payload = {"msg": (r.text or "")[:300], "code": r.status_code}
+    data = _check(payload, http_status=r.status_code, where=f"poll {path}")
+    inner = raw_inner if isinstance(raw_inner := data.get("data"), dict) else {}
+    return _task_state(api, inner), inner

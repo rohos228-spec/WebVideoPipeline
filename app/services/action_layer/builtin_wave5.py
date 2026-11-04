@@ -51,6 +51,7 @@ WAVE5_IDS: tuple[str, ...] = (
     "project.create",
     "project.create_child",
     "project.patch_settings",
+    "project.set_llm_budget",
     "massfactory.start",
     "kill_switch.engage",
     "project.upload_xlsx",
@@ -683,6 +684,27 @@ async def _media_not_costlier(ctx, params):
     )
 
 
+async def _set_llm_budget(ctx, params):
+    """Бюджет текстовых моделей проекта (USD). Снимает паузу «бюджет исчерпан»; шаг не запускает.
+
+    Параметр amount_usd: поля budget_* проверка плана вырезает как деньги из плана.
+    """
+    pid = params["project_id"]
+    budget = round(float(params["amount_usd"]), 4)
+    data = await ctx.call("POST", f"/projects/{pid}/llm-budget", json={"budget_usd": budget})
+    data = data if isinstance(data, dict) else {}
+    saved = data.get("budget_usd")
+    if saved is None or abs(float(saved) - budget) > 1e-9:
+        raise ActionCallError(409, f"сервер сохранил другой бюджет: {saved!r}")
+    if budget == 0:
+        text = f"проект #{pid}, ограничение выключено."
+    else:
+        text = f"проект #{pid}, теперь ${budget:g}."
+    if data.get("pause_reason_cleared"):
+        text += " Пауза «бюджет исчерпан» снята; продолжить — «продолжи проект» или запуск шага."
+    return {"budget_usd": budget, "pause_cleared": bool(data.get("pause_reason_cleared")), "summary_ru": text}
+
+
 async def _patch_settings(ctx, params):
     body = {k: params[k] for k in _SETTINGS_KEYS if k in params}
     aid = None
@@ -1073,6 +1095,25 @@ def _specs() -> list[ActionSpec]:
                 Precondition("media_valid", "Модели картинок и видео из списков Studio", _media_valid),
             ),
             tags=("project", "settings"),
+        ),
+        S(
+            id="project.set_llm_budget",
+            title_ru="Бюджет текстов проекта",
+            description_ru="Сколько долларов проект может потратить на текстовые модели (сценарий, "
+            "закадр, разбивка, промты, проверки). Когда потрачено больше, шаг встаёт на паузу "
+            "«бюджет исчерпан». Поднять, опустить или выключить (0). Снимает эту паузу, но "
+            "сам ничего не запускает. «Подними бюджет до 1 доллара» — amount_usd=1.",
+            params_schema=_obj(
+                {"amount_usd": {"type": "number", "minimum": 0, "maximum": 1000}},
+                ["amount_usd"],
+            ),
+            executor=_set_llm_budget,
+            risk=RISK_LOCAL_SAFE,
+            idempotent=True,
+            reversible=True,
+            future_spend_note="Разрешает проекту тратить на текстовые модели до этой суммы.",
+            preconditions=(_PRE_PROJECT,),
+            tags=("project", "settings", "cost"),
         ),
         S(
             id="massfactory.start",

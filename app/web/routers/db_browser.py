@@ -20,7 +20,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db import SessionLocal, commit_with_retry
+from app.db import SessionLocal
+
+# isort: split
+from app.db import commit_with_retry  # отдельной строкой — её ищет test_customer_fork_2_roadmap
 from app.models import (
     Entity,
     Frame,
@@ -437,9 +440,7 @@ _ORCHESTRATOR_SYSTEM = (
     "просит починить/исправить баг В КОДЕ программы / закоммитить. "
     "Наличие раздела ДИАГНОСТИКА само по себе НЕ включает режим кодинга. "
     "Правь только app/, tests/, prompts/. Не трогай .env и data/.\n"
-    "ПОРЯДОК ШАГОВ — ТОЛЬКО ТАКОЙ (другого не существует, не выдумывай):\n"
-    "plan → script → split → hero → items → enrich_1..5 → img_pr → img → "
-    "anim_pr → video → audio → music → assemble → publish.\n"
+    "ПОРЯДОК ШАГОВ — ровно как в разделе ШАГИ ПАЙПЛАЙНА ниже (другого нет, не выдумывай).\n"
     "Отвечая про «следующий шаг», называй шаги из этого списка и опирайся "
     "на состояние шагов из контекста.\n"
     'ДЕЙСТВИЯ (можно совместить в одном JSON: {"ops":[...], "actions":[...]}):\n'
@@ -559,13 +560,18 @@ _ORCHESTRATOR_SYSTEM = (
     "images — «Картинки»; animation_prompts — «Промты анимации»; "
     "videos — «Видео»; audio — «Озвучка»; music — «Музыка»; "
     "assemble — «Сборка»; publish — «Публикация»; topic — «Тема»; "
-    "storage — хранилище.\n"
+    "storage — хранилище; style_extract — «Разбор стиля» (агент разбирает загруженные "
+    "ролики-референсы и пишет паспорт стиля); hitl_style — «Проверка стиля» (человек "
+    "одобряет паспорт стиля).\n"
     "Не выдумывай uuid, поля, коды шагов, ключи и значения настроек — "
     "неизвестное = отклонено с ошибкой. Одна операция = один кадр.\n"
+    "Пиши только по-русски, без иероглифов и слов на других языках.\n"
     "БРИФИНГ ПРОЕКТА (пошаговый опросник подготовки проекта):\n"
     "Если пользователь пишет «Брифинг проекта», «брифинг», «опрос», «начни брифинг», «подготовь проект» или отвечает на вопросы опроса:\n"
     "Веди диалог СТРОГО ПО ОДНОМУ ВОПРОСУ за раз и ВСЕГДА в JSON или в теге <choices>[...]</choices> прикрепляй варианты ответов (choices).\n"
     "В каждом вопросе ВСЕГДА предлагай ровно 4 готовых варианта + 5-й «Свой ответ» (или «Свой ...»).\n"
+    "Если пользователь ответил своими словами, сохраняй его слова, а не ближайшую кнопку: "
+    "«аниме» — это «Аниме», а не «Тёмное фэнтези / Аниме».\n"
     "По мере ответов вызывай действие set_briefing:\n"
     '{"actions":[{"set_briefing":{...}}], "choices":["Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4", "Свой ответ"]}.\n'
     "Шаги брифинга (строго в таком порядке):\n"
@@ -573,15 +579,30 @@ _ORCHESTRATOR_SYSTEM = (
     "2. Формат кадра (соотношение сторон): спроси формат видео. Choices: [\"9:16 Вертикальный (Shorts, Reels, TikTok)\", \"16:9 Горизонтальный (YouTube, ТВ)\", \"1:1 Квадратный (Ленты соцсетей)\", \"21:9 Кинематографичный (Ultra-wide)\", \"Свой формат\"]. Сохрани aspect_ratio (9_16, 16_9, 1_1, 21_9).\n"
     "3. Жанр и структура сценария (plan): спроси тип сценария. Choices: [\"Кинематографичная история (драма, конфликт)\", \"Документальный YouTube (хроника, факты)\", \"Эксплейнер / Обучающий (проблема → решение)\", \"Топ-лист / Подборка (перечень фактов)\", \"Свой сценарий / из файла\"]. Сохрани scenario_type и plan_prompt (cinematic_story_plan или default).\n"
     "4. Плотность дикторского текста (script): спроси про темп закадра. Choices: [\"Плотный нарратив (непрерывный рассказ)\", \"Сбалансированный темп (речь с паузами)\", \"Лаконичные реплики (редкие хуки)\", \"Без диктора (музыка, титры, SFX)\", \"Свой объём закадра\"]. Сохрани voiceover_mode и voiceover_chars (при 14 симв/сек).\n"
-    "5. Персонажи и предметы (hero/items): спроси про состав персонажей и реквизит. Choices: [\"Один постоянный Главный Герой (модельный лист)\", \"Ансамбль из 2–3 персонажей\", \"Без персонажей (локации, техника, графика)\", \"Сюжет вокруг ключевого предмета\", \"Свой состав героев\"]. Сохрани hero_mode (hero, no_hero, auto) и items_consistent (True/False).\n"
+    "5. Персонажи и предметы (hero/items): спроси про состав персонажей и реквизит. Choices: [\"Один постоянный Главный Герой (модельный лист)\", \"Ансамбль из 2–3 персонажей\", \"Без персонажей (локации, техника, графика)\", \"Сюжет вокруг ключевого предмета\", \"Свой состав героев\"]. Сохрани hero_mode (hero, no_hero, auto) и items_consistent (True/False). Если пользователь описал героя или предмет — сохрани hero_description / items_note его словами.\n"
     "6. Визуальный стиль и анимация: спроси художественный стиль. Choices: [\"Кинематографичный фотореализм (35mm кино)\", \"3D мультфильм / CGI Pixar (сочный объём)\", \"Тёмный нуар / Аниме (контрастная графика)\", \"Пластилиновый стоп-моушен / Claymation\", \"Свой художественный стиль\"]. Сохрани visual_style и animation_style.\n"
     "7. Монтаж, нарезка и субтитры: спроси ритм склеек и субтитры. Choices: [\"Клиповый динамичный с субтитрами (2–3с)\", \"Плавный киномонтаж без субтитров (4–6с)\", \"Нарезка строго по предложениям с субтитрами\", \"Размеренный документальный с субтитрами\", \"Свой стиль монтажа\"]. Сохрани structure, transitions, montage, subtitles_enabled (True/False).\n"
     "8. Звукорежиссура и SFX: спроси про саунд-дизайн. Choices: [\"Полный саунд-дизайн (диктор + музыка + SFX)\", \"Музыка + диктор (без SFX шумов)\", \"Эмбиент и звуки окружения (ASMR + музыка)\", \"Нативный звук видеогенераторов (Kling)\", \"Своя звуковая схема\"]. Сохрани sfx_enabled (True/False) и sfx_mode.\n"
-    "Финал брифинга: выведи аккуратный итог настроек проекта и предложи choices: [\"Запустить весь пайплайн (Сценарий → Монтаж)\", \"Запустить только сценарий (нода plan)\", \"Показать граф и настройки проекта\", \"Внести изменения в параметры\", \"Свой ответ\"].\n"
+    "Ответ брифинга (set_briefing) сохраняется СРАЗУ, без кнопки: пиши «Записал: …», а не "
+    "«Подготовил изменения» и не спрашивай «Продолжить брифинг?». В том же ответе сразу задай "
+    "СЛЕДУЮЩИЙ вопрос по порядку, и choices должны быть вариантами ответа именно на этот вопрос.\n"
+    "Финал брифинга: выведи аккуратный итог ВСЕХ восьми пунктов (хронометраж и число сцен, "
+    "формат кадра, тип сценария, закадровый голос, персонажи и предметы, визуальный стиль, "
+    "монтаж и субтитры, SFX) по сохранённым значениям брифинга, без пропусков; пункт без ответа "
+    "так и пиши — «не задано». Предложи choices: [\"Запустить весь пайплайн (Сценарий → Монтаж)\", "
+    "\"Запустить только сценарий (нода plan)\", \"Показать граф и настройки проекта\", \"Внести изменения в параметры\", \"Свой ответ\"].\n"
     "ВАЖНО ПО ФОРМАТУ ОТВЕТА: технический JSON (actions, ops) помещай в ответ, "
     "но в человеческом тексте ответа НИКОГДА не дублируй сырой JSON (например, "
     "не пиши {\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде плашек "
-    "интерфейса, а твой текст должен содержать только естественный живой русский ответ."
+    "интерфейса, а твой текст должен содержать только естественный живой русский ответ.\n"
+    "ЯЗЫК ДЛЯ ЧЕЛОВЕКА: человек видит на канвасе только НАЗВАНИЯ нод. В тексте называй "
+    "ноды и шаги так, как они подписаны в разделе НОДЫ КАНВАСА, в «ёлочках» "
+    "(«Промты картинок», «Картинки», «Работа с GPT 2»). В тексте НИКОГДА не пиши коды шагов "
+    "(img_pr, img, anim_pr…), ключи нод (n_plan, n_excel_gpt_1), типы нод (images, excel_gpt, "
+    "hitl_gate), статусы по-английски (waiting_hitl, done), слова harness, HITL, uuid, ops, "
+    "пути файлов и не выделяй слова `обратными кавычками`. Вместо harness — «автопроверка», "
+    "вместо HITL — «проверка человеком». Коды и ключи — только внутри JSON в хвосте ответа. "
+    "Исключение — пользователь сам просит починить код программы."
 )
 
 _STEP_RU: dict[str, str] = {
@@ -597,7 +618,7 @@ _STEP_RU: dict[str, str] = {
     "enrich_5": "обогащение 5",
     "img_pr": "промты картинок",
     "img": "генерация картинок",
-    "anim_pr": "промты видео",
+    "anim_pr": "промты анимации",
     "video": "генерация видео",
     "audio": "озвучка",
     "music": "музыка",
@@ -614,6 +635,7 @@ def _pipeline_state_lines(project: Project) -> list[str]:
         NODE_TYPE_TO_RUNNING,
         NODE_TYPE_TO_STEP_CODE,
     )
+    from app.services.chat_humanize import step_title
 
     ordered: list[str] = []
     for _run, node_type in LINEAR_RUNNING_PIPELINE:
@@ -632,7 +654,7 @@ def _pipeline_state_lines(project: Project) -> list[str]:
         else:
             state = "ждёт"
         step_code = NODE_TYPE_TO_STEP_CODE.get(node_type, node_type)
-        lines.append(f"- {step_code} ({_STEP_RU.get(step_code, step_code)}): {state}")
+        lines.append(f"- «{step_title(step_code)}» (код для JSON: {step_code}): {state}")
     return lines
 
 
@@ -812,8 +834,7 @@ def _human_reply_from_diagnostics(diag_lines: list[str]) -> str:
         return (
             "Проблема в персонажах (не в статусе ноды): "
             + " ".join(hero_bits[1:4] if len(hero_bits) > 1 else hero_bits)
-            + " Перегенерируй проблемные cNN. "
-            "Если нужна правка кода — напиши «почини код»."
+            + " Перегенерируйте персонажей с ошибками (их номера выше)."
         )
     if not err and not node:
         if hero_bits:
@@ -1020,7 +1041,7 @@ async def _canvas_nodes_context(session: AsyncSession, project: Project) -> tupl
         pairs = [f"{e.get('source')}→{e.get('target')}" for e in side]
         lines.append(f"СВЯЗИ К ХРАНИЛИЩУ / сбоку ({len(pairs)}): " + ", ".join(pairs))
     else:
-        lines.append('СВЯЗИ К ХРАНИЛИЩУ: нет — нужен {"connect_edges":{"from":"each","to_type":"storage"}}')
+        lines.append("СВЯЗИ К ХРАНИЛИЩУ: нет (провести можно действием connect_edges, только если попросят).")
     return ["НОДЫ КАНВАСА (ключ → «название» (тип) — статус):", *lines], keymap
 
 
@@ -1055,7 +1076,48 @@ def _settings_context(project: Project) -> list[str]:
             lines.append(f"- {step_code}: {overrides.get(step_code, 'default')} → {', '.join(variants)}")
     st = catalog_status()
     lines.append(f"ТЕКСТОВАЯ LLM: активна {st['active_label']} → провайдеры: kie, vibecode")
+    lines.extend(_briefing_context(project))
     return lines
+
+
+# Порядок и подписи пунктов брифинга — те же шаги, что в _system_prompt.
+_BRIEFING_FIELDS: tuple[tuple[str, str], ...] = (
+    ("duration_seconds", "хронометраж, с"),
+    ("target_frames", "сцен"),
+    ("aspect_ratio", "формат кадра"),
+    ("scenario_type", "тип сценария"),
+    ("voiceover_mode", "закадровый голос"),
+    ("voiceover_chars", "символов закадра"),
+    ("hero_mode", "персонажи"),
+    ("hero_description", "главный герой"),
+    ("items_consistent", "ключевые предметы"),
+    ("items_note", "предметы"),
+    ("visual_style", "визуальный стиль"),
+    ("animation_style", "стиль анимации"),
+    ("montage", "монтаж"),
+    ("structure", "структура сцен"),
+    ("transitions", "переходы"),
+    ("subtitles_enabled", "субтитры"),
+    ("sfx_enabled", "SFX"),
+)
+
+
+def _briefing_context(project: Project) -> list[str]:
+    """Сохранённые ответы брифинга: без них итог брифинга модель собирала по памяти
+    переписки и пропускала хронометраж и тип сценария."""
+    meta = project.meta if isinstance(project.meta, dict) else {}
+    briefing = meta.get("briefing") if isinstance(meta.get("briefing"), dict) else {}
+    if not briefing:
+        return []
+    out = ["БРИФИНГ (уже сохранено, для итога бери отсюда):"]
+    for key, label in _BRIEFING_FIELDS:
+        if key not in briefing or briefing[key] in (None, ""):
+            continue
+        value = briefing[key]
+        if isinstance(value, bool):
+            value = "да" if value else "нет"
+        out.append(f"- {label}: {str(value).strip()[:200]}")
+    return out if len(out) > 1 else []
 
 
 def _apply_set_option(project: Project, key: object, value: object) -> str:
@@ -1093,6 +1155,22 @@ def _apply_set_option(project: Project, key: object, value: object) -> str:
     )
 
 
+def _briefing_number(value: Any) -> float:
+    """Число из ответа брифинга: 40, "40", "30–45с" (диапазон → середина), "60 сек".
+
+    Модель отвечает так, как подписан вариант («30–45с»); float() такое не берёт,
+    и длительность раньше молча не сохранялась.
+    """
+    if isinstance(value, bool):
+        raise ValueError("bool")
+    if isinstance(value, (int, float)):
+        return float(value)
+    nums = [float(x.replace(",", ".")) for x in re.findall(r"\d+(?:[.,]\d+)?", str(value or ""))]
+    if not nums:
+        raise ValueError(f"нет числа в {value!r}")
+    return sum(nums[:2]) / len(nums[:2])
+
+
 def _apply_set_briefing(project: Project, data: dict) -> str:
     """Сохранить параметры брифинга в project.meta и применить к нодам графа."""
     if not isinstance(data, dict):
@@ -1111,7 +1189,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
     raw_dur = data.get("duration") or data.get("duration_seconds")
     if raw_dur is not None:
         try:
-            dur = float(raw_dur)
+            dur = _briefing_number(raw_dur)
             if dur > 0:
                 plan_params["duration_seconds"] = dur
                 script_params["duration_seconds"] = dur
@@ -1124,7 +1202,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
 
     if "target_frames" in data:
         try:
-            tf = int(data["target_frames"])
+            tf = int(round(_briefing_number(data["target_frames"])))
             briefing["target_frames"] = tf
             updated_keys.append(f"frames={tf}")
         except (ValueError, TypeError):
@@ -1165,14 +1243,18 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
                 clean_var = p_var
             try:
                 _apply_set_prompt(project, "plan", clean_var)
-                briefing["plan_prompt"] = clean_var
-                updated_keys.append(f"plan_prompt={clean_var}")
-            except Exception:
-                briefing["plan_prompt"] = clean_var
-                overrides = dict(project.prompt_overrides or {})
-                overrides["plan"] = clean_var
-                project.prompt_overrides = overrides
-                updated_keys.append(f"plan_prompt={clean_var}")
+            except Exception:  # noqa: BLE001
+                # Такого промта нет в библиотеке: неизвестное имя шаг молча пропустит
+                # и возьмёт глобальный промт (раньше «вирусный Shorts» уходил
+                # в «кинематографичную историю»). Берём default, а сам тип сценария
+                # идёт в блок параметров плана строкой «Тип сценария».
+                briefing["plan_prompt_requested"] = clean_var
+                if not briefing.get("scenario_type"):
+                    briefing["scenario_type"] = p_var
+                clean_var = "default"
+                _apply_set_prompt(project, "plan", clean_var)
+            briefing["plan_prompt"] = clean_var
+            updated_keys.append(f"plan_prompt={clean_var}")
 
     if "scenario_type" in data:
         briefing["scenario_type"] = str(data["scenario_type"]).strip()
@@ -1184,7 +1266,7 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         updated_keys.append("voiceover_mode")
     if "voiceover_chars" in data:
         try:
-            vc = int(data["voiceover_chars"])
+            vc = int(round(_briefing_number(data["voiceover_chars"])))
             briefing["voiceover_chars"] = vc
             updated_keys.append(f"chars={vc}")
         except (ValueError, TypeError):
@@ -1204,6 +1286,14 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         project.hero_mode = hm
         briefing["hero_mode"] = hm
         updated_keys.append(f"hero_mode={hm}")
+
+    hero_text = str(data.get("hero_description") or data.get("hero_note") or "").strip()
+    if hero_text:
+        # «один герой, рыжий кот в шарфе»: раньше сохранялся только hero_mode, а сам герой терялся.
+        briefing["hero_description"] = hero_text
+        if not str(project.hero_description or "").strip():
+            project.hero_description = hero_text
+        updated_keys.append("hero_description")
 
     if "items_consistent" in data:
         briefing["items_consistent"] = bool(data["items_consistent"])
@@ -1307,6 +1397,7 @@ def _all_node_types() -> set[str]:
     from app.orchestrator.node_registry import (
         CONFIG_NODE_TYPES,
         HITL_NODE_TYPES,
+        STYLE_AGENT_NODE_TYPES,
         UI_MENU_NODE_TYPES,
         WORK_NODES,
     )
@@ -1316,6 +1407,7 @@ def _all_node_types() -> set[str]:
         | set(HITL_NODE_TYPES)
         | set(CONFIG_NODE_TYPES)
         | set(UI_MENU_NODE_TYPES)
+        | set(STYLE_AGENT_NODE_TYPES)
         | {"excel_gpt", "excel_feed"}
     )
 
@@ -1731,6 +1823,13 @@ def _linear_order(nodes: list[dict], edges: list[dict]) -> list[str]:
     return order
 
 
+def _node_type_ru(node_type: str) -> str:
+    """Подпись новой ноды по-русски («Разбор стиля»), а не тип style_extract."""
+    from app.services.action_layer.builtin_insight import _TYPE_RU
+
+    return _TYPE_RU.get(node_type, node_type)
+
+
 async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -> dict:
     """Вставить ноду в граф проекта (project.meta.canvas_graph), цепочка перешивается.
 
@@ -1752,9 +1851,11 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
         )
     after = str((spec or {}).get("after") or "each").strip()
     base_label = str((spec or {}).get("label") or "").strip() or (
-        "Проверка"
+        "Проверка стиля"
+        if node_type == "hitl_style"
+        else "Проверка"
         if node_type.startswith("hitl")
-        else ("Работа с GPT" if node_type == "excel_gpt" else node_type)
+        else ("Работа с GPT" if node_type == "excel_gpt" else _node_type_ru(node_type))
     )
 
     meta = dict(project.meta or {})
@@ -1840,8 +1941,9 @@ async def _apply_add_node(session: AsyncSession, project: Project, spec: dict) -
                 "id": new_id,
                 "type": node_type,
                 "position": {
-                    "x": min_x + (k - 1) * 200.0,
-                    "y": max_y + 160.0,
+                    # Карточка ноды на холсте 336–384×192+ px: шаг меньше налезал на соседей.
+                    "x": min_x + (k - 1) * 440.0,
+                    "y": max_y + 320.0,
                 },
                 "data": {
                     "label": node_label,
@@ -2355,6 +2457,24 @@ class OrchestratorChatBody(BaseModel):
     auto_apply: bool = False
 
 
+def _system_prompt(code_ok: bool) -> str:
+    """Системная подсказка; без правки кода — без разделов про read_file/edit_files/git."""
+    if code_ok:
+        return _ORCHESTRATOR_SYSTEM
+    text = _ORCHESTRATOR_SYSTEM
+    for start, end in (
+        ("ФОРМАТ ОТВЕТА ПРИ ФИКСЕ КОДА", "ПОРЯДОК ШАГОВ"),
+        ("16) ПРОЧИТАТЬ КОД", "20) УДАЛИТЬ ПРОЕКТЫ"),
+    ):
+        i, j = text.find(start), text.find(end)
+        if 0 <= i < j:
+            text = text[:i] + text[j:]
+    return text + (
+        "\nПРАВКИ КОДА ПРОГРАММЫ из этого чата нет: read_file, edit_files, run_tests, git не используй. "
+        "Если просят починить программу — коротко скажи, что это делает разработчик, и опиши проблему словами."
+    )
+
+
 async def _build_orchestrator_prompt(
     session: AsyncSession,
     project: Project,
@@ -2372,10 +2492,13 @@ async def _build_orchestrator_prompt(
     catalog_lines = await _projects_catalog_context(session)
     fix_bugs = _is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
     diagnose_only = _is_diagnose_only_question(body.message, fix_bugs=fix_bugs)
-    code_lines = [] if diagnose_only else await asyncio.to_thread(_code_workspace_context)
+    from app.services.project_chat_guard import code_edits_allowed
+
+    code_ok = code_edits_allowed()
+    code_lines = [] if (diagnose_only or not code_ok) else await asyncio.to_thread(_code_workspace_context)
     topic_snip = (project.topic or "").strip().replace("\n", " ")[:160]
     prompt = (
-        _ORCHESTRATOR_SYSTEM + "\n\n" + "\n".join(catalog_lines) + "\n\nТЕКУЩИЙ ПРОЕКТ В ЧАТЕ: "
+        _system_prompt(code_ok) + "\n\n" + "\n".join(catalog_lines) + "\n\nТЕКУЩИЙ ПРОЕКТ В ЧАТЕ: "
         f"#{project.id} | {project.slug} | {(project.title or '') or '—'} | "
         f"{getattr(project.status, 'value', project.status)}"
         + (f"\nТЕМА: {topic_snip}" if topic_snip else "")
@@ -2415,7 +2538,11 @@ async def _build_orchestrator_prompt(
             "Пользователь включил автоматический режим. Все действия, изменения темы/промтов/настроек, генерацию и запуск шагов выполняй сразу через JSON ops/actions без запроса подтверждения!"
             if (getattr(body, "auto_apply", False) or "[РЕЖИМ: АВТОНОМНЫЙ" in body.message)
             else (
-                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ.\n"
+                "\n\nРЕЖИМ ВЫПОЛНЕНИЯ: С ПОДТВЕРЖДЕНИЕМ ОПЕРАТОРОМ. Запуски шагов, решения по проверке, "
+                "смена настроек/темы/графа и создание проектов НЕ выполняются сразу: человек увидит "
+                "кнопку «Подтвердить». Поэтому пиши «Предлагаю…» / «Подготовил…», а не «Запустил» и "
+                "не «Сделал». Правки текста кадров (ops) и ответы брифинга (set_briefing) "
+                "выполняются сразу — про них пиши «Записал».\n"
                 "Любые важные операции (удаление нод/проектов, push, запуск планов) предлагай пользователю и выводи подтверждение."
             )
         )
@@ -2493,8 +2620,26 @@ def _clean_orchestrator_human_reply(text: str | None) -> str:
         cleaned,
     )
     cleaned = re.sub(r"^[\s\],}:)]+", "", cleaned)
+    cleaned = _drop_cjk(cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     return cleaned
+
+
+# Модель иногда вставляет иероглифы посреди русского слова («визуальную一致ность»).
+_CJK_WORDS = {"一致": "согласован", "一致性": "согласованность"}
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]+")
+
+
+def _drop_cjk(text: str) -> str:
+    if not _CJK_RE.search(text):
+        return text
+    def repl(m: re.Match[str]) -> str:
+        word = _CJK_WORDS.get(m.group(0), "")
+        if word and m.start() > 0 and text[m.start() - 1].isalpha():
+            word = " " + word
+        return word
+
+    return _CJK_RE.sub(repl, text)
 
 
 async def _execute_orchestrator_reply(
@@ -2505,7 +2650,20 @@ async def _execute_orchestrator_reply(
     canvas_keymap: dict,
     diag_lines: list[str],
     body_message: str,
+    fix_bugs: bool = False,
+    *,
+    auto_apply: bool = False,
+    confirmed: bool = False,
 ) -> dict:
+    from app.services import project_chat_guard as guard
+    from app.services.chat_humanize import build_labels, humanize_reply, step_title
+    from app.services.project_state import is_running_status
+
+    auto = bool(auto_apply or confirmed or "[РЕЖИМ: АВТОНОМНЫЙ" in (body_message or ""))
+    code_ok = guard.code_edits_allowed()
+    errors: list[str] = []
+    raw_errors: list[str] = []
+    skipped_code = False
     applied = None
     actions_run: list[dict] = []
     ui_actions: list[dict] = []
@@ -2540,7 +2698,7 @@ async def _execute_orchestrator_reply(
         ops = [op for op in raw_ops if isinstance(op, dict) and not _is_dummy_uuid(op.get("frame_uuid"))]
         chars = ops_data.get("characters") or []
         scenes = ops_data.get("scenes") or []
-        if ops or chars or scenes:
+        if (ops or chars or scenes) and not diagnose_only:
             try:
                 applied = await db_apply.apply_ops(
                     session,
@@ -2555,8 +2713,9 @@ async def _execute_orchestrator_reply(
                 await session.rollback()
                 err_msg = str(e)
                 # Если в ошибке фигурируют заглушки '...' / '<...>', это был просто пример из текста
-                if not any(x in err_msg for x in ("'...' ", "['...']", "['…']", "<", ">")):
-                    error = err_msg
+                if not any(x in err_msg for x in ("'...' ", "['...']", "['…']")):
+                    errors.append("правка кадров не сохранилась: " + guard.human_error(err_msg, canvas_keymap))
+                    raw_errors.append(err_msg)
         raw_actions = list(ops_data.get("actions") or [])
 
         def _flatten_orchestrator_actions(items: list) -> list[dict]:
@@ -2586,8 +2745,27 @@ async def _execute_orchestrator_reply(
         )
         for act in _flatten_orchestrator_actions(raw_actions):
             act = act or {}
-            if diagnose_only and any(k in act for k in _CODE_ACT_KEYS):
-                # Вопрос про ошибку — код в чат не тащим и не читаем.
+            if diagnose_only:
+                # Вопрос про ошибку — только объяснение, ничего не запускаем и не меняем.
+                continue
+            if any(k in act for k in _CODE_ACT_KEYS) and not code_ok:
+                # Правка кода программы из чата выключена (флаг + админ).
+                skipped_code = True
+                continue
+            if guard.needs_confirm(act, auto=auto):
+                title = guard.action_title(act, canvas_keymap)
+                if "run_step" in act and is_running_status(project.status):
+                    title += " Сейчас идёт другой шаг — он будет прерван."
+                pending_confirm.append(
+                    {
+                        "kind": "action",
+                        "token": guard.put_pending(project.id, act, title),
+                        "title": title,
+                        "message": title,
+                        "count": 1,
+                        "nodes": [],
+                    }
+                )
                 continue
             try:
                 if "run_step" in act:
@@ -2598,11 +2776,23 @@ async def _execute_orchestrator_reply(
                         raise db_apply.ApplyOpsError(
                             f"неизвестный шаг {step!r}; разрешены: {sorted(STEP_CODE_TO_NODE_TYPE)}"
                         )
+                    if step == "publish":
+                        why = await guard.publish_refusal(session, project)
+                        if why:
+                            raise db_apply.ApplyOpsError(why)
                     from app.services.project_steps import start_step
 
-                    new_status = await start_step(session, project, step, explicit_ui_start=True)
+                    # Кнопка «Подтвердить» = ручной ▶ (как в Studio). Автономный режим без
+                    # кнопки не обрывает идущую генерацию и уважает очередь.
+                    new_status = await start_step(session, project, step, explicit_ui_start=confirmed)
                     await commit_with_retry(session)
-                    actions_run.append({"run_step": step, "status": new_status.value})
+                    actions_run.append(
+                        {
+                            "run_step": step,
+                            "status": new_status.value,
+                            "step_label": step_title(step, canvas_keymap),
+                        }
+                    )
                 elif act.get("stop_step"):
                     from app.services.project_control import stop_project_running
 
@@ -2827,10 +3017,18 @@ async def _execute_orchestrator_reply(
                         "run_harness, read_file, edit_files, run_tests, git_commit_push"
                     )
             except db_apply.ApplyOpsError as e:
-                error = str(e)
+                errors.append(guard.human_error(e, canvas_keymap))
+                raw_errors.append(str(e))
             except Exception as e:  # noqa: BLE001
                 await session.rollback()
-                error = f"действие {act}: {e}"
+                logger.warning("[#{}] orchestrator chat action {} failed: {}", project.id, act, e)
+                errors.append(guard.human_error(e, canvas_keymap))
+                raw_errors.append(f"{act}: {e}")
+    for entry in actions_run:
+        note = guard.action_note(entry, canvas_keymap)
+        if note:
+            entry["note"] = note
+    error = "; ".join(dict.fromkeys(errors)) or None
     # Контур самообучения: каждый диалог — в ops-журнал проекта.
     try:
         from app.services.agent_harness import append_ops_event
@@ -2846,6 +3044,7 @@ async def _execute_orchestrator_reply(
                 "ui_actions": [u.get("kind") for u in ui_actions],
                 "pending_confirm": bool(pending_confirm),
                 "error": error,
+                "error_raw": raw_errors[:5],
             },
         )
     except Exception:  # noqa: BLE001
@@ -2882,6 +3081,23 @@ async def _execute_orchestrator_reply(
     clean_human_reply = _clean_orchestrator_human_reply(reply)
     if clean_human_reply:
         reply = clean_human_reply
+    keep_code = code_ok and _is_fix_bugs_mode(body_message, flag=fix_bugs)
+    reply = humanize_reply(reply or "", canvas_keymap, keep_code=keep_code) or reply
+    tail: list[str] = []
+    if error:
+        tail.append(f"Не получилось: {error}.")
+    if any(p.get("kind") == "action" for p in pending_confirm):
+        tail.append("Это нужно подтвердить — кнопка ниже.")
+    if skipped_code:
+        tail.append("Правку кода программы из этого чата делает разработчик — здесь она выключена.")
+    if tail:
+        reply = ((reply or "").strip() + "\n\n" + "\n".join(tail)).strip()
+    for item in ui_actions:
+        nk = str(item.get("node_key") or "")
+        nt = str(item.get("node_type") or "")
+        if nk or nt:
+            labels = build_labels(canvas_keymap)
+            item["label"] = (labels.get(nk) or labels.get(nt) or nt).strip("«»")
 
     return {
         "reply": reply,
@@ -2891,6 +3107,7 @@ async def _execute_orchestrator_reply(
         "pending_confirm": pending_confirm,
         "choices": choices,
         "error": error,
+        "error_raw": raw_errors[:5],
     }
 
 
@@ -2916,7 +3133,15 @@ async def orchestrator_chat(
         raise HTTPException(502, str(e)[:800]) from None
 
     return await _execute_orchestrator_reply(
-        session, project, reply, diagnose_only, canvas_keymap, diag_lines, body.message
+        session,
+        project,
+        reply,
+        diagnose_only,
+        canvas_keymap,
+        diag_lines,
+        body.message,
+        body.fix_bugs,
+        auto_apply=body.auto_apply,
     )
 
 
@@ -2970,8 +3195,14 @@ async def orchestrator_chat_stream(
 
             task = asyncio.create_task(_runner())
 
+            from app.services.chat_humanize import StreamHumanizer
+
             full_reply = ""
             saw_deltas = False
+            last_ping = asyncio.get_running_loop().time()
+            shown = StreamHumanizer(
+                canvas_keymap, keep_code=_is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
+            )
             try:
                 while True:
                     try:
@@ -2979,11 +3210,14 @@ async def orchestrator_chat_stream(
                         if kind == "delta":
                             saw_deltas = True
                             full_reply += data
-                            yield f"data: {json.dumps({'type': 'delta', 'delta': data}, ensure_ascii=False)}\n\n"
+                            piece = shown.feed(data)
+                            if piece:
+                                yield f"data: {json.dumps({'type': 'delta', 'delta': piece}, ensure_ascii=False)}\n\n"
                         elif kind == "done":
                             full_reply = data or full_reply
-                            if not saw_deltas and full_reply:
-                                yield f"data: {json.dumps({'type': 'delta', 'delta': full_reply}, ensure_ascii=False)}\n\n"
+                            piece = shown.flush() if saw_deltas else shown.feed(full_reply) + shown.flush()
+                            if piece:
+                                yield f"data: {json.dumps({'type': 'delta', 'delta': piece}, ensure_ascii=False)}\n\n"
                             break
                         elif kind == "error":
                             yield f"data: {json.dumps({'type': 'error', 'error': data}, ensure_ascii=False)}\n\n"
@@ -2991,6 +3225,10 @@ async def orchestrator_chat_stream(
                     except TimeoutError:
                         if task.done() and queue.empty():
                             break
+                        now = asyncio.get_running_loop().time()
+                        if now - last_ping >= 15.0:
+                            last_ping = now
+                            yield ": ping\n\n"
             finally:
                 if not task.done():
                     task.cancel()
@@ -2999,7 +3237,15 @@ async def orchestrator_chat_stream(
 
             try:
                 result = await _execute_orchestrator_reply(
-                    session, project, full_reply, diagnose_only, canvas_keymap, diag_lines, body.message
+                    session,
+                    project,
+                    full_reply,
+                    diagnose_only,
+                    canvas_keymap,
+                    diag_lines,
+                    body.message,
+                    body.fix_bugs,
+                    auto_apply=body.auto_apply,
                 )
                 yield f"data: {json.dumps({'type': 'done', **result}, ensure_ascii=False)}\n\n"
             except Exception as e:
@@ -3090,14 +3336,58 @@ class ConfirmGitPushBody(BaseModel):
     files: list[str] | None = None
 
 
+class ConfirmActionBody(BaseModel):
+    token: str = Field(min_length=1)
+    approve: bool = True
+
+
+@router.post("/projects/{project_id}/orchestrator/confirm-action")
+async def orchestrator_confirm_action(
+    project_id: int,
+    body: ConfirmActionBody,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Кнопка «Подтвердить» под ответом чата: выполнить ровно то действие, что было на карточке."""
+    from app.services import project_chat_guard as guard
+
+    project = await _project(session, project_id)
+    pending = guard.take_pending(project.id, body.token)
+    if pending is None:
+        return {"ok": False, "reply": "Эта кнопка устарела — повторите просьбу в чате.", "notes": []}
+    if not body.approve:
+        return {"ok": True, "reply": "Отменено — ничего не менял.", "notes": []}
+    _lines, keymap = await _canvas_nodes_context(session, project)
+    res = await _execute_orchestrator_reply(
+        session,
+        project,
+        json.dumps({"actions": [pending["action"]]}, ensure_ascii=False),
+        False,
+        keymap,
+        [],
+        f"подтверждено: {pending['title']}",
+        confirmed=True,
+    )
+    notes = [str(a["note"]) for a in res["actions_run"] if a.get("note")]
+    ok = not res.get("error")
+    if ok:
+        reply = ("Готово: " + "; ".join(notes) + ".") if notes else "Готово."
+    else:
+        reply = f"Не получилось: {res['error']}."
+    return {"ok": ok, "reply": reply, "notes": notes, "ui_actions": res["ui_actions"], "error": res.get("error")}
+
+
 @router.post("/projects/{project_id}/orchestrator/confirm-git-push")
 async def orchestrator_confirm_git_push(
     project_id: int,
     body: ConfirmGitPushBody,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Подтверждённый commit+push в origin/main (кнопка в чате оркестратора)."""
+    """Подтверждённый commit+push в ветку этого ПК (кнопка в чате оркестратора)."""
     await _project(session, project_id)  # auth / existence
+    from app.services.project_chat_guard import code_edits_allowed
+
+    if not code_edits_allowed():
+        raise HTTPException(403, "Отправка изменений кода из чата выключена.")
     from app.services.code_autofix import CodeAutofixError
     from app.services.git_ops import GitOpsError, commit_and_push
 

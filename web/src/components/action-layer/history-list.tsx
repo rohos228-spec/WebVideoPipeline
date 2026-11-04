@@ -22,8 +22,8 @@ export function HistoryList({refreshKey}: {refreshKey: number}) {
   useEffect(() => {
     let cancelled = false;
     getHistory(limit)
-      .then((r: any) => { if (!cancelled) { setItems(r.items); setTotal(r.total); setError(""); } })
-      .catch((e: any) => { if (!cancelled) setError(describeError(e)); });
+      .then((r) => { if (!cancelled) { setItems(r.items); setTotal(r.total); setError(""); } })
+      .catch((e) => { if (!cancelled) setError(describeError(e)); });
     return () => { cancelled = true; };
   }, [refreshKey, tick, limit]);
 

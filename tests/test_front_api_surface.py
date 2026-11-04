@@ -35,6 +35,17 @@ OWNER_UI_PREFIXES: tuple[str, ...] = (
     "/api/fleet",  # парк машин, запуск команд
     "/api/library",  # библиотека платформы
     "/api/llm-costs",  # СЕБЕСТОИМОСТЬ: отсюда видно маржу
+    # Отчёты оркестратора: на сервере этих ручек нет вовсе (ни роутера, ни
+    # разбора арендатора), а значит и решения «участнику можно» быть не может.
+    # Функции в `orchestratorApi.ts` никем не зовутся; middleware отвечает
+    # участнику 404 как на любой путь вне списка разрешённого.
+    "/api/orchestrator/actions",
+    "/api/orchestrator/projects",
+    "/api/orchestrator/reports",
+    # Общий токен оператора — один на всю установку, не на арендатора. Ручки
+    # в этой линии нет; чат зовёт её и на 404 живёт без токена: права на
+    # движок даёт роль (`engine_access.engine_operator_token`).
+    "/api/auth/operator-token",
     "/api/prompt-studio",
     "/api/prompts",
     "/api/studio-version",  # версия сборки: сведения об установке

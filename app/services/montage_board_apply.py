@@ -134,6 +134,8 @@ def _op_frame_shot(op: dict[str, Any]) -> tuple[int, int]:
         frame = int(op.get("frame_number") or 0)
     except (TypeError, ValueError):
         frame = 0
+    if str(op.get("slot") or "").strip().lower() == "parent":
+        return frame, 0
     try:
         shot = int(op.get("shot") or 1)
     except (TypeError, ValueError):
@@ -410,6 +412,7 @@ async def _run_op_with_short_sessions(
                 correction=str(op.get("correction") or op.get("prompt") or ""),
                 board=board,
                 pinned_prompt=pinned if op_type == "image_regen" and pinned else None,
+                slot=str(op.get("slot") or ""),
             )
         elif op_type in ("video_regen", "video_regen_prompt"):
             mode = "edit_prompt" if op_type == "video_regen_prompt" else "same_prompt"
@@ -454,6 +457,7 @@ async def _run_op_with_short_sessions(
                         correction="",
                         board=board,
                         ref_person_ids=character_ids_from_prompt(new_prompt),
+                        slot=str(op.get("slot") or ""),
                     )
                 return await prepare_video_regen(
                     session,

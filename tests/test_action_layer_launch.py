@@ -6,10 +6,8 @@ import re
 
 import pytest
 
-lr = pytest.importorskip("app.services.launch_risks", reason="launch_risks is not yet ported")
-pytest.importorskip("app.services.actions_v1", reason="actions_v1 is not yet ported")
-
 from app.models import Project, ProjectStatus
+from app.services import launch_risks as lr
 from app.services.action_layer import approval, executor, service
 from app.services.action_layer import builtin_launch as bl
 from app.services.action_layer.context import ActionContext
@@ -227,7 +225,7 @@ async def test_gpt_step_needs_a_node_key(env, not_managed, stub, steps_open) -> 
     pid = await env.add_project(frames=1)
     r = await _preview(env, [step("step.run_step", project_id=pid, step_code="excel_gpt",
                                   ceiling_credits=3)])
-    assert r.status_code == 422 and "node_key" in str(r.json())
+    assert r.status_code == 422 and "какую ноду" in str(r.json())
     wrong = await _preview(env, [step("step.run_step", project_id=pid, step_code="plan",
                                       node_key="n1", ceiling_credits=3)])
     assert wrong.status_code == 422 and "step_runnable" in str(wrong.json())

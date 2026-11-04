@@ -148,6 +148,17 @@ _IMPERATIVE_WORDS = (
     "допиши",
     "дополни",
     "пусть",
+    # Глаголы шагов: «разбей 26 на кадры» модель-классификатор принимала за вопрос.
+    "разбей",
+    "раздели",
+    "озвучь",
+    "переозвучь",
+    "смонтируй",
+    "анимируй",
+    "нарисуй",
+    "оживи",
+    "опубликуй",
+    "выложи",
 )
 _STATUS_PHRASES = (
     "статус",
@@ -178,9 +189,14 @@ _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IM
 _NEGATIONS = frozenset({"не", "ни"})
 
 
+# «Назови проект 12 «Муравьи»» — переименование; «назови модели» — вопрос. Различает новое имя в кавычках.
+_NAME_IT_RE = re.compile(r"(?<![а-я])назови(?:те)?\s[^«\"]*[«\"]")
+
+
 def has_imperative(text: str) -> bool:
-    tokens = _TOKEN_RE.findall(" ".join((text or "").lower().replace("ё", "е").split()))
-    return any(
+    norm = " ".join((text or "").lower().replace("ё", "е").split())
+    tokens = _TOKEN_RE.findall(norm)
+    return bool(_NAME_IT_RE.search(norm)) or any(
         token in _IMPERATIVES and (index == 0 or tokens[index - 1] not in _NEGATIONS)
         for index, token in enumerate(tokens)
     )
@@ -208,6 +224,141 @@ def _undo_request(text: str) -> bool:
     from app.services.action_layer.chat_undo import undo_phrase
 
     return undo_phrase(text)
+
+
+_STOP_STEMS = ("останов", "прекрат", "прерв", "отмен", "хватит", "пауз", "приостанов")
+
+
+_PROJECT_NAMED_RE = re.compile(r"проект\w*\s*(?:№|#)?\s*\d{1,6}(?!\d)|(?<![\w#])#\d{1,6}(?!\d)")
+
+
+def _names_project(text: str) -> bool:
+    return bool(_PROJECT_NAMED_RE.search((text or "").lower()))
+
+
+# «че с 12м проектом», «в 12-м проекте», «пачему праект 12»: номер до слова и опечатка «праект».
+# Без этого номер не находился, и чат читал открытый проект. «3 проекта» / «5 проектов» не трогаем.
+_PROJECT_TYPO_RE = re.compile(r"(?<![а-яё])пра([еэ])кт", re.IGNORECASE)
+_NUMBER_FIRST_RE = re.compile(
+    r"(?<![\d#№\w])(\d{1,5})(?:\s*-?\s*(?:м|й|ом|ым|ый|ой|го|ого|ем))?\s+(проект(?:е|ом|у)?)(?![а-яё])",
+    re.IGNORECASE,
+)
+
+
+def canon_project_refs(text: str) -> str:
+    """Номер проекта в обычном виде «проект N» для разбора; сама реплика в истории остаётся как была."""
+    out = _PROJECT_TYPO_RE.sub(lambda m: "прое" + m.group(0)[4:], text or "")
+    return _NUMBER_FIRST_RE.sub(lambda m: f"{m.group(2)} {m.group(1)}", out)
+
+
+# «Да, запускай» в ответ на подсказку «запусти закадровый текст в проекте 26»: согласие без
+# названия шага. Без этого чат отвечал «не указан шаг» на собственную подсказку.
+_GO_WORDS = frozenset(
+    [
+        "да",
+        "ага",
+        "угу",
+        "ок",
+        "окей",
+        "ok",
+        "давай",
+        "давайте",
+        "го",
+        "поехали",
+        "запускай",
+        "запусти",
+        "делай",
+        "сделай",
+        "жми",
+        "можно",
+        "конечно",
+        "вперед",
+        "вперёд",
+        "хорошо",
+        "ладно",
+        "применяй",
+        "примени",
+        "включай",
+        "дальше",
+        "продолжай",
+        "продолжи",
+        "погнали",
+    ]
+)
+_QUOTED_TAIL_RE = re.compile(r"«([^«»]{6,200})»\s*[.!]?\s*$")
+
+
+_MEDIA_PATH_RE = re.compile(r"[\\/][^\\/\s]+\.(?:wav|mp3|m4a|ogg|flac|aac|png|jpe?g|webp|mp4|mov|webm)\b")
+_SHOW_WORDS = frozenset({"покажи", "скажи", "расскажи", "напомни", "проверь", "посмотри"})
+_FIELD_WORDS = r"освещени|свет|стык|движени|ракурс|крупн|план|действи|якор|закадр"
+_FRAME_FIELD_RE = re.compile(
+    rf"(?<![а-я])кадр\w*\s*\d+[^?]{{0,40}}(?:{_FIELD_WORDS})|(?:{_FIELD_WORDS})\w*[^?]{{0,40}}кадр\w*\s*\d+"
+)
+_TO_QUEUE_RE = re.compile(r"(?<![а-я])в очередь(?![а-я])")
+_FRAME_VALUE_RE = re.compile(r"(?<![а-я])кадр\w*\s*\d+[^«\"?]{0,60}[«\"][^»\"]{2,}")
+_SPEND_LIMIT_RE = re.compile(r"(?<![а-я])(?:лимит\w*|потолок\w*)\s*(?:в\s+)?\$?\s*\d")
+
+
+def is_go_ahead(text: str) -> bool:
+    words = _TOKEN_RE.findall((text or "").lower())
+    return 0 < len(words) <= 4 and all(word in _GO_WORDS for word in words)
+
+
+def suggested_command(previous: str | None) -> str | None:
+    """Команда, которой чат закончил прошлый ответ: «…» в самом конце сообщения."""
+    found = _QUOTED_TAIL_RE.search((previous or "").strip())
+    command = found.group(1).strip() if found else ""
+    # «Следующий шаг — «Сценарий»» — название, не команда: команда со строчной и из двух слов.
+    if not command[:1].islower() or len(command.split()) < 2:
+        return None
+    return command
+
+
+def _previous_messages(session_id: str, before_id: int, limit: int = 2) -> list[tuple[str, str]]:
+    """Реплики перед ``before_id``, свежая первой."""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            text(
+                "SELECT role, content FROM orch_messages WHERE session_id = :sid AND id < :mid "
+                "ORDER BY id DESC LIMIT :lim"
+            ),
+            {"sid": session_id, "mid": int(before_id), "lim": int(limit)},
+        ).all()
+    finally:
+        conn.close()
+    return [(str(row[0]), str(row[1] or "")) for row in rows]
+
+
+# «Уточните, для какого шота…» → «шот 1»: короткий ответ без исходной просьбы терял её
+# («Не указано, что нужно сделать с шотом 1»). Склеиваем ответ с просьбой, которую уточняли.
+# «Какой взять: шот 1 или шот 2?» — тоже уточнение, хотя слова «уточните» в нём нет.
+_CLARIFY_RE = re.compile(
+    r"(?:^|[.!?;]\s+)уточните(?![а-я])|какой из|какую из|какого из"
+    r"|(?<![а-я])(?:какой|какую|какое|какие|котор\w+)(?![а-я])[^?]{0,80}\?\s*$",
+    re.IGNORECASE,
+)
+_ANSWER_MAX_WORDS = 5
+
+
+def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
+    """Исходная просьба вместе с коротким ответом на уточняющий вопрос чата; иначе None."""
+    words = _TOKEN_RE.findall((reply or "").lower())
+    if not words or len(words) > _ANSWER_MAX_WORDS or has_imperative(reply) or len(previous) < 2:
+        return None
+    (role_a, asked), (role_u, request) = previous[0], previous[1]
+    if role_a != "assistant" or role_u != "user" or not _CLARIFY_RE.search(asked.strip()):
+        return None
+    return f"{request.strip().rstrip('.')}; уточнение: {reply.strip()}"
+
+
+def _has_stop_word(text: str) -> bool:
+    """Есть ли во фразе слово остановки: без него «прервать задачу» модели не верим."""
+    low = (text or "").lower()
+    tokens = _TOKEN_RE.findall(low)
+    return any(token in _STOP_TOKENS or token.startswith(_STOP_STEMS) for token in tokens) or any(
+        phrase in low for phrase in _KILL_PHRASES
+    )
 
 
 def cancel_or_undo(text: str) -> bool:
@@ -285,7 +436,24 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             deterministic=True,
             confidence=1.0,
         )
-    if has_imperative(norm):
+    # «Теперь промты картинок для 26, лимит $0.5»: потолок расхода — это просьба запустить, не вопрос.
+    # «Кадр 14: действие «сова поворачивает голову»» — новое значение поля кадра в кавычках.
+    # «Проект 4: в очередь ИИзменение видео кадра 1» — поставить правку, а не вопрос об очереди.
+    # «Проект 12, кадр 8: ночное освещение» — значение поля кадра без глагола: классификатор
+    # то брал это задачей, то вопросом и отвечал подсказкой команды.
+    field_value = bool(_FRAME_FIELD_RE.search(norm)) and not (
+        tokens and (tokens[0] in _QUESTION_STARTS or tokens[0] in _SHOW_WORDS)
+    )
+    # «Музыка для проекта 4 — файл C:\...gm.wav» — путь к медиафайлу без вопроса: это загрузка.
+    media_file = bool(_MEDIA_PATH_RE.search(norm)) and not (tokens and tokens[0] in _QUESTION_STARTS)
+    sets_field = bool(
+        _FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value or media_file
+    ) and not (norm.rstrip().endswith("?"))
+    if (
+        has_imperative(norm)
+        or sets_field
+        or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?"))
+    ):
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.task,
@@ -404,10 +572,18 @@ class MessageQueue:
             {"text": text, "accepted": True},
             task_id=task_id,
         )
+        parsed = text
+        if mode in (None, MessageMode.task) and not self._card_waiting(session_id):
+            previous = await asyncio.to_thread(_previous_messages, session_id, message_id)
+            last = previous[0] if previous else None
+            command = (
+                suggested_command(last[1]) if is_go_ahead(text) and last and last[0] == "assistant" else None
+            )
+            parsed = command or answered_request(previous, text) or text
         job = asyncio.create_task(
             self._classify(
                 session_id,
-                text,
+                canon_project_refs(parsed),
                 run_id,
                 mode,
                 project_id,
@@ -519,6 +695,23 @@ class MessageQueue:
                         task_id=None if task_id is None else str(task_id),
                     )
                     decided = decided.model_copy(update={"deterministic": False})
+                    if decided.mode is MessageMode.interrupt and not _has_stop_word(text):
+                        # «Проект 12 на каком шаге стоит?»: модель читала «стоит» как «стоп» и отвечала
+                        # «нечего останавливать». Без стоп-слова это вопрос или просьба.
+                        question = is_status_question(text) or is_plain_question(text)
+                        decided = decided.model_copy(
+                            update={"mode": MessageMode.append}
+                            if question
+                            else {"mode": MessageMode.task, "tier": "strong"}
+                        )
+                    if (
+                        decided.mode is MessageMode.interrupt
+                        and task_id is None
+                        and not decided.kill_switch
+                        and _names_project(text)
+                    ):
+                        # «Приостанови проект 21»: задач в чате нет, просьба — пауза проекта, а не стоп чата.
+                        decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})
                     if decided.mode is MessageMode.steer and task_id is None:
                         # Уточнять нечего: прошлая задача закончена — это новая просьба.
                         decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})
@@ -808,11 +1001,15 @@ class MessageQueue:
                 # Число известно без модели (предел параллели): ответить им, а не ошибкой.
                 await self._reply(session_id, fallback, "fallback")
             return
-        from app.orchestrator.agents.summarizer import normalize_links
+        from app.orchestrator.agents.summarizer import normalize_links, strip_order_prefix
 
         parts = deltas or _token_pieces(response.text)
         # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
         answer = normalize_links(str(response.text or ""))
+        # «Проверьте журнал сервера…: да, …» — приказ-пересказ перед сутью ответа не показываем.
+        trimmed = strip_order_prefix(answer)
+        if trimmed != answer:
+            answer, parts = trimmed, _token_pieces(trimmed)
         if not answer.strip():
             # Пустую реплику не пишем и не показываем: пустой пузырь «оркестратор:» без слов.
             logger.warning("orch answer empty for session {}", session_id)

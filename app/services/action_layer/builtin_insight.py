@@ -17,6 +17,7 @@ INSIGHT_IDS: tuple[str, ...] = (
     "node.output",
     "diag.incidents",
     "diag.node_failure",
+    "diag.content_checks",
     "logs.tail",
     "spend.summary",
     "projects.overview",
@@ -74,6 +75,8 @@ _TYPE_RU = {
     "sfx_gen": "Звуки",
     "shot_menu": "Меню съёмки",
     "excel_feed": "Вход Excel",
+    "style_extract": "Разбор стиля",
+    "hitl_style": "Проверка стиля",
 }
 _NODE_STATUS_RU = {
     "pending": "ждёт",
@@ -974,7 +977,18 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
     if checks_text:
         lines.append(f"Проверки: {checks_text}.")
     arts = card["artifacts"]
-    lines.append(f"Файлов результата: {arts['count']}{'+' if arts.get('more') else ''}.")
+    files_line = f"Файлов результата: {arts['count']}{'+' if arts.get('more') else ''}."
+    sample = [str(f) for f in arts.get("sample") or []]
+    if sample and all(Path(f).name == "project.xlsx" for f in sample):
+        # Общая таблица есть у проекта всегда: без числа кадров «1 файл» читается как готовый результат.
+        frames = await _frame_count(_sessions(), pid)
+        if frames is not None:
+            card["frames"] = frames
+            files_line = (
+                f"Файл результата — общая таблица проекта project.xlsx, кадров в проекте: {frames}"
+                + (" (нода ещё не отдала ни одного кадра)." if frames == 0 else ".")
+            )
+    lines.append(files_line)
     excerpt = _text_excerpt(project, list(arts.get("sample") or [])) if project is not None else None
     if excerpt:
         card["text_excerpt"] = excerpt
@@ -1966,6 +1980,7 @@ def _gpt_data_spec() -> ActionSpec:
 
 
 def register_insight(registry: ActionRegistry) -> None:
+    from app.services.action_layer.content_checks_diag import content_checks_spec
     from app.services.action_layer.node_failure import node_failure_spec
 
-    registry.register_many([*_specs(), _gpt_data_spec(), node_failure_spec()])
+    registry.register_many([*_specs(), _gpt_data_spec(), node_failure_spec(), content_checks_spec()])

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Frame, FrameStatus, Project
 from app.services.content_locks import is_ui_locked
 from app.services.plan_validation import is_meaningful_general_plan
+from app.services.xlsx_preview_log import log_info
 
 # --- константы под v8-шаблон ---------------------------------------------
 SHEET_GENERAL_V8 = "Общий план"
@@ -531,7 +532,7 @@ async def bootstrap_frames_for_image_step(
         return result
 
     scan = describe_image_prompts_xlsx_scan(path)
-    logger.info("[#{}] bootstrap_frames_for_image_step: {}", project.id, scan)
+    log_info("[#{}] bootstrap_frames_for_image_step: {}", project.id, scan)
 
     prompts_shot1 = read_image_prompts_from_project_xlsx(path)
     shot2_map = read_shot2_columns(path)
@@ -608,7 +609,7 @@ async def bootstrap_frames_for_image_step(
 
     if result.touched:
         await session.flush()
-        logger.info(
+        log_info(
             "[#{}] bootstrap_frames_for_image_step: R45={} R46={} created={} "
             "shot1={} shot2={} reset_status={}",
             project.id,
@@ -705,7 +706,7 @@ async def import_v8_xlsx(
             if not project.general_plan:
                 project.general_plan = new_plan
                 summary["project_fields_changed"].append("general_plan")
-                logger.info(
+                log_info(
                     "[#{}] xlsx-v8→DB: general_plan заполнен ({} симв)",
                     project.id,
                     len(new_plan),
@@ -714,7 +715,7 @@ async def import_v8_xlsx(
             if project.general_plan != new_plan:
                 project.general_plan = new_plan
                 summary["project_fields_changed"].append("general_plan")
-                logger.info(
+                log_info(
                     "[#{}] xlsx-v8→DB: general_plan обновлён ({} симв)",
                     project.id,
                     len(new_plan),
@@ -729,7 +730,7 @@ async def import_v8_xlsx(
                 if not project.script_text:
                     project.script_text = new_script
                     summary["project_fields_changed"].append("script_text")
-                    logger.info(
+                    log_info(
                         "[#{}] xlsx-v8→DB: script_text заполнен из блоков ({} симв, {} блоков)",
                         project.id,
                         len(new_script),
@@ -739,7 +740,7 @@ async def import_v8_xlsx(
                 if project.script_text != new_script:
                     project.script_text = new_script
                     summary["project_fields_changed"].append("script_text")
-                    logger.info(
+                    log_info(
                         "[#{}] xlsx-v8→DB: script_text обновлён ({} симв, {} блоков)",
                         project.id,
                         len(new_script),
@@ -822,19 +823,19 @@ async def import_v8_xlsx(
 
         if prompts_synced:
             summary["prompts_synced"] = prompts_synced
-            logger.info(
+            log_info(
                 "[#{}] xlsx-v8→DB: подтянуты image/anim prompts для кадров {}",
                 project.id,
                 prompts_synced,
             )
         if summary["frames_created"]:
-            logger.info(
+            log_info(
                 "[#{}] xlsx-v8→DB: создано {} Frame'ов",
                 project.id,
                 len(summary["frames_created"]),
             )
         if summary["frames_updated"]:
-            logger.info(
+            log_info(
                 "[#{}] xlsx-v8→DB: обновлено {} Frame'ов (v8-поля)",
                 project.id,
                 len(summary["frames_updated"]),
