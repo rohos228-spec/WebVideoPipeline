@@ -79,6 +79,8 @@ export function kieChipFields(model: KieModelSpec) {
   return model.fields.filter(
     (f) =>
       !["images", "videos", "audios"].includes(f.kind) &&
-      f.name !== kieMainTextField(model),
+      f.name !== kieMainTextField(model) &&
+      f.name !== "output_format" &&
+      f.name !== "format",
   );
 }
