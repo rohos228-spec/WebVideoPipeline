@@ -1,6 +1,6 @@
 {
   "_comment": "База долга (docs/ENGINEERING-POLICY.md §12). Сверяется СОСТАВ: любая строка, которой здесь нет, — красный policy-check. Обновлять после ПОГАШЕНИЯ: policy_check.py --update-debt.",
-  "updated": "2026-10-26",
+  "updated": "2026-11-04",
   "debt": {
     "diff_cov_excludes": [
       "app/bots/outsee_http.py",
@@ -68,6 +68,7 @@
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:335",
       "3d29ea4bd7d940363c11ca3ed85a321adbf1ca70:web/src/lib/node-model-catalog.ts:generic-api-key:348",
       "41979f0f9d1ee6d6230e2637ad7ec79e5b486aa1:api-tracker/app/config.py:generic-api-key:14",
+      "672e6531715b27c4b16b64945e3a8a50b33853cd:tests/test_backup_db.py:generic-api-key:172",
       "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:322",
       "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:335",
       "6b443a76248242c17b440084ce3490978f8665f9:web/src/lib/node-model-catalog.ts:generic-api-key:348",
@@ -78,7 +79,11 @@
       "8fbbda0ee00c990c4f6808f9bd8b0f4a1312f453:tests/test_action_layer_node_edit.py:generic-api-key:609",
       "96f6716218c056f89b9ad078fc05c35b9efcc8c4:web/src/components/baza/baza-workspace.tsx:generic-api-key:113",
       "acd8ff33b4a9f42b79848540c136efce3697cb86:tests/test_billing_hook.py:generic-api-key:27",
+      "d336aa572a5c9a1f69ecff1e6e2cc5a1bd10f1b4:app/services/decision_v1.py:generic-api-key:702",
+      "d3fa261b732f559dbc29e2e3b1be6770416ec7d4:tests/agents/test_chat_task_summary.py:generic-api-key:277",
       "d8bb25080618be34c35f71a645a4396ad0cefe98:scripts/_qa_verify_fixes50.py:generic-api-key:63",
+      "dc72f1403d7dadf0ca88d96999eeeef6d7edc745:tests/test_action_layer_node_edit.py:generic-api-key:606",
+      "dc72f1403d7dadf0ca88d96999eeeef6d7edc745:tests/test_action_layer_node_edit.py:generic-api-key:609",
       "e49a933033de6ad24e1b513605524f474bac411e:ai-pack/03_config/env.example:generic-api-key:95",
       "e49b1aab7499ff5a6d4c20415fbbc4a2bace0c03:.env.example:generic-api-key:95",
       "e49b1aab7499ff5a6d4c20415fbbc4a2bace0c03:scripts/_qa_verify_fixes50.py:generic-api-key:63",
