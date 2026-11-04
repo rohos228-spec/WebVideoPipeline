@@ -64,6 +64,10 @@ def build_duration_params_block(project: Project, step_code: str, *, header: str
         if step_code == "plan":
             if briefing.get("target_frames"):
                 extra_lines.append(f"Целевое количество сцен/кадров: {briefing['target_frames']}")
+            if briefing.get("scenario_type"):
+                extra_lines.append(f"Жанр и структура сценария: {briefing['scenario_type']}")
+            if briefing.get("aspect_ratio"):
+                extra_lines.append(f"Формат кадра (соотношение сторон): {briefing['aspect_ratio']}")
             if briefing.get("structure"):
                 extra_lines.append(f"Структура и темп сцен: {briefing['structure']}")
             if briefing.get("visual_style"):

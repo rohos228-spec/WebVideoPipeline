@@ -1860,9 +1860,6 @@ export function OrchestratorPanel({ projectId }: Props) {
             </div>
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="font-semibold text-white/95 text-xs tracking-wide shrink-0">ИИ-агент</span>
-              <span className="rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.2 text-[9px] font-mono text-emerald-300 shrink-0">
-                AI Director
-              </span>
             </div>
           </div>
 
@@ -1971,11 +1968,8 @@ export function OrchestratorPanel({ projectId }: Props) {
                   <div className="flex-1 min-w-0 rounded-2xl rounded-tl-sm bg-gradient-to-b from-[#161722]/98 to-[#111218]/98 border border-white/[0.12] p-4 shadow-xl backdrop-blur-md overflow-hidden">
                     <div className="flex items-center justify-between gap-2 mb-2 border-b border-white/[0.08] pb-1.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold tracking-wide bg-gradient-to-r from-white via-emerald-100 to-white/90 bg-clip-text text-transparent">
+                        <span className="text-xs font-bold tracking-wide text-white/95">
                           ИИ-агент
-                        </span>
-                        <span className="rounded-full bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.2 text-[9px] text-emerald-300 font-mono">
-                          AI Director
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2031,13 +2025,13 @@ export function OrchestratorPanel({ projectId }: Props) {
                                 "group inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-all active:scale-95 cursor-pointer",
                                 isCustom
                                   ? "bg-white/[0.06] hover:bg-white/[0.12] border border-white/20 text-white/80 hover:text-white"
-                                  : "bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 hover:border-emerald-400/60 text-emerald-200 hover:text-emerald-100 shadow-sm"
+                                  : "bg-white/[0.06] hover:bg-white/[0.12] border border-white/15 hover:border-white/30 text-white/90 hover:text-white shadow-sm"
                               )}
                             >
                               {isCustom ? (
                                 <Edit3 className="h-3 w-3 text-white/60 group-hover:text-white" />
                               ) : (
-                                <Check className="h-3 w-3 text-emerald-400 group-hover:text-emerald-300" />
+                                <Check className="h-3 w-3 text-white/50 group-hover:text-white/90" />
                               )}
                               <span>{choice}</span>
                             </button>

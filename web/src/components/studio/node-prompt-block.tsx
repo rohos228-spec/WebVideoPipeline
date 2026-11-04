@@ -141,6 +141,43 @@ export function NodePromptBlock({
         const d = cur?.description || (content.data?.content ?? "").split(/\n/).map((l) => l.replace(/^[#>*\-\s]+/, "").trim()).find((l) => l.length >= 20)?.split(/(?<=[.!?])\s/)[0];
         return d ? <p data-vp-prompt-desc className="text-[13px] leading-relaxed text-white/60">{d}</p> : null;
       })()}
+      {stepCode.includes("excel_gpt") ? (
+        <details className="group rounded-md border border-white/10 bg-white/[0.03] p-2.5 text-[12px] text-white/80">
+          <summary className="cursor-pointer select-none font-medium text-white/90 hover:text-white flex items-center justify-between">
+            <span>Шпаргалка: переменные кадров и Data-Flow</span>
+            <span className="text-white/40 text-[10px] group-open:rotate-180 transition-transform">▼</span>
+          </summary>
+          <div className="mt-2.5 space-y-2 border-t border-white/10 pt-2 text-white/70 leading-relaxed">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px]">
+              <div className="p-2 rounded bg-black/40 border border-white/5">
+                <span className="font-semibold text-white/90">Окружение и объекты:</span>
+                <ul className="list-disc list-inside mt-1 space-y-0.5 text-white/60">
+                  <li><code className="text-white/80">место</code> / <code className="text-white/80">фон</code> — сеттинг сцены</li>
+                  <li><code className="text-white/80">предметы</code> — реквизит и ключевые вещи</li>
+                  <li><code className="text-white/80">тип_сцены</code> — крупность плана</li>
+                </ul>
+              </div>
+              <div className="p-2 rounded bg-black/40 border border-white/5">
+                <span className="font-semibold text-white/90">Действие и звук:</span>
+                <ul className="list-disc list-inside mt-1 space-y-0.5 text-white/60">
+                  <li><code className="text-white/80">главное_действие</code> — динамика в кадре</li>
+                  <li><code className="text-white/80">акцент</code> — визуальный/смысловой фокус</li>
+                  <li><code className="text-white/80">смысл_сцены</code> — подтекст / эмоция</li>
+                  <li><code className="text-white/80">логика_перехода</code> — стыковка кадров</li>
+                </ul>
+              </div>
+            </div>
+            <div className="p-2 rounded bg-sky-950/20 border border-sky-500/20 text-[11.5px] text-sky-200/90">
+              <span className="font-semibold text-sky-300">Data-Flow (куда текут переменные):</span>
+              <div className="mt-1 flex flex-col gap-1 text-[11px] text-sky-200/75">
+                <div>• <b>В промпты картинок (05_image_prompts):</b> <code className="text-sky-100">место + фон + предметы + тип_сцены</code></div>
+                <div>• <b>В анимацию видео (07_animation):</b> <code className="text-sky-100">главное_действие + акцент + логика_перехода</code></div>
+                <div>• <b>В SFX / звуки (11_sfx_plan):</b> <code className="text-sky-100">акцент + смысл_сцены</code></div>
+              </div>
+            </div>
+          </div>
+        </details>
+      ) : null}
       <label className="flex flex-col gap-1">
         <span className="text-[13px] text-white/60">Название промта (файл)</span>
         <input className="h-9 rounded-md border border-white/10 bg-[#0a0a0a] px-2 text-[14px] text-white" value={nameDraft} onChange={(e) => setNameDraft(e.target.value)} />
