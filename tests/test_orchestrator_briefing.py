@@ -22,10 +22,11 @@ def test_apply_set_briefing():
     res = _apply_set_briefing(p, {
         "duration": 45,
         "target_frames": 12,
+        "aspect_ratio": "16:9",
         "plan_prompt": "cinematic_story_plan",
         "scenario_type": "Кинематографичная история",
         "voiceover_mode": "full",
-        "hero_mode": "hero",
+        "hero_mode": "Один постоянный Главный Герой",
         "items_consistent": False,
         "visual_style": "3D мультфильм",
         "structure": "динамичный клип",
@@ -36,6 +37,7 @@ def test_apply_set_briefing():
 
     assert "duration=45.0s" in res
     assert "frames=12" in res
+    assert "aspect=16_9" in res
     assert "plan_prompt=cinematic_story_plan" in res
     assert "hero_mode=hero" in res
     assert "subs=on" in res
@@ -47,6 +49,10 @@ def test_apply_set_briefing():
 
     assert briefing["duration_seconds"] == 45.0
     assert briefing["target_frames"] == 12
+    assert briefing["aspect_ratio"] == "16_9"
+    assert p.aspect_ratio == "16_9"
+    assert meta["aspect_ratio"] == "16_9"
+    assert meta["visual_style"] == "3D мультфильм"
     assert briefing["plan_prompt"] == "cinematic_story_plan"
     assert briefing["scenario_type"] == "Кинематографичная история"
     assert briefing["hero_mode"] == "hero"
@@ -60,10 +66,16 @@ def test_apply_set_briefing():
     assert nsp["assemble"]["subtitles_enabled"] is True
     assert subtitles_enabled_for_project(p) is True
 
+    # Check hero_mode normalization for 'no_hero'
+    _apply_set_briefing(p, {"hero_mode": "Без персонажей (только природа)"})
+    assert p.hero_mode == "no_hero"
+
     # 2. Check duration block includes briefing lines
     block_plan = build_duration_params_block(p, "plan", header="Сценарий")
     assert "Целевое количество сцен/кадров: 12" in block_plan
     assert "Длина 45 секунд" in block_plan
+    assert "Жанр и структура сценария: Кинематографичная история" in block_plan
+    assert "Формат кадра (соотношение сторон): 16_9" in block_plan
     assert "Структура и темп сцен: динамичный клип" in block_plan
     assert "Визуальный стиль: 3D мультфильм" in block_plan
 

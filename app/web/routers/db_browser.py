@@ -565,17 +565,19 @@ _ORCHESTRATOR_SYSTEM = (
     "БРИФИНГ ПРОЕКТА (пошаговый опросник подготовки проекта):\n"
     "Если пользователь пишет «Брифинг проекта», «брифинг», «опрос», «начни брифинг», «подготовь проект» или отвечает на вопросы опроса:\n"
     "Веди диалог СТРОГО ПО ОДНОМУ ВОПРОСУ за раз и ВСЕГДА в JSON или в теге <choices>[...]</choices> прикрепляй варианты ответов (choices).\n"
+    "В каждом вопросе ВСЕГДА предлагай ровно 4 готовых варианта + 5-й «Свой ответ» (или «Свой ...»).\n"
     "По мере ответов вызывай действие set_briefing:\n"
-    '{"actions":[{"set_briefing":{...}}], "choices":["Вариант 1", "Вариант 2", "Свой ответ"]}.\n'
+    '{"actions":[{"set_briefing":{...}}], "choices":["Вариант 1", "Вариант 2", "Вариант 3", "Вариант 4", "Свой ответ"]}.\n'
     "Шаги брифинга (строго в таком порядке):\n"
-    "1. Хронометраж и кадры: спроси длительность ролика. Choices: [\"15–20с (Shorts / 4-6 сцен)\", \"30–45с (Стандарт / 8-12 сцен)\", \"60с (Длинный / 15-20 сцен)\", \"Свой ответ\"]. Сохрани duration_seconds и target_frames.\n"
-    "2. Тип сценария и выбор промпта (plan): предложи список типов сценария в виде понятных предложений. Choices: [\"Кинематографичная история (cinematic_story_plan)\", \"Документальный YouTube (default)\", \"Вирусный динамичный Shorts\", \"Свой ответ\"]. Сохрани plan_prompt и scenario_type.\n"
-    "3. Закадровый голос: спроси про плотность дикторского текста. Choices: [\"Плотный закадр (на весь ролик)\", \"Редкие фразы / реплики\", \"Без закадра (только музыка и эффекты)\", \"Свой ответ\"]. Сохрани voiceover_mode и voiceover_chars (при 14 симв/сек).\n"
-    "4. Персонажи и предметы: спроси, нужен ли постоянный Главный Герой (ГГ) и есть ли предметы с критичной консистентностью. Choices: [\"Да, один постоянный ГГ\", \"Несколько персонажей\", \"Без постоянных героев (общие планы / графика)\", \"Есть ключевой предмет\", \"Свой ответ\"]. Сохрани hero_mode (hero/no_hero) и items_consistent.\n"
-    "5. Визуальный стиль: спроси стиль рисовки и анимации (идёт ПЕРЕД монтажом). Choices: [\"Кинематографичный фотореализм\", \"3D мультфильм / CGI\", \"Тёмное фэнтези / Аниме\", \"Свой стиль\"]. Сохрани visual_style и animation_style.\n"
-    "6. Монтаж, структура сцен и переходы: обязательно уточни про МОНТАЖ (темп склеек, субтитры). Choices: [\"Клиповый монтаж с субтитрами (склейки 2–3с)\", \"Плавный киномонтаж без субтитров (склейки 4–6с)\", \"Динамичный с зумами и субтитрами\", \"Свой ответ\"]. Сохрани structure, transitions, subtitles_enabled (True/False).\n"
-    "7. Звукорежиссура и SFX: спроси про звуковые эффекты. Choices: [\"Полноценный SFX (акцентные звуки и шаги)\", \"Только музыка и диктор (без SFX)\", \"Звуки в промте видео\", \"Свой ответ\"]. Сохрани sfx_enabled (True/False).\n"
-    "Финал брифинга: выведи аккуратный итог настроек проекта и предложи choices: [\"Запустить создание сценария (plan)\", \"Показать граф проекта\", \"Свой ответ\"].\n"
+    "1. Хронометраж и длительность ролика: спроси длительность ролика. Choices: [\"15–20 сек (Shorts / 4–6 сцен)\", \"30–45 сек (Стандарт / 8–12 сцен)\", \"60 сек (Сюжет / 15–20 сцен)\", \"2–3 мин (Лонг / 30–50 сцен)\", \"Свой хронометраж\"]. Сохрани duration_seconds и target_frames.\n"
+    "2. Формат кадра (соотношение сторон): спроси формат видео. Choices: [\"9:16 Вертикальный (Shorts, Reels, TikTok)\", \"16:9 Горизонтальный (YouTube, ТВ)\", \"1:1 Квадратный (Ленты соцсетей)\", \"21:9 Кинематографичный (Ultra-wide)\", \"Свой формат\"]. Сохрани aspect_ratio (9_16, 16_9, 1_1, 21_9).\n"
+    "3. Жанр и структура сценария (plan): спроси тип сценария. Choices: [\"Кинематографичная история (драма, конфликт)\", \"Документальный YouTube (хроника, факты)\", \"Эксплейнер / Обучающий (проблема → решение)\", \"Топ-лист / Подборка (перечень фактов)\", \"Свой сценарий / из файла\"]. Сохрани scenario_type и plan_prompt (cinematic_story_plan или default).\n"
+    "4. Плотность дикторского текста (script): спроси про темп закадра. Choices: [\"Плотный нарратив (непрерывный рассказ)\", \"Сбалансированный темп (речь с паузами)\", \"Лаконичные реплики (редкие хуки)\", \"Без диктора (музыка, титры, SFX)\", \"Свой объём закадра\"]. Сохрани voiceover_mode и voiceover_chars (при 14 симв/сек).\n"
+    "5. Персонажи и предметы (hero/items): спроси про состав персонажей и реквизит. Choices: [\"Один постоянный Главный Герой (модельный лист)\", \"Ансамбль из 2–3 персонажей\", \"Без персонажей (локации, техника, графика)\", \"Сюжет вокруг ключевого предмета\", \"Свой состав героев\"]. Сохрани hero_mode (hero, no_hero, auto) и items_consistent (True/False).\n"
+    "6. Визуальный стиль и анимация: спроси художественный стиль. Choices: [\"Кинематографичный фотореализм (35mm кино)\", \"3D мультфильм / CGI Pixar (сочный объём)\", \"Тёмный нуар / Аниме (контрастная графика)\", \"Пластилиновый стоп-моушен / Claymation\", \"Свой художественный стиль\"]. Сохрани visual_style и animation_style.\n"
+    "7. Монтаж, нарезка и субтитры: спроси ритм склеек и субтитры. Choices: [\"Клиповый динамичный с субтитрами (2–3с)\", \"Плавный киномонтаж без субтитров (4–6с)\", \"Нарезка строго по предложениям с субтитрами\", \"Размеренный документальный с субтитрами\", \"Свой стиль монтажа\"]. Сохрани structure, transitions, montage, subtitles_enabled (True/False).\n"
+    "8. Звукорежиссура и SFX: спроси про саунд-дизайн. Choices: [\"Полный саунд-дизайн (диктор + музыка + SFX)\", \"Музыка + диктор (без SFX шумов)\", \"Эмбиент и звуки окружения (ASMR + музыка)\", \"Нативный звук видеогенераторов (Kling)\", \"Своя звуковая схема\"]. Сохрани sfx_enabled (True/False) и sfx_mode.\n"
+    "Финал брифинга: выведи аккуратный итог настроек проекта и предложи choices: [\"Запустить весь пайплайн (Сценарий → Монтаж)\", \"Запустить только сценарий (нода plan)\", \"Показать граф и настройки проекта\", \"Внести изменения в параметры\", \"Свой ответ\"].\n"
     "ВАЖНО ПО ФОРМАТУ ОТВЕТА: технический JSON (actions, ops) помещай в ответ, "
     "но в человеческом тексте ответа НИКОГДА не дублируй сырой JSON (например, "
     "не пиши {\"actions\":[{\"run_step\":\"plan\"}]}). Человек видит действия в виде плашек "
@@ -1128,6 +1130,28 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
         except (ValueError, TypeError):
             pass
 
+    # 1b. Формат кадра (Aspect Ratio)
+    if "aspect_ratio" in data or "aspect" in data:
+        raw_ar = str(data.get("aspect_ratio") or data.get("aspect") or "").strip()
+        if raw_ar:
+            clean_ar = raw_ar.replace(":", "_").lower()
+            if "9_16" in clean_ar or ("9" in clean_ar and "16" in clean_ar and clean_ar.startswith("9")):
+                clean_ar = "9_16"
+            elif "16_9" in clean_ar or ("16" in clean_ar and "9" in clean_ar):
+                clean_ar = "16_9"
+            elif "1_1" in clean_ar:
+                clean_ar = "1_1"
+            elif "21_9" in clean_ar:
+                clean_ar = "21_9"
+            elif "4_5" in clean_ar:
+                clean_ar = "4_5"
+            elif "4_3" in clean_ar:
+                clean_ar = "4_3"
+            project.aspect_ratio = clean_ar
+            meta["aspect_ratio"] = clean_ar
+            briefing["aspect_ratio"] = clean_ar
+            updated_keys.append(f"aspect={clean_ar}")
+
     # 2. Тип сценария / промпт плана
     if "plan_prompt" in data or "scenario_prompt" in data:
         p_var = str(data.get("plan_prompt") or data.get("scenario_prompt") or "").strip()
@@ -1168,11 +1192,18 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
 
     # 4. Персонажи и предметы
     if "hero_mode" in data:
-        hm = str(data["hero_mode"]).strip().lower()
-        if hm in ("hero", "no_hero", "auto"):
-            project.hero_mode = hm
-            briefing["hero_mode"] = hm
-            updated_keys.append(f"hero_mode={hm}")
+        raw_hm = str(data["hero_mode"]).strip().lower()
+        if any(w in raw_hm for w in ("без", "no", "нет")):
+            hm = "no_hero"
+        elif any(w in raw_hm for w in ("один", "hero", "да", "гг")):
+            hm = "hero"
+        elif any(w in raw_hm for w in ("несколько", "ансамбль", "auto")):
+            hm = "auto"
+        else:
+            hm = raw_hm if raw_hm in ("hero", "no_hero", "auto") else "hero"
+        project.hero_mode = hm
+        briefing["hero_mode"] = hm
+        updated_keys.append(f"hero_mode={hm}")
 
     if "items_consistent" in data:
         briefing["items_consistent"] = bool(data["items_consistent"])
@@ -1184,11 +1215,15 @@ def _apply_set_briefing(project: Project, data: dict) -> str:
 
     # 5. Стиль рисовки и анимации (идёт перед монтажом)
     if "visual_style" in data:
-        briefing["visual_style"] = str(data["visual_style"]).strip()
+        v_style = str(data["visual_style"]).strip()
+        briefing["visual_style"] = v_style
+        meta["visual_style"] = v_style
         updated_keys.append("visual_style")
 
     if "animation_style" in data:
-        briefing["animation_style"] = str(data["animation_style"]).strip()
+        a_style = str(data["animation_style"]).strip()
+        briefing["animation_style"] = a_style
+        meta["animation_style"] = a_style
         updated_keys.append("animation_style")
 
     # 6. Структура сцен, переходы и МОНТАЖ
