@@ -109,7 +109,7 @@ def list_names(step_code: str, scope: PromptScope | None = None) -> list[str]:
     from app.services.studio_auth import current_is_admin
 
     if current_is_admin():
-        for (tenant, brand, project_id, step, name) in _CACHE:
+        for (_tenant, _brand, _project_id, step, name) in _CACHE:
             if step == step_code:
                 clean = name[:-3] if name.lower().endswith(".md") else name
                 if clean:
@@ -142,7 +142,7 @@ def resolve_with_source(
 
     if current_is_admin() or sc.tenant_id is None:
         for cand in _name_candidates(name):
-            for (tenant, brand, project_id, step, n), text in _CACHE.items():
+            for (_tenant, _brand, _project_id, step, n), text in _CACHE.items():
                 if step == step_code and n == cand:
                     return text, "tenant"
     return None, "disk"

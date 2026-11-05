@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+
 from app.services import prompt_store
-from app.services.prompt_library import read_resolved_project_prompt, resolve_project_prompt_with_source
+from app.services.prompt_library import read_resolved_project_prompt
 from app.services.prompt_store import PromptScope
-from app.services.tenant import current_tenant, tenant_scope
 from app.services.studio_auth import StudioIdentity, set_identity
+from app.services.tenant import current_tenant, tenant_scope
 from app.settings import settings
 
 
