@@ -362,6 +362,11 @@ def _models_text_ru(data: dict) -> str:
         + (f" ({cur['price_ru']})" if cur.get("price_ru") else "")
         + "."
     ]
+    if cur.get("from_project") and cur.get("known") is False:
+        lines.append(
+            "Это генератор из настроек проекта, а в каталоге студии его нет: шаг с ним не пойдёт, "
+            "выберите модель из списка ниже."
+        )
     options = [o for o in data.get("options") or [] if isinstance(o, dict)]
     if not options:
         lines.append("Других моделей для этой ноды в каталоге нет.")

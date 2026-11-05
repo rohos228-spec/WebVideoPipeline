@@ -91,6 +91,8 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
 
 _CHECK = re.compile(r"провер|сверь|сверить|сходит|совпада")
 _SHOW = re.compile(r"покажи|выведи|выгрузи|список|таблиц|какие\s+промт")
+_WHERE = re.compile(r"где\b.{0,40}(?:леж|посмотр|найти|хран|увидет|смотрет)|(?:леж|хран)\w*.{0,20}где")
+_STYLE = re.compile(r"стил|пластилин|нуар|вязан")
 _PROMPTS = re.compile(r"промт|промпт|prompt|картин|изображ|герои|персонаж")
 
 
@@ -108,16 +110,47 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
     просьба проверить при плане из одних чтений — это проверка промтов.
     """
     text = str(goal or "").lower()
+    planned_ids = {s.params.get("project_id") for s in plan if isinstance(s.params.get("project_id"), int)}
+    if (
+        _STYLE.search(text)
+        and _PROMPTS.search(text)
+        and len(planned_ids) == 1
+        and not any(_changes(step) or step.action == "diag.content_checks" for step in plan)
+    ):
+        # «Картинки без стиля, найди где теряется», «стиль пропал в промтах»: планировщик читал
+        # таблицу и ноды, а проверку стиля в промтах не ставил — ответ «подтвердить нельзя».
+        check = PlanStep(
+            action="diag.content_checks",
+            params={"project_id": planned_ids.pop(), "step": "img_pr"},
+            expected="Есть ли стиль проекта в промтах картинок и в каких кадрах его нет",
+        )
+        return [check, *plan]
+    if _WHERE.search(text) and re.search(r"промт|промпт", text) and len(planned_ids) == 1:
+        if not any(_changes(step) for step in plan):
+            # «Где лежат промты, которые нагенерило»: планировщик звал выгрузку по чужой ноде (404).
+            return [
+                PlanStep(
+                    action="diag.content_checks",
+                    params={"project_id": next(iter(planned_ids)), "step": "img_pr"},
+                    expected="Где лежат промты картинок и сколько их",
+                )
+            ]
     if _PROMPTS.search(text):
         found = _PROJECT.search(text)
+        # В доке проекта номер не пишут («проверь промпты картинок»): проект — из плана.
+        planned = {
+            step.params.get("project_id") for step in plan if isinstance(step.params.get("project_id"), int)
+        }
+        pid = (
+            int(found.group(1) or found.group(2)) if found else (planned.pop() if len(planned) == 1 else None)
+        )
         if (
-            found
+            pid is not None
             and _CHECK.search(text)
             and not _SHOW.search(text)
             and plan
             and not any(_changes(step) or step.action == "diag.content_checks" for step in plan)
         ):
-            pid = int(found.group(1) or found.group(2))
             return [
                 PlanStep(
                     action="diag.content_checks",

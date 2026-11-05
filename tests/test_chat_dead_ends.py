@@ -97,3 +97,72 @@ def test_summary_says_style_present_or_absent() -> None:
     none = cc.make_report("img_pr", [], frames=2)
     none["style"] = cc.style_state(_rows("an owl", "she felt a fox"), None)
     assert "Ни в одном из 2" in cc.summary_text(none)
+
+
+def test_style_question_task_gets_style_check() -> None:
+    from app.orchestrator.agents.failure_scope import content_check_scope
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [PlanStep(action="report.gpt_data", params={"project_id": 10}, expected="таблица")]
+    for goal in ("стиль куда то пропал в промтах, глянь", "у меня картинки без стиля, найди где он теряется"):
+        out = content_check_scope(plan, goal)
+        assert out[0].action == "diag.content_checks" and out[0].params == {
+            "project_id": 10,
+            "step": "img_pr",
+        }
+
+
+def test_check_prompts_without_number_uses_plan_project() -> None:
+    from app.orchestrator.agents.failure_scope import content_check_scope
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [PlanStep(action="report.gpt_data", params={"project_id": 10}, expected="таблица")]
+    out = content_check_scope(plan, "проверь промпты картинак")
+    assert [s.action for s in out] == ["diag.content_checks"]
+
+
+def test_frame_numbers_from_phrase() -> None:
+    from app.orchestrator.agents.data_report import frame_numbers
+
+    assert frame_numbers("покажи промт третьего кадра") == [3]
+    assert frame_numbers("какой промт у 7 кадра") == [7]
+    assert frame_numbers("кадр №12 и кадр 4") == [4, 12]
+    assert frame_numbers("сделай картинки для первых трех кадров") == []
+
+
+def test_capability_questions_get_help() -> None:
+    from app.orchestrator.small_talk import HELP_TEXT, small_talk_reply
+
+    for text in ("а ты вообще что умеешь", "че ты можешь?", "что ты умеешь делать вообще"):
+        assert small_talk_reply(text) == HELP_TEXT
+    assert small_talk_reply("что ты можешь сделать с проектом 4") is None
+
+
+def test_role_and_past_questions_are_not_tasks() -> None:
+    from app.orchestrator.queue import classify_deterministic
+
+    for text in ("что делает нода работа с гпт", "зачем нужна нода персонажи", "я запускал промты картинок"):
+        got = classify_deterministic(text)
+        assert got is not None and got.mode.value == "append", text
+
+
+def test_prompt_length_and_split_questions_route_to_checks() -> None:
+    assert ("diag.content_checks", {"project_id": 10, "step": "img_pr"}) in plan_reads(
+        "почему промты такие короткие", 10
+    )
+    assert ("diag.content_checks", {"project_id": 10, "step": "split"}) in plan_reads(
+        "почему разбивка дала 28 кадров", 10
+    )
+    assert ("diag.content_checks", {"project_id": 10, "step": "split"}) in plan_reads(
+        "откуда столько кадров", 10
+    )
+
+
+def test_summary_explains_prompt_sizes_and_frame_counts() -> None:
+    img = cc.make_report("img_pr", [], frames=2)
+    img["prompt_sizes"] = {"min": 100, "median": 150, "max": 200, "n": 2}
+    assert "от 100 до 200 знаков" in cc.summary_text(img)
+    split = cc.make_report("split", [], frames=28)
+    split["counts"] = {"frames": 28, "with_vo": 20, "requested": None}
+    text = cc.summary_text(split)
+    assert "с закадровым текстом 20" in text and "ещё 8" in text

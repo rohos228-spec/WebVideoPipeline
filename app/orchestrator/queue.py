@@ -191,6 +191,7 @@ _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IM
 _PAST_RUN_RE = re.compile(
     r"(?<![а-я])(?:за|про)?(?:пускал|пустил|гонял|гнал)(?:а|и|ось)?(?![а-я])|(?<![а-я])отработал\w*"
 )
+_ROLE_Q_RE = re.compile(r"что\s+(?:вообще\s+)?делает|зачем\s+нуж|для\s+чего|что\s+значит|как\s+работает")
 _NEGATIONS = frozenset({"не", "ни"})
 
 
@@ -465,7 +466,9 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             deterministic=True,
             confidence=1.0,
         )
-    if _PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm):
+    # «Что делает нода работа с гпт», «зачем нужна разбивка»: вопрос о роли, не задача.
+    role_q = bool(tokens) and tokens[0] in _QUESTION_STARTS and bool(_ROLE_Q_RE.search(norm))
+    if role_q or (_PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm)):
         return ClassifyResult(
             tier="fast",
             mode=MessageMode.append,

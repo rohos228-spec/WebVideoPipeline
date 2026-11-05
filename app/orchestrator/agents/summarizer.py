@@ -12,7 +12,8 @@ from app.orchestrator.agents.question_context import ANSWER_RULES, fact_limit, f
 _TIMEOUT_S = 90.0
 _FACT_LIMIT = 1200
 _TOTAL_LIMIT = 9000
-_STEP_LIMIT = 8
+_STEP_LIMIT = 12
+_FACT_PRIORITY = {"diag.content_checks": 0, "diag.node_failure": 0, "project.status": 1, "diag.incidents": 1}
 _STEP_SUMMARY = 300
 APPROVAL_EXPIRED = "approval_expired"
 APPROVAL_EXPIRED_TEXT = "Подтверждение не дали вовремя — задача отменена, ничего не изменено."
@@ -122,8 +123,7 @@ FRAME_DELETE_HINT = (
 _DELETE_VERB = re.compile(r"(?<![а-я])(?:удал|сотр|стер)|(?<![а-я])убер\w*.{0,30}совсем")
 _BOARD_THING = re.compile(r"кадр|сцен|шот|картин|видео")
 DELETE_REFUSED = (
-    "Удалять через чат нельзя, так задумано. Кадры, картинки и видео удаляются вручную "
-    "на доске монтажа."
+    "Удалять через чат нельзя, так задумано. Кадры, картинки и видео удаляются вручную на доске монтажа."
 )
 
 
@@ -157,7 +157,13 @@ def _other_reasons(reason: str) -> str:
         part = re.sub(r"^\s*(?:кроме того|также|и)\s*,?\s*", "", part.strip(), flags=re.IGNORECASE)
         low = part.lower()
         # «Нужно добавить его или уточнить способ» — совет разработчику, не человеку.
-        if not part or _MISSING_ACTION.search(part) or "_" in part or "каталог" in low or _DEV_ADVICE.search(low):
+        if (
+            not part
+            or _MISSING_ACTION.search(part)
+            or "_" in part
+            or "каталог" in low
+            or _DEV_ADVICE.search(low)
+        ):
             continue
         keep.append(part[:1].upper() + part[1:])
     text = ". ".join(keep)[:300].strip()
@@ -634,7 +640,9 @@ def _board_text(body: dict[str, Any]) -> str:
         text = " ".join(str(frame.get("voiceover_text") or "").split())
         two = ", два шота" if frame.get("has_shot2") else ""
         media = [name for name, key in (("картинка", "has_image"), ("видео", "has_video")) if frame.get(key)]
-        have = f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
+        have = (
+            f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
+        )
         lines.append(f"• кадр {frame.get('number')}{two}{have}: {text[:90] or 'без текста'}")
     if "frames_with_image" in body:
         lines.append(
@@ -693,7 +701,11 @@ def _insert_frame_text(body: dict[str, Any]) -> str:
 def _swap_shots_text(body: dict[str, Any]) -> str:
     what = [
         name
-        for key, name in (("images_swapped", "картинки"), ("videos_swapped", "видео"), ("prompts_swapped", "промты"))
+        for key, name in (
+            ("images_swapped", "картинки"),
+            ("videos_swapped", "видео"),
+            ("prompts_swapped", "промты"),
+        )
         if body.get(key)
     ]
     if not what:
@@ -706,9 +718,7 @@ def _queue_ops_text(body: dict[str, Any]) -> str:
     if not n:
         return ""
     total = body.get("total_in_queue") or n
-    return (
-        f"Поставил в очередь правок монтажа {n}, всего в очереди {total}.{_APPLY_QUEUE_HINT}"
-    )
+    return f"Поставил в очередь правок монтажа {n}, всего в очереди {total}.{_APPLY_QUEUE_HINT}"
 
 
 def _merge_scenes_text(body: dict[str, Any]) -> str:
@@ -728,7 +738,6 @@ def _cancel_queue_text(body: dict[str, Any]) -> str:
     return f"Убрал из очереди правок {removed}, осталось {left}."
 
 
-
 def _video_trim_text(body: dict[str, Any]) -> str:
     key = str(body.get("key") or "")
     if ":" not in key:
@@ -738,7 +747,11 @@ def _video_trim_text(body: dict[str, Any]) -> str:
     if not trim:
         return f"Обрезка видео снята: кадр {frame}, шот {shot}."
     end = trim.get("end")
-    span = f"с {trim.get('start', 0):g} по {end:g} с" if end is not None else f"с {trim.get('start', 0):g} с до конца"
+    span = (
+        f"с {trim.get('start', 0):g} по {end:g} с"
+        if end is not None
+        else f"с {trim.get('start', 0):g} с до конца"
+    )
     return f"Обрезка видео задана: кадр {frame}, шот {shot}, {span}."
 
 
@@ -759,6 +772,7 @@ def _swap_slots_text(body: dict[str, Any]) -> str:
         f"Поменял местами {what}: кадр {body['a_frame']} (шот {body['a_shot']}) "
         f"и кадр {body['b_frame']} (шот {body['b_shot']})."
     )
+
 
 _KNOWN_TEXT = {
     "montage.get_board": _board_text,
@@ -1503,15 +1517,22 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     )
     used = 0
     lines = ["Факты, прочитанные шагами задачи:"]
-    for note in facts.steps[:_STEP_LIMIT]:
+    # «Найди, где теряется стиль»: план из десяти чтений, проверка стиля шла десятой и в ответ
+    # не попадала (брались первые 8 шагов, большой отчёт съедал весь объём). Разборы и
+    # проверки — первыми, длинный факт обрезается, а не выбрасывает всё после себя.
+    ordered = sorted(facts.steps, key=lambda n: _FACT_PRIORITY.get(n.action, 2))
+    for note in ordered[:_STEP_LIMIT]:
         body = (
             _fact_text(note, quotes, shown)
             if note.ok and note.text
             else ("прочитать не удалось: " + note.error if note.error else "пусто")
         )
         chunk = f"[{note.title}] {body}"
-        if used + len(chunk) > _TOTAL_LIMIT:
-            break
+        room = _TOTAL_LIMIT - used
+        if len(chunk) > room:
+            if room < 400:
+                continue
+            chunk = chunk[: room - 1] + "…"
         used += len(chunk)
         lines.append(chunk)
     return [

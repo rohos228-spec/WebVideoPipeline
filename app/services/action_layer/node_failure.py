@@ -849,17 +849,19 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     fixes = fix_options(
         cause, project_id=pid, node_key=key, step_code=step, upstream=up, upstream_title=up_title
     )
-    model = bi._model_for(meta, key, node, raw, eff) or None
+    model = bi._model_for(meta, key, node, raw, eff, image_generator=bi._project_generator(detail)) or None
     prompt = bi._prompt_for(detail, key, raw, eff)
 
     lines = [f"Нода «{title}» ({key}), шаг {bi._step_ru(step)}: {status}."]
     if how != "названа в просьбе":
         lines.append(f"Нода выбрана сама: {how}.")
-    if nr:
-        lines.append(f"Попыток запуска: {int(nr.get('attempts') or 0)}.")
+    if nr and int(nr.get("attempts") or 0) > 1:
+        # Счётчик повторов: у готовой ноды он 0, и чат отвечал «запусков не было».
+        lines.append(f"Повторов запуска: {int(nr.get('attempts') or 0)}.")
     took = run_seconds(nr)
+    ended = str((nr or {}).get("finished_at") or "")[:16].replace("T", " ")
     if took is not None:
-        lines.append(f"Последний запуск длился {format_seconds(took)}.")
+        lines.append(f"Последний запуск закончился {ended} UTC и длился {format_seconds(took)}.")
     quick = (
         took is not None
         and took < _QUICK_RUN_S

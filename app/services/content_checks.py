@@ -618,9 +618,12 @@ async def run_checks(session: Any, project: Any, step: str, *, with_vo: bool = T
     meta = project.meta if isinstance(getattr(project, "meta", None), dict) else {}
     if with_vo and step in ("split", "enrich", "img_pr") and frames:
         findings += vo_findings(vo, vo_cells(frames), step=step)
+    counts = None
     if step == "split" and frames:
         parents = [fr for fr in frames if (fr.voiceover_text or "").strip()]
         findings += count_findings(len(parents), requested_frame_count(project))
+        # «Почему разбивка дала 28 кадров»: сколько из них с закадром, а сколько доп. шотов.
+        counts = {"frames": len(frames), "with_vo": len(parents), "requested": requested_frame_count(project)}
         if meta.get("split_degraded_no_llm"):
             findings.append(
                 _finding(
@@ -658,8 +661,20 @@ async def run_checks(session: Any, project: Any, step: str, *, with_vo: bool = T
         findings += style_findings(own, want)
         report = make_report(step, findings, frames=len(frames))
         report["style"] = style_state(own, want)
+        sizes = sorted(len(str(r["prompt"]).strip()) for r in own if str(r.get("prompt") or "").strip())
+        if sizes:
+            # «Почему промты такие короткие»: длины видны, без них чат отвечал «данных нет».
+            report["prompt_sizes"] = {
+                "min": sizes[0],
+                "median": sizes[len(sizes) // 2],
+                "max": sizes[-1],
+                "n": len(sizes),
+            }
         return report
-    return make_report(step, findings, frames=len(frames))
+    report = make_report(step, findings, frames=len(frames))
+    if counts:
+        report["counts"] = counts
+    return report
 
 
 def make_report(step: str, findings: list[dict], *, frames: int) -> dict[str, Any]:
@@ -866,6 +881,27 @@ def summary_text(report: dict[str, Any]) -> str:
             f"Герои в промтах картинок не совпали с кадрами (находок: {len(bad)})."
             if bad
             else "Герои в промтах картинок совпадают с персонажами кадров."
+        )
+    counts = report.get("counts") if isinstance(report.get("counts"), dict) else None
+    if counts:
+        extra = counts["frames"] - counts["with_vo"]
+        heroes = (
+            f"Кадров {counts['frames']}: с закадровым текстом {counts['with_vo']}"
+            + (f", ещё {extra} — дополнительные шоты тех же сцен без своего закадра" if extra > 0 else "")
+            + (
+                f". В сценарии просили {counts['requested']} кадров."
+                if counts.get("requested")
+                else ". Числа кадров сценарий явно не задавал — его выбрала модель разбивки по смыслу текста."
+            )
+        )
+    sizes = report.get("prompt_sizes") if isinstance(report.get("prompt_sizes"), dict) else None
+    if sizes:
+        heroes = (
+            f"Длина промтов картинок ({sizes['n']} шт.): от {sizes['min']} до {sizes['max']} знаков, "
+            f"обычно около {sizes['median']}. Длину задаёт вариант промта ноды «Промты картинок» "
+            "и модель, которая его выполняет. Промты лежат не в файлах, а в кадрах проекта (поле "
+            "«Промт картинки»): их видно в таблице кадров и в меню съёмки, целиком — по фразе "
+            "«покажи промт кадра 3». " + heroes
         )
     state = report.get("style") if isinstance(report.get("style"), dict) else None
     if style is None and state:

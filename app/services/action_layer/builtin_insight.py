@@ -530,7 +530,16 @@ def _harness_checks(meta: dict) -> tuple[list[dict], dict]:
     return checks, tel
 
 
-def _model_for(meta: dict, key: str, node: dict | None, raw: str, eff: str) -> str:
+def _project_generator(detail: dict | None) -> str | None:
+    d = detail if isinstance(detail, dict) else {}
+    settings = d.get("settings") if isinstance(d.get("settings"), dict) else {}
+    gid = d.get("image_generator") or settings.get("image_generator")
+    return str(gid).strip() if gid else None
+
+
+def _model_for(
+    meta: dict, key: str, node: dict | None, raw: str, eff: str, *, image_generator: str | None = None
+) -> str:
     from app.services.excel_gpt_node import is_excel_gpt_node_type
     from app.services.node_groups import is_script_frames_qc_gpt_node
 
@@ -549,6 +558,12 @@ def _model_for(meta: dict, key: str, node: dict | None, raw: str, eff: str) -> s
 
     mid, channel = read_node_model_fields(node)
     explicit = bool(mid)
+    if not explicit and eff in _IMAGE_TYPES and image_generator:
+        # Нода без своей модели идёт на генераторе проекта (как шаг картинок), а не на модели
+        # каталога «по умолчанию»: чат называл три разные модели на один вопрос.
+        from app.orchestrator.agents.project_nodes import _project_image_model
+
+        return _project_image_model(image_generator)
     mid = mid or default_model_id_for_node_type(raw or eff)
     try:
         found = find_model(mid, channel=channel)
@@ -750,7 +765,7 @@ def _node_card(
         "status_ru": status,
         "attempts": int((nr or {}).get("attempts") or 0),
         "progress": _clip((nr or {}).get("progress_text"), 160) or None,
-        "model": _model_for(meta, key, node, raw, eff) or None,
+        "model": _model_for(meta, key, node, raw, eff, image_generator=_project_generator(detail)) or None,
         "prompt": _prompt_for(detail, key, raw, eff),
         "harness": own_checks,
         "gate": gate,
@@ -797,6 +812,31 @@ def _row_status(row) -> str:
         return ""
     raw = row.status
     return str(raw.value if hasattr(raw, "value") else raw or "")
+
+
+async def _prompts_in_frames(pid: int, node_type: str) -> tuple[int, int] | None:
+    """Сколько кадров с промтом у нод промтов картинок / анимации: (с промтом, всего)."""
+    from sqlalchemy import func, select
+
+    from app.models import Frame
+
+    column = {"image_prompts": Frame.image_prompt, "animation_prompts": Frame.animation_prompt}.get(node_type)
+    if column is None:
+        return None
+    try:
+        async with _sessions()() as s:
+            total = int(await s.scalar(select(func.count(Frame.id)).where(Frame.project_id == pid)) or 0)
+            filled = int(
+                await s.scalar(
+                    select(func.count(Frame.id)).where(
+                        Frame.project_id == pid, column.is_not(None), column != ""
+                    )
+                )
+                or 0
+            )
+    except Exception:
+        return None
+    return filled, total
 
 
 async def _frame_count(factory, pid: int) -> int | None:
@@ -940,6 +980,18 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
         lines.append("Идёт генерация" + (f": {', '.join(out['running_nodes'])}." if running else "."))
     if failed:
         lines.append(f"Ноды с ошибкой: {', '.join(out['failed_nodes'])}.")
+    idle = nxt and not (
+        out["generation_active"] or running or failed or pause["user_stop"] or pause["reason"]
+    )
+    if idle:
+        # «Почему он стоит»: шаг готов, ошибок нет — чат отвечал «в данных не указано».
+        if not out["auto_mode"]:
+            lines.append(
+                f"Почему стоит: автозапуск шагов выключен, следующий шаг «{nxt['title']}» ждёт ручного "
+                f"запуска (▶ на ноде или «запусти {str(nxt['title']).lower()}» в чате)."
+            )
+        else:
+            lines.append(f"Автозапуск включён, но шаг «{nxt['title']}» ещё не начат: возможно, ждёт очереди.")
     if open_incidents:
         lines.append(f"Открытых инцидентов: {open_incidents}.")
     if managed:
@@ -988,6 +1040,15 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
                 f"Файл результата — общая таблица проекта project.xlsx, кадров в проекте: {frames}"
                 + (" (нода ещё не отдала ни одного кадра)." if frames == 0 else ".")
             )
+    filled = await _prompts_in_frames(pid, str((node or {}).get("type") or (nr or {}).get("node_type") or ""))
+    if filled is not None:
+        # «Где посмотреть, что выдала нода промтов»: файлов у неё нет, результат — поле кадров;
+        # чат отвечал «файлов 0, посмотреть не получится».
+        card["frames_with_prompt"] = filled
+        files_line = (
+            f"Результат ноды записан не в файлы, а в кадры: промт есть у {filled[0]} из {filled[1]} кадров. "
+            "Смотреть — в таблице кадров проекта (меню съёмки) или спросить в чате «покажи промт кадра 3»."
+        )
     lines.append(files_line)
     excerpt = _text_excerpt(project, list(arts.get("sample") or [])) if project is not None else None
     if excerpt:
@@ -1942,7 +2003,8 @@ def _gpt_data_spec() -> ActionSpec:
         "персонажи, действие, промты картинок и видео), список персонажей и сцен. node_key — одна "
         "нода (n_excel_gpt_1), иначе все. preset: standard (по умолчанию), scenes_characters "
         "(«только сцены и персонажи»), image_prompts («с промтами картинок»), animation_prompts, "
-        "full; columns — свои колонки. Таблица в чате и файлы xlsx и html. Только чтение, бесплатно.",
+        "full; columns — свои колонки; frames — только эти номера кадров («промт кадра 3» → [3], до трёх "
+        "кадров тексты целиком). Таблица в чате и файлы xlsx и html. Только чтение, бесплатно.",
         params_schema=_schema(
             {
                 "project_id": _PID,
@@ -1954,6 +2016,8 @@ def _gpt_data_spec() -> ActionSpec:
                     "maxItems": len(fmt.FRAME_COLUMNS),
                 },
                 "kind": {"type": "string", "enum": ["chat", "json", "xlsx", "html"], "default": "chat"},
+                # «Покажи промт третьего кадра»: только эти кадры; до трёх — тексты целиком.
+                "frames": {"type": "array", "items": {"type": "integer", "minimum": 1}, "maxItems": 40},
             },
             ["project_id"],
         ),

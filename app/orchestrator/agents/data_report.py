@@ -100,7 +100,36 @@ def report_params(text: str, project_id: int | None) -> dict[str, Any] | None:
         params["preset"] = preset
     if extra:
         params["columns"] = [*fmt.PRESETS[preset], *extra]
+    nums = frame_numbers(low)
+    if nums:
+        params["frames"] = nums
     return params
+
+
+_FRAME_ORDINALS = {
+    "перв": 1,
+    "втор": 2,
+    "трет": 3,
+    "четверт": 4,
+    "пят": 5,
+    "шест": 6,
+    "седьм": 7,
+    "восьм": 8,
+    "девят": 9,
+    "десят": 10,
+}
+_FRAME_NUM = re.compile(r"кадр\w*\s+(?:№\s*)?(\d{1,3})(?!\d)|(\d{1,3})\s*(?:-?(?:й|го|м|ом))?\s+кадр")
+_FRAME_ORD = re.compile(r"(перв|втор|трет|четверт|пят|шест|седьм|восьм|девят|десят)\w*\s+кадр")
+
+
+def frame_numbers(low: str) -> list[int]:
+    """Номера кадров из просьбы: «кадр 3», «3 кадра», «третьего кадра»."""
+    out = [int(a or b) for a, b in _FRAME_NUM.findall(low)]
+    out += [_FRAME_ORDINALS[m] for m in _FRAME_ORD.findall(low)]
+    # «первых трёх кадров» — диапазон, а не кадр 3.
+    if re.search(r"(?:перв\w*|последн\w*)\s+(?:\d+|дв|тр|четыр|пят)\w*\s+кадр", low):
+        return []
+    return sorted(set(n for n in out if n > 0))[:10]
 
 
 def report_step(text: str, project_id: int | None) -> dict[str, Any] | None:
