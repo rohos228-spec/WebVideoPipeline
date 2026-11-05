@@ -141,7 +141,12 @@ def test_capability_questions_get_help() -> None:
 def test_role_and_past_questions_are_not_tasks() -> None:
     from app.orchestrator.queue import classify_deterministic
 
-    for text in ("что делает нода работа с гпт", "зачем нужна нода персонажи", "я запускал промты картинок"):
+    for text in (
+        "что делает нода работа с гпт",
+        "зачем нужна нода персонажи",
+        "я запускал промты картинок",
+        "а что делает разбивка",
+    ):
         got = classify_deterministic(text)
         assert got is not None and got.mode.value == "append", text
 

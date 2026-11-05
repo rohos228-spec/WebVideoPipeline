@@ -467,7 +467,8 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             confidence=1.0,
         )
     # «Что делает нода работа с гпт», «зачем нужна разбивка»: вопрос о роли, не задача.
-    role_q = bool(tokens) and tokens[0] in _QUESTION_STARTS and bool(_ROLE_Q_RE.search(norm))
+    lead = [t for t in tokens if t not in {"а", "ну", "и", "так", "слушай"}]
+    role_q = bool(lead) and lead[0] in _QUESTION_STARTS and bool(_ROLE_Q_RE.search(norm))
     if role_q or (_PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm)):
         return ClassifyResult(
             tier="fast",
