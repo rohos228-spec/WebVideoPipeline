@@ -326,6 +326,11 @@ export interface OrchScreenState {
   /** cfg.session. Пустая строка — старые тесты без своей сессии. */
   ownSession: string;
   partialWrite: PartialWriteView | null;
+  /**
+   * Задача последнего события с task_id (кроме ack). ack нового вопроса сервер вешает на активную
+   * задачу сессии — старую, ждущую подтверждения, — и значок дока показывал её статус.
+   */
+  touched?: { id: string; seq: number } | null;
 }
 
 /** Истина, если по этому change_id уже был 409: повторное решение из UI не отправляем. */
@@ -1035,6 +1040,7 @@ function reduceOrchScreenRaw(state: OrchScreenState, action: OrchScreenAction): 
   };
   const payload = asRecord(event.payload);
   const taskId = taskKey(event.task_id);
+  if (taskId && event.type !== "ack") next.touched = { id: taskId, seq: event.seq };
   if (taskId && (event.type === "agent_status" || event.type === "approval_required")) {
     // Плашка старой задачи («План получился пустым» от 20.10) висела внизу дока под каждой новой
     // просьбой, будто про неё. Пошла более новая задача — старые плашки без кнопок закрываем.

@@ -93,6 +93,7 @@ const STRIP_DOT: Record<string, string> = {
 };
 
 const TERMINAL_TASK = new Set(["done", "failed", "cancelled"]);
+const BUSY_TASK = new Set(["queued", "planning", "critic_review", "executing"]);
 
 /** Тексты карточек дока: коротко и без служебных слов. */
 const DOCK_BLOCK_COPY: Record<string, { title: string; body: string }> = {
@@ -443,8 +444,14 @@ function ChatPane({
 
 function TaskStatusBadge({ chat }: { chat: Chat }) {
   const last = chat.state.messages.at(-1);
-  const task = currentTaskOf(chat.state.tasks);
-  const thinking = chat.pending || (last?.role === "user" && chat.state.ack != null && !(task && TERMINAL_TASK.has(task.status)));
+  const { ack, touched, tasks } = chat.state;
+  // Задача, по которой событие пришло уже после вопроса: её статус и показываем. Иначе значок
+  // брал старую незакрытую задачу — «Думаю…» над карточкой подтверждения, «ошибка» после отмены.
+  const fresh = touched && ack && touched.seq > ack.seq ? tasks.find((item) => item.id === touched.id) : undefined;
+  const task = fresh ?? (touched ? tasks.find((item) => item.id === touched.id) : undefined) ?? currentTaskOf(tasks);
+  const settled = fresh != null && !BUSY_TASK.has(fresh.status);
+  const thinking =
+    chat.pending || (last?.role === "user" && ack != null && !settled && !(task && TERMINAL_TASK.has(task.status)));
   if (thinking) {
     return (
       <Badge variant="info" data-testid="orch-task-status" className="normal-case tracking-normal">
