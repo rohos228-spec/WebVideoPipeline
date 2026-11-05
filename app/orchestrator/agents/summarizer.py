@@ -453,6 +453,9 @@ def explain_failure(exc: BaseException) -> str:
     name = type(exc).__name__
     text = str(exc).strip()
     if name == "RouterExhausted":
+        if re.search(r"[一-鿿]", text):
+            # Ошибка шлюза по-китайски («ключ не пускает модель») человеку не показываем.
+            text = "провайдер не пустил модель по ключу"
         return "Модель сейчас не отвечает: все провайдеры недоступны" + (f" ({text[:200]})." if text else ".")
     if name in {"FixtureMiss", "RouterError"}:
         return "Модель не вызвана: " + (text[:200] or name) + "."

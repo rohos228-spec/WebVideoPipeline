@@ -166,3 +166,22 @@ def test_summary_explains_prompt_sizes_and_frame_counts() -> None:
     split["counts"] = {"frames": 28, "with_vo": 20, "requested": None}
     text = cc.summary_text(split)
     assert "с закадровым текстом 20" in text and "ещё 8" in text
+
+
+def test_gateway_error_in_body_is_provider_error() -> None:
+    import pytest
+
+    from app.orchestrator.routing.transport import ProviderError, gateway_error_text, parse_chat_payload
+
+    body = "这把密钥不能用模型「gpt-5.6-sol」。 (request id: 202611051016195386274358268d9d6u8zwHY1O)"
+    assert gateway_error_text(body)
+    assert not gateway_error_text("Проект #10 стоит: автозапуск выключен.")
+    with pytest.raises(ProviderError):
+        parse_chat_payload({"choices": [{"message": {"content": body}}]})
+
+
+def test_human_error_hides_exception_names() -> None:
+    from app.orchestrator.agents.summarizer import human_error
+
+    raw = "ActionCallError: HTTP 404: {'code': 'node_not_found', 'message': 'Ноды «n_split» нет на холсте проекта.'}"
+    assert human_error(raw) == "Ноды «n_split» нет на холсте проекта"

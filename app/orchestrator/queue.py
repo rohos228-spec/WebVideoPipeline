@@ -1018,7 +1018,9 @@ class MessageQueue:
             return
         from app.orchestrator.agents.summarizer import normalize_links, strip_order_prefix
 
-        parts = deltas or _token_pieces(response.text)
+        # Первый провайдер мог успеть прислать куски (ошибку шлюза), а ответ дал запасной:
+        # куски берём, только если они и есть итоговый текст.
+        parts = deltas if "".join(deltas) == str(response.text or "") else _token_pieces(response.text)
         # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
         answer = normalize_links(str(response.text or ""))
         # «Проверьте журнал сервера…: да, …» — приказ-пересказ перед сутью ответа не показываем.
