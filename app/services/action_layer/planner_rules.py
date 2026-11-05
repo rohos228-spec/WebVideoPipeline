@@ -914,6 +914,7 @@ _PARAM_LABELS = {
     "start": "от",
     "end": "до",
     "bgm_level": "громкость музыки",
+    "voice": "голос",
     "subtitles_enabled": "субтитры",
     "skip_intro_enabled": "пропуск начала",
     "skip_intro_seconds": "пропустить секунд",

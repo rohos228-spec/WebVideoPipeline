@@ -142,3 +142,17 @@ def voice_specs(pid_schema: dict, pre_project: Precondition, pre_idle: Precondit
             tags=("audio", "voice", "голос", "озвучка"),
         )
     ]
+
+
+def voice_keyword(text: str) -> str | None:
+    """Что назвал человек: имя голоса («Сара») или «мужской» / «женский» — для карточки и шага."""
+    low = f" {str(text or '').lower().replace('ё', 'е')} "
+    for v in voices():
+        names = v["name"].lower().replace("(", " ").replace(")", " ").split()
+        if any(f" {n} " in low for n in names if len(n) >= 3):
+            return v["name"].split(" (")[0]
+    if any(w in low for w in _MALE_WORDS):
+        return "мужской"
+    if any(w in low for w in _FEMALE_WORDS):
+        return "женский"
+    return None

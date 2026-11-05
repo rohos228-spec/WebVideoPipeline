@@ -104,9 +104,10 @@ def voice_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
     text = " ".join(str(goal or "").lower().replace("ё", "е").split())
     if "голос" not in text or not _VOICE_CHANGE.search(text) or _QUESTION.search(text):
         return None
-    from app.services.action_layer.builtin_voice import pick_voice
+    from app.services.action_layer.builtin_voice import voice_keyword
 
-    if pick_voice(text, "") is None:
+    want = voice_keyword(text)
+    if want is None:
         return None
     named = _PROJECT.search(text)
     if named:
@@ -116,7 +117,7 @@ def voice_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
     return [
         PlanStep(
             action="audio.set_voice",
-            params={"project_id": int(project_id), "voice": text[:60]},
+            params={"project_id": int(project_id), "voice": want},
             mutating=True,
             risk="medium",
             expected="Голос озвучки сменён; новая озвучка — после перезапуска шага озвучки.",

@@ -136,6 +136,9 @@ def missing_action_text(reason: str, goal: str = "") -> str:
     """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
     if _NO_FRAME_DELETE.search(reason or ""):
         return FRAME_DELETE_HINT
+    if _DELETE_PROJECT.search(goal or ""):
+        # «Удали проект»: планировщик писал «удаление недоступно действий» — подсказка, где удалить.
+        return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
     if not _MISSING_ACTION.search(reason or ""):
         return ""
     if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):

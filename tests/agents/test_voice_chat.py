@@ -35,3 +35,17 @@ def test_voice_plan(text: str, ok: bool) -> None:
     assert (plan is not None) is ok
     if plan:
         assert plan[0].action == "audio.set_voice" and plan[0].params["project_id"] == 4
+
+
+def test_new_question_is_not_a_clarification_answer() -> None:
+    from app.orchestrator.queue import answered_request
+
+    prev = [("assistant", "Уточните, нужно ли загрузить готовый файл?"), ("user", "поменяй голос на мужской")]
+    assert answered_request(prev, "какой голос в озвучке") is None
+    assert answered_request(prev, "мужской") is not None
+
+
+def test_delete_project_hint() -> None:
+    from app.orchestrator.agents.summarizer import DELETE_PROJECT_HINT, missing_action_text
+
+    assert DELETE_PROJECT_HINT in missing_action_text("Удаление проектов недоступно действий", "удали проект")

@@ -354,6 +354,10 @@ def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
     words = _TOKEN_RE.findall((reply or "").lower())
     if not words or len(words) > _ANSWER_MAX_WORDS or has_imperative(reply) or len(previous) < 2:
         return None
+    if is_plain_question(reply) or is_status_question(reply):
+        # «Какой голос в озвучке» после уточнения чата — новый вопрос, а не ответ: иначе он
+        # склеивался с прошлой просьбой («…; уточнение: какой голос») в карточку смены голоса.
+        return None
     (role_a, asked), (role_u, request) = previous[0], previous[1]
     if role_a != "assistant" or role_u != "user" or not _CLARIFY_RE.search(asked.strip()):
         return None
