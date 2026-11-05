@@ -147,6 +147,12 @@ def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, n
         # Незнакомый ключ остаётся кодом, но не пропадает: человек видит, какую ноду трогают.
         shown[name] = f"«{node_key_ru(key, labels)}»"
     ops_text = _ops_text(shown.pop("ops", None))
+    if {"kind", "a_frame", "b_frame"} <= set(shown) and shown.get("kind") in ("image", "video"):
+        # Обмен слотами: «вид картинки; кадр 1; шот 1; кадр 2» → «картинки кадров 1 и 2 местами».
+        what = "картинки" if shown["kind"] == "image" else "видео"
+        ops_text = f"{what} кадров {shown['a_frame']} и {shown['b_frame']} местами"
+        for key in ("kind", "a_frame", "b_frame", "a_shot", "b_shot"):
+            shown.pop(key, None)
     try:
         from app.services.action_layer.builtin_insight import _STEP_RU
         from app.services.action_layer.planner_rules import param_parts_ru

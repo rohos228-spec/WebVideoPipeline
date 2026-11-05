@@ -194,3 +194,14 @@ def test_frame_fix_plan_correction():
     assert image_frame_plan("переделай кадр 3, сделай темнее", 10)[0].params["ops"][0]["prompt"] == "сделай темнее"
     assert image_frame_plan("сделай кадры по 3 секунды", 10) is None
     assert image_frame_plan("удали кадр 3", 10) is None
+
+
+def test_swap_frames_plan():
+    from app.orchestrator.agents.frame_scope import swap_frames_plan
+
+    plan = swap_frames_plan("поменяй местами кадры 1 и 2", 10)
+    assert [s.params["kind"] for s in plan] == ["image"]
+    assert plan[0].params["a_frame"] == 1 and plan[0].params["b_frame"] == 2
+    assert [s.params["kind"] for s in swap_frames_plan("поменяй местами видео кадров 3 и 4", 10)] == ["video"]
+    assert swap_frames_plan("поменяй кадры 2 и 5 местами", 10)[0].params["b_frame"] == 5
+    assert swap_frames_plan("поменяй промт кадра 3", 10) is None

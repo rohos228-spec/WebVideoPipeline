@@ -2909,6 +2909,11 @@ class Supervisor:
 
                 fixed = image_frame_plan(goal, self._task_project_id(task_id))
             if not fixed:
+                # «Поменяй местами кадры 1 и 2»: обмен картинками, без «картинки или видео?».
+                from app.orchestrator.agents.frame_scope import swap_frames_plan
+
+                fixed = swap_frames_plan(goal, self._task_project_id(task_id))
+            if not fixed:
                 # «Опубликуй», «выложи на ютуб»: подпись — тема проекта, без «уточните подпись».
                 from app.orchestrator.agents.run_scope import publish_plan
 
@@ -3356,6 +3361,13 @@ class Supervisor:
             return
         if why and _ASKS_APPROVAL_RE.search(why):
             self._fail_detail[task_id] = _ASKED_APPROVAL
+            return
+        gap = task_summary.known_gap_text(goal)
+        if gap:
+            # «Поменяй местами кадры 1 и 2»: планировщик переспрашивал «картинки или видео?», хотя
+            # такого в студии нет совсем — сразу честно, с заменой.
+            self._fail_detail[task_id] = f"{task_summary.NOT_SUPPORTED} {gap}"
+            self._code_answers.add(task_id)
             return
         # Планировщик понял просьбу и спрашивает уточнение: его вопрос человеческими словами
         # (без id, ключей нод и полей плана) вместо общего «Не понял, что сделать».

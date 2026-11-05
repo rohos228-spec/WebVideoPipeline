@@ -237,3 +237,52 @@ def image_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
             "Новая картинка появится после применения очереди.",
         )
     ]
+
+
+_SWAP = re.compile(
+    r"(?:поменяй|смени|переставь)\s+местами\s+(?:(картинк\w*|видео)\s+)?кадр\w*\s+(\d{1,4})\s+(?:и|с)\s+(\d{1,4})"
+    r"|(?:поменяй|смени|переставь)\s+(?:(картинк\w*|видео)\s+)?кадр\w*\s+(\d{1,4})\s+(?:и|с)\s+(\d{1,4})\s+местами"
+)
+
+
+def swap_frames_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    """«Поменяй местами кадры 1 и 2»: обмен картинками (и видео, если просят) — ``montage.swap_slots``.
+
+    Планировщик то ставил обмен картинками, то переспрашивал «картинки или видео?».
+    """
+    text = _norm(goal)
+    found = _SWAP.search(text)
+    if not found:
+        return None
+    what = found.group(1) or found.group(4) or ""
+    a = int(found.group(2) or found.group(5))
+    b = int(found.group(3) or found.group(6))
+    named = _PROJECT.search(text)
+    if named:
+        project_id = int(named.group(1))
+    if project_id is None or a == b:
+        return None
+    kinds = ["video"] if what.startswith("видео") else ["image"]
+    if not what and ("видео" in text.replace(found.group(0), "") or "целиком" in text):
+        kinds = ["image", "video"]
+    names = {"image": "картинки", "video": "видео"}
+    steps = [
+        PlanStep(
+            action="montage.swap_slots",
+            params={"project_id": int(project_id), "kind": kind, "a_frame": a, "a_shot": 1, "b_frame": b, "b_shot": 1},
+            mutating=True,
+            risk="medium",
+            expected=f"{names[kind].capitalize()} кадров {a} и {b} поменялись местами.",
+        )
+        for kind in kinds
+    ]
+    if kinds == ["image"]:
+        steps[0] = PlanStep(
+            action=steps[0].action,
+            params=steps[0].params,
+            mutating=True,
+            risk="medium",
+            expected=f"Картинки кадров {a} и {b} поменялись местами. Видео тоже можно: «поменяй местами видео "
+            f"кадров {a} и {b}».",
+        )
+    return steps
