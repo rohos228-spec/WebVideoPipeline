@@ -213,10 +213,11 @@ async def test_failed_read_step_is_explained(token: str) -> None:
     )
     try:
         task_id = await _run(rt, "sum-fail-step", "покажи ошибки из логов")
-        assert rt.tasks.get(task_id)["status"] == TaskStatus.failed.value
+        # Отказ одного чтения больше не роняет задачу из одних чтений: остальные факты
+        # показываются, а отказ объясняется человеческим текстом.
+        assert rt.tasks.get(task_id)["status"] == TaskStatus.done.value
         text = _summaries(rt, "sum-fail-step")[0]["text"]
-        assert text.startswith("Не получилось")
-        assert "журнал недоступен" in text and "Что можно сделать" in text
+        assert "Не получилось «" in text and "журнал недоступен" in text
     finally:
         set_runtime(None)
 

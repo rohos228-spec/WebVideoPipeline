@@ -461,6 +461,24 @@ def explain_failure(exc: BaseException) -> str:
     return f"Внутренняя ошибка: {name}."
 
 
+_RAW_ERROR = re.compile(r"^\s*(?:\w+Error|\w+Exception)\s*:\s*(?:HTTP\s*\d{3}\s*:\s*)?", re.I)
+_RAW_MESSAGE = re.compile(r"['\"]message['\"]\s*:\s*['\"]([^'\"]+)['\"]")
+
+
+def human_error(error: str | None) -> str:
+    """«ActionCallError: HTTP 404: {'code': ..., 'message': 'Ноды нет'}» → «Ноды нет».
+
+    Сырой текст исключения попадал в чат как есть («готово, но данных шаги не вернули…»).
+    """
+    text = str(error or "").strip()
+    if not text:
+        return ""
+    found = _RAW_MESSAGE.search(text)
+    if found:
+        return found.group(1).strip().rstrip(".")
+    return _RAW_ERROR.sub("", text).strip().rstrip(".")
+
+
 def step_title(action: str) -> str:
     try:
         from app.services.action_layer.spec import ensure_builtin_actions, registry
@@ -1178,7 +1196,7 @@ def deterministic_text(facts: TaskFacts) -> str:
                 lines.append("Готово, но данных для ответа шаги не вернули.")
         for note in failed:
             lines.append(
-                f"Не получилось «{note.title}»{_in_project(note, many)}: {note.error or 'без пояснения'}."
+                f"Не получилось «{note.title}»{_in_project(note, many)}: {human_error(note.error) or 'без пояснения'}."
             )
         lines.extend(_project_tally(facts))
         return "\n".join(lines)
@@ -1525,7 +1543,7 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
         body = (
             _fact_text(note, quotes, shown)
             if note.ok and note.text
-            else ("прочитать не удалось: " + note.error if note.error else "пусто")
+            else ("прочитать не удалось: " + human_error(note.error) if note.error else "пусто")
         )
         chunk = f"[{note.title}] {body}"
         room = _TOTAL_LIMIT - used
