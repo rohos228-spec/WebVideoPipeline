@@ -120,3 +120,51 @@ def clip_report_ids(plan: list[PlanStep]) -> list[PlanStep]:
             step = step.model_copy(update={"params": params})
         out.append(step)
     return out
+
+
+# «Опубликуй», «выложи на ютуб», «збс, теперь опубликуй»: подпись — тема проекта (её же требует
+# проверка «подпись совпадает с темой»), площадки — названные или все ещё не опубликованные.
+# Планировщик вместо карточки спрашивал «уточните площадки и подпись».
+_PUBLISH = re.compile(
+    r"(?<![а-я])(?:опубликуй|опубликовать|выложи|выкладывай|запости|залей|публикуй)(?![а-я])"
+)
+_PUBLISH_NOT = re.compile(r"(?<![а-я])(?:как|можно\s+ли|когда|где|почему|куда|не\s+публикуй|не\s+выкладывай)(?![а-я])|\?")
+
+
+async def publish_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    text = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    if not _PUBLISH.search(text) or _PUBLISH_NOT.search(text) or len(text.split()) > 10:
+        return None
+    named = re.search(r"(?:проект\w*|#)\s*(\d{1,5})", text)
+    if named:
+        project_id = int(named.group(1))
+    if project_id is None:
+        return None
+    from sqlalchemy import select
+
+    from app.models import Project
+    from app.services.action_layer import store
+    from app.services.action_layer.planner_context import publish_facts
+    from app.services.action_layer.planner_rules import named_platforms
+
+    try:
+        async with store.sessions()() as session:
+            project = await session.scalar(select(Project).where(Project.id == int(project_id)))
+    except Exception:
+        return None
+    if project is None:
+        return None
+    server = publish_facts(project)
+    platforms = named_platforms(goal) or list(server.get("platforms") or [])
+    caption = str(server.get("caption") or "")
+    if not platforms or not caption:
+        return None
+    return [
+        PlanStep(
+            action="publish.send",
+            params={"project_id": int(project_id), "platforms": platforms, "caption": caption},
+            mutating=True,
+            risk="high",
+            expected=f"Ролик проекта #{project_id} отправлен на публикацию с подписью «{caption}».",
+        )
+    ]

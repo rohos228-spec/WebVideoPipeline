@@ -2899,6 +2899,21 @@ class Supervisor:
 
                 fixed = frame_prompt_plan(goal, self._task_project_id(task_id))
             if not fixed:
+                # «Перезапусти видео кадра 2»: видео одного кадра заново, а не «чат не умеет».
+                from app.orchestrator.agents.frame_scope import video_frame_plan
+
+                fixed = video_frame_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Кадр 4 переделай», «кит на 2 кадре кривой, перегенери»: картинка кадра заново.
+                from app.orchestrator.agents.frame_scope import image_frame_plan
+
+                fixed = image_frame_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Опубликуй», «выложи на ютуб»: подпись — тема проекта, без «уточните подпись».
+                from app.orchestrator.agents.run_scope import publish_plan
+
+                fixed = await publish_plan(goal, self._task_project_id(task_id))
+            if not fixed:
                 # «Создай ролик про акул и доведи до картинок», «отчёт за неделю».
                 from app.orchestrator.agents.run_scope import create_run_plan
 

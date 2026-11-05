@@ -146,6 +146,7 @@ def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, n
 
         # Незнакомый ключ остаётся кодом, но не пропадает: человек видит, какую ноду трогают.
         shown[name] = f"«{node_key_ru(key, labels)}»"
+    ops_text = _ops_text(shown.pop("ops", None))
     try:
         from app.services.action_layer.builtin_insight import _STEP_RU
         from app.services.action_layer.planner_rules import param_parts_ru
@@ -156,10 +157,45 @@ def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, n
         parts = param_parts_ru(shown)
     except Exception:
         parts = []
+    if ops_text:
+        parts.insert(0, ops_text)
     pid = params.get("project_id")
     if isinstance(pid, int) and not isinstance(pid, bool) and pid > 0:
         parts.append(f"проект #{pid}")
     return "; ".join(parts)
+
+
+# Правки очереди кадра по-человечески: карточка писала только «проект #9», без кадра и сути.
+_OP_RU = {
+    "image_regen": "картинка кадра {n} заново",
+    "image_regen_prompt": "новый промт картинки кадра {n}",
+    "image_regen_correction": "исправление картинки кадра {n}",
+    "image_ai_change": "ИИ-правка картинки кадра {n}",
+    "video_regen": "видео кадра {n} заново",
+    "video_regen_prompt": "новый промт видео кадра {n}",
+    "video_ai_change": "ИИ-правка видео кадра {n}",
+}
+
+
+def _ops_text(ops: Any) -> str:
+    if not isinstance(ops, list):
+        return ""
+    out: list[str] = []
+    for op in ops[:6]:
+        if not isinstance(op, dict):
+            continue
+        pattern = _OP_RU.get(str(op.get("type") or ""))
+        number = op.get("frame_number")
+        if not pattern or not isinstance(number, int):
+            continue
+        text = pattern.format(n=number)
+        prompt = " ".join(str(op.get("prompt") or "").split())
+        if prompt:
+            text += f" «{prompt[:80]}{'…' if len(prompt) > 80 else ''}»"
+        out.append(text)
+    if len(ops) > 6:
+        out.append(f"и ещё {len(ops) - 6}")
+    return ", ".join(out)
 
 
 def humanize_reason(text: str) -> str:

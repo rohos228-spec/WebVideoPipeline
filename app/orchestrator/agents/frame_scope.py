@@ -119,3 +119,121 @@ def frame_prompt_plan(goal: str, project_id: int | None) -> list[PlanStep] | Non
             )
         ]
     return None
+
+
+# «Перезапусти видео кадра 2», «перегенери видео 3 кадра», «видео кадра 5 кривое, переделай».
+_VIDEO_REDO = re.compile(
+    r"(?<![а-я])(?:перезапуст\w*|перегенер\w*|переделай|переделать|сгенер\w*\s+заново|сделай\s+заново|"
+    r"запусти\s+заново|запусти\s+снова|перерисуй|переанимир\w*|кривое|кривой)(?![а-я])"
+)
+_VIDEO_WORD = re.compile(r"(?<![а-я])(?:видео|видос\w*|анимаци\w*|ролик\w* кадра)(?![а-я])")
+
+
+def video_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    """Видео одного кадра заново — правка ``video_regen`` в очередь кадра (планировщик: «не умеет»)."""
+    text = _norm(goal)
+    if not _VIDEO_WORD.search(text) or not _VIDEO_REDO.search(text) or _PROMPT.search(text):
+        return None
+    number = frame_number(text)
+    named = _PROJECT.search(text)
+    if named:
+        project_id = int(named.group(1))
+    if number is None or project_id is None:
+        return None
+    return [
+        PlanStep(
+            action="montage.queue_ops",
+            params={"project_id": int(project_id), "ops": [{"type": "video_regen", "frame_number": number}]},
+            mutating=True,
+            risk="medium",
+            expected=f"Видео кадра {number} поставлено в очередь на перегенерацию. "
+            "Новое видео появится после применения очереди.",
+        )
+    ]
+
+
+_IMAGE_REDO = re.compile(
+    r"(?<![а-я])(?:переделай|переделать|перегенер\w*|перерисуй|сгенер\w*\s+заново|сделай\s+заново|"
+    r"нарисуй\s+заново|кривой|кривая|кривое|некрасив\w*|плох\w*)(?![а-я])"
+)
+# Что именно поменять («сделай сову белой», «убери кровь») — это правка промта, её ведёт планировщик.
+_IMAGE_WISH = re.compile(r"(?<![а-я])(?:сделай\s+(?!заново)\w+|убери|добавь|замени|поменяй|чтобы|на\s+[а-я]+)(?![а-я])")
+
+
+_WISH_START = re.compile(
+    r"(?<![а-я])(?:сделай|сделать|убери|убрать|добавь|добавить|замени|заменить|поменяй|перекрась|"
+    r"нарисуй|пусть|чтобы)(?![а-я])"
+)
+_FRAME_PHRASE = re.compile(
+    r"(?:(?:в|на|у)\s+)?(?:кадр\w*\s+(?:№\s*)?(?:\d{1,4}|[а-я]+(?:ой|ом|ый|ий|ем|ого))|"
+    r"(?:\d{1,4}|[а-я]+(?:ом|ем|ой|ый|ий))(?:-?(?:й|го|ом|м))?\s+кадр\w*)"
+)
+
+
+def frame_fix_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    """«В кадре 2 сделай сову белой», «на 3 кадре убери кровь»: исправление картинки одного кадра.
+
+    Правка в очередь кадра (``image_regen_correction``) с текстом просьбы; планировщик то ставил
+    её, то отвечал готовой командой вместо карточки.
+    """
+    text = _norm(goal)
+    if _VIDEO_WORD.search(text) or _PROMPT.search(text) or "?" in text:
+        return None
+    number = frame_number(text)
+    if number is None or not _WISH_START.search(text):
+        return None
+    if re.search(r"(?<![а-я])(?:кадр\w*\s+(?:по|на)\s+\d|секунд|длительн|местами|удали|склей|раздел|объедин)", text):
+        return None
+    named = _PROJECT.search(text)
+    if named:
+        project_id = int(named.group(1))
+    if project_id is None:
+        return None
+    original = " ".join(str(goal).split())
+    wish = _FRAME_PHRASE.sub(" ", original, count=1)
+    wish = re.sub(r"(?:(?:в|для|у)\s+)?(?:проект\w*|#)\s*#?\d{1,5}", " ", wish, flags=re.IGNORECASE)
+    wish = re.sub(r"\s+([,.;:])", r"\1", " ".join(wish.split())).strip(" ,.:;—-")
+    wish = re.sub(r"^(?:переделай|перегенери\w*|перерисуй)[,\s]+", "", wish, flags=re.IGNORECASE)
+    if len(wish) < 6:
+        return None
+    return [
+        PlanStep(
+            action="montage.queue_ops",
+            params={
+                "project_id": int(project_id),
+                "ops": [{"type": "image_regen_correction", "frame_number": number, "prompt": wish}],
+            },
+            mutating=True,
+            risk="medium",
+            expected=f"Исправление картинки кадра {number} поставлено в очередь: «{wish}». "
+            "Новая картинка появится после применения очереди.",
+        )
+    ]
+
+
+def image_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    """«Кадр 4 переделай», «кит на 2 кадре кривой, перегенери»: картинка кадра заново (``image_regen``)."""
+    text = _norm(goal)
+    if _VIDEO_WORD.search(text) or _PROMPT.search(text) or not _IMAGE_REDO.search(text):
+        return frame_fix_plan(goal, project_id)
+    if "?" in text or re.search(r"(?<![а-я])(?:почему|какой|какая|какие|зачем|как)(?![а-я])(?!-то)", text):
+        return None
+    rest = _IMAGE_REDO.sub(" ", text)
+    if _IMAGE_WISH.search(rest):
+        return frame_fix_plan(goal, project_id)
+    number = frame_number(text)
+    named = _PROJECT.search(text)
+    if named:
+        project_id = int(named.group(1))
+    if number is None or project_id is None:
+        return None
+    return [
+        PlanStep(
+            action="montage.queue_ops",
+            params={"project_id": int(project_id), "ops": [{"type": "image_regen", "frame_number": number}]},
+            mutating=True,
+            risk="medium",
+            expected=f"Картинка кадра {number} поставлена в очередь на перегенерацию. "
+            "Новая картинка появится после применения очереди.",
+        )
+    ]

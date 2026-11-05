@@ -242,6 +242,20 @@ _TYPOS = (
 _ALL_RUN_RE = re.compile(r"^(?:доведи|прогони|догони)\s+(?=(?:все|всё)\s+проект)", re.IGNORECASE)
 
 
+_RUN_THEN_PRICE_RE = re.compile(
+    r"[,\s]+(?:и\s+)?(?:скажи|покажи|напиши|посчитай|прикинь|сообщи)(?:\s+мне)?,?\s+"
+    r"(?:сколько|во\s+сколько|какая\s+цена|почем)[^.?!]*(?:стои\w*|обойд\w*|выйд\w*|цен\w*|денег)?[?.!]*$"
+)
+
+
+_BATCH_THEN_RUN_RE = re.compile(
+    r"^((?:сделай|создай|сгенерируй|запили|наделай)\s+(?:\d{1,3}|пару|несколько|два|три|пять|десять)\s+"
+    r"(?:ролик\w*|видео|проект\w*|клип\w*)\s+.+?)[,\s]+(?:и\s+)?(?:сразу\s+)?"
+    r"(?:запусти|доведи|прогони|сгенери\w*)\s+(?:их|все|всё|каждый)(?:\s+.*)?$",
+    re.IGNORECASE,
+)
+
+
 def fix_typos(text: str) -> str:
     out = str(text or "")
     low = out.lower()
@@ -255,6 +269,17 @@ def fix_typos(text: str) -> str:
         last = tokens[-1].lower().strip(".!?")
         if last in _IMPERATIVES and tokens[0].lower() not in _IMPERATIVES:
             out = " ".join([tokens[-1].strip(".!?"), *tokens[:-1]])
+    # «Запусти 5 и скажи, сколько это будет стоить»: цена и так в карточке запуска — вторую
+    # просьбу убираем, иначе планировщик отвечал «чат не умеет».
+    if _RUN_THEN_PRICE_RE.search(out) and has_imperative(out):
+        out = _RUN_THEN_PRICE_RE.sub("", out).strip(" ,.")
+        # «Запусти 5»: голое число после глагола — номер проекта.
+        out = re.sub(r"^((?:запусти|продолжи|доведи|прогони)\s+)(\d{1,5})(?=\s|$)", r"\1проект \2", out)
+    # «Сделай 10 роликов про собак и запусти все»: сначала создание пакета (карточка), запуск —
+    # следующей фразой; вместе планировщик просил «шаблон и общий лимит».
+    batch = _BATCH_THEN_RUN_RE.match(out)
+    if batch:
+        out = batch.group(1).strip(" ,.") + " (запуск новых проектов — отдельной просьбой после создания)"
     # «Доведи все проекты до монтажа»: планировщик понимал только «запусти все проекты до …».
     return _ALL_RUN_RE.sub("запусти ", out)
 
@@ -425,6 +450,22 @@ _ADVICE_RE = re.compile(
     r"^(?:ну\s+|а\s+)?(?:придумай|посоветуй|подскажи|предложи|накидай|дай\s+идеи|какую\s+тему|какие\s+темы|"
     r"как\s+сделать\s+ролик|как\s+сделать\s+видео|как\s+набрать)"
 )
+# «Сделай подешевле», «как сэкономить»: без предмета — совет с ценами и моделями проекта,
+# а не «уточните, какую ноду удешевить».
+_CHEAPER_RE = re.compile(
+    r"^(?:ну\s+|а\s+)?(?:сделай|сделать|можно|давай|хочу)?\s*(?:вс[её]\s+|это\s+|ролик\s+|проект\s+)?"
+    r"(?:подешевле|дешевле|бюджетнее|экономнее)[?.!]*$"
+    r"|^(?:как|где|на\s+ч[её]м)\s+(?:можно\s+)?(?:сэкономить|сократить\s+расходы|потратить\s+меньше)"
+)
+
+
+def _fact_check(low: str) -> bool:
+    """«Проверь факты в тексте»: вопрос о сценарии, а не задача (импорт здесь — цикл с agents)."""
+    from app.orchestrator.agents.question_context import _FACT_CHECK_RE
+
+    return bool(_FACT_CHECK_RE.search(low))
+
+
 _STUDIO_ACT_RE = re.compile(r"запуст|создай|сделай\s+проект|в\s+проект\w*\s+\d|поставь|поменяй|удали")
 _DIALOG_CHARS = 900
 
@@ -453,6 +494,33 @@ def _recent_dialog(session_id: str, current: str) -> list[dict[str, str]]:
     while out and out[0]["role"] != "user":
         out = out[1:]
     return out
+
+
+def _follow_up_reads(text: str, dialog: list[dict[str, str]]) -> str:
+    """«А другие какие есть» после «какой голос»: факты читать по прошлому вопросу вместе с этим.
+
+    Без номера и коротко: «а с 7?» решает свой номер сам, а «а другие?» без прошлого вопроса
+    читало общий статус и отвечало «списка голосов в фактах нет».
+    """
+    body = " ".join(str(text or "").split())
+    words = body.split()
+    if not words or len(words) > 7 or re.search(r"\d", body):
+        return body
+    low = body.lower()
+    if not (low.startswith(("а ", "и ", "а?", "ещё", "еще")) or any(w in low for w in ("други", "дешевл", "дорож", "из них"))):
+        return body
+    if "из них" in low or "обоих" in low:
+        # «А что дешевле из них доделать» после «что с 5» и «а с 7?»: номера из прошлых вопросов.
+        nums: list[str] = []
+        for m in dialog or []:
+            if m.get("role") == "user":
+                nums.extend(n for n in re.findall(r"(?<!\d)\d{1,5}(?!\d)", m.get("content", "")) if n not in nums)
+        if len(nums) >= 2:
+            return f"{body} (проекты {', '.join(nums[-5:])})"
+    prev = next((m["content"] for m in reversed(dialog or []) if m.get("role") == "user"), "")
+    if not prev or len(prev) > 200:
+        return body
+    return f"{prev.rstrip(' ?.!')}? {body}"
 
 
 def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
@@ -810,6 +878,14 @@ class MessageQueue:
                 )
             else:
                 decided = forced
+                if (
+                    decided is not None
+                    and decided.mode is MessageMode.task
+                    and not decided.kill_switch
+                    and _CHEAPER_RE.search(" ".join(text.lower().replace("ё", "е").split()))
+                ):
+                    # «Сделай подешевле»: «сделай» делало это задачей — а нужен совет с ценами проекта.
+                    decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
                 task_id = self.supervisor.active_task(session_id)
                 if decided is not None and task_id is not None and cancel_or_undo(text):
                     # Идёт генерация или ждёт карточка: просьба со словом «отмени» может значить «останови».
@@ -870,7 +946,10 @@ class MessageQueue:
                         decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})
                     low = " ".join(text.lower().replace("ё", "е").split())
                     if decided.mode is MessageMode.task and (
-                        _LINK_RE.search(low) or (_ADVICE_RE.match(low) and not _STUDIO_ACT_RE.search(low))
+                        _LINK_RE.search(low)
+                        or _CHEAPER_RE.search(low)
+                        or (_fact_check(low) and not _STUDIO_ACT_RE.search(low))
+                        or (_ADVICE_RE.match(low) and not _STUDIO_ACT_RE.search(low))
                     ):
                         decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
                     if decided.mode is MessageMode.task and _FOLLOW_UP_RE.match(low) and is_plain_question(text):
@@ -1105,11 +1184,18 @@ class MessageQueue:
             if project_id is None:
                 project_id = await asyncio.to_thread(self._session_project, session_id)
             app = self.app if self.app is not None else getattr(self.supervisor, "app", None)
-            messages = await self.context.messages(text, project_id, app, session_id)
             try:
                 dialog = await asyncio.to_thread(_recent_dialog, session_id, text)
             except Exception:
                 dialog = []
+            read_text = _follow_up_reads(text, dialog)
+            messages = await self.context.messages(read_text, project_id, app, session_id)
+            if read_text != text:
+                # Факты читались по прошлому вопросу, а спрашивает человек своими словами.
+                messages = [
+                    {**m, "content": text} if m.get("role") == "user" and m.get("content") == read_text else m
+                    for m in messages
+                ]
             if dialog and messages and messages[0].get("role") == "system":
                 note = {
                     "role": "system",

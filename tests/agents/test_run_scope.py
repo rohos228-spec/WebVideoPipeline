@@ -122,3 +122,75 @@ def test_drop_missing_projects_from_queue():
     q2 = PlanStep(action="queue.enqueue_many", params={"project_ids": [300, 400]}, mutating=True, risk="high", expected="")
     assert drop_missing_projects([par, q2], lambda: [1, 2], notes) == []
     assert "#300, #400" in notes[0]
+
+
+def test_video_frame_plan_regen_one_frame():
+    from app.orchestrator.agents.frame_scope import video_frame_plan
+
+    plan = video_frame_plan("перезапусти видео кадра 2", 10)
+    assert plan and plan[0].params["ops"] == [{"type": "video_regen", "frame_number": 2}]
+    assert video_frame_plan("видео кадра 5 кривое, переделай", 10)[0].params["ops"][0]["frame_number"] == 5
+    assert video_frame_plan("сделай видео для всех кадров", 10) is None
+    assert video_frame_plan("какое видео у кадра 2", 10) is None
+
+
+def test_launch_with_price_question_and_batch_then_run():
+    from app.orchestrator.queue import fix_typos
+
+    assert fix_typos("запусти 5 и скажи сколько это будет стоить") == "запусти проект 5"
+    assert fix_typos("запусти 5 кадров") == "запусти 5 кадров"
+    out = fix_typos("сделай 10 роликов про собак и запусти все")
+    assert out.startswith("сделай 10 роликов про собак") and "запусти все" not in out
+
+
+def test_follow_up_reads_use_previous_question():
+    from app.orchestrator.queue import _follow_up_reads
+
+    dialog = [
+        {"role": "user", "content": "что с проектом 5"},
+        {"role": "assistant", "content": "x"},
+        {"role": "user", "content": "а с 7?"},
+        {"role": "assistant", "content": "y"},
+    ]
+    assert _follow_up_reads("а что дешевле из них доделать", dialog).endswith("(проекты 5, 7)")
+    assert _follow_up_reads("а другие какие есть", [{"role": "user", "content": "какой голос"}]).startswith("какой голос")
+    assert _follow_up_reads("а с 9?", dialog) == "а с 9?"
+
+
+def test_fact_check_and_cheaper_regex():
+    from app.orchestrator.agents.question_context import _FACT_CHECK_RE
+    from app.orchestrator.queue import _CHEAPER_RE
+
+    assert _FACT_CHECK_RE.search("проверь факты в тексте")
+    assert not _FACT_CHECK_RE.search("сделай 2 факта о котах")
+    assert _CHEAPER_RE.search("сделай подешевле")
+    assert _CHEAPER_RE.search("как сэкономить")
+    assert not _CHEAPER_RE.search("поменяй модель видео на подешевле")
+
+
+def test_image_frame_plan_regen_one_frame():
+    from app.orchestrator.agents.frame_scope import image_frame_plan
+
+    assert image_frame_plan("кадр 4 переделай", 10)[0].params["ops"] == [{"type": "image_regen", "frame_number": 4}]
+    assert image_frame_plan("кит на 2 кадре какой-то кривой, перегенери", 10)[0].params["ops"][0]["frame_number"] == 2
+    assert image_frame_plan("в кадре 2 сделай сову белой", 10)[0].params["ops"][0]["type"] == "image_regen_correction"
+    assert image_frame_plan("почему кадр 5 плохой?", 10) is None
+    assert image_frame_plan("перезапусти видео кадра 2", 10) is None
+
+
+def test_card_text_names_queue_ops():
+    from app.orchestrator.agents.approval_steps import _params_text
+
+    text = _params_text({"project_id": 9, "ops": [{"type": "video_regen", "frame_number": 2}]})
+    assert text.startswith("видео кадра 2 заново")
+
+
+def test_frame_fix_plan_correction():
+    from app.orchestrator.agents.frame_scope import image_frame_plan
+
+    op = image_frame_plan("в кадре 2 сделай сову белой в проекте 10", 4)[0]
+    assert op.params["project_id"] == 10
+    assert op.params["ops"] == [{"type": "image_regen_correction", "frame_number": 2, "prompt": "сделай сову белой"}]
+    assert image_frame_plan("переделай кадр 3, сделай темнее", 10)[0].params["ops"][0]["prompt"] == "сделай темнее"
+    assert image_frame_plan("сделай кадры по 3 секунды", 10) is None
+    assert image_frame_plan("удали кадр 3", 10) is None

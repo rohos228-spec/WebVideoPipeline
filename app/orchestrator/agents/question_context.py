@@ -341,6 +341,21 @@ _VOICE_Q = ("голос", "диктор", "озвучива", "кто озвуч
 # «Какие настройки у монтажа», «какая громкость музыки», «субтитры включены?»: параметры сборки.
 _MONTAGE_Q = ("настройк", "громк", "субтит", "музык", "хвост", "первые секунд", "монтаж", "сборк")
 MONTAGE_TITLE = "Настройки монтажа"
+# «Проверь факты в тексте», «всё ли верно в сценарии», «нет ли ошибок в фактах».
+FACT_CHECK_TITLE = "Сценарий для проверки фактов"
+_FACT_CHECK_RE = re.compile(
+    r"(?:провер\w*|сверь|верн\w*|правд\w*|ошибк\w*|достоверн\w*|фактчек\w*)[^.?!]{0,40}(?:факт\w*|сценари\w*|текст\w*)"
+    r"|(?:факт\w*|сценари\w*|текст\w*)[^.?!]{0,30}(?:верн\w*|правд\w*|достоверн\w*|ошибк\w*|провер\w*)"
+    r"|фактчек"
+)
+# «Сделай подешевле»: способы, которые чат умеет сам, — с фразами для них.
+CHEAPER_TEXT = (
+    "Дороже всего обычно видео, затем картинки, озвучка дешевле. Способы из чата: модель видео "
+    "подешевле («поменяй модель видео на подешевле»); модель картинок подешевле («поставь картинки "
+    "на flux»); меньше кадров («сделай видео 30 секунд»); видео не для всех кадров, а только для "
+    "нужных; не перегенерировать то, что уже готово («сделай недостающие» вместо «сделай заново»). "
+    "Назови конкретные суммы из оценок шагов, если они есть, и предложи 2–3 способа с фразами."
+)
 # «Какое разрешение у картинок», «в каком качестве видео»: генераторы и разрешения проекта.
 _RESOLUTION_Q = ("разрешен", "качеств", "генератор", "2k", "4k", "720", "1080")
 
@@ -653,8 +668,14 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
                 # «Промты картинок отработали за 3 секунды»: нода названа шагом, а не ключом.
                 failure["step"] = _cost_step(norm)
             reads.append(("diag.node_failure", failure))
-        if _has(norm, _RESOLUTION_Q):
+        cheaper = _has(norm, ("подешевле", "дешевле", "сэконом", "бюджетнее", "экономнее", "потратить меньше"))
+        if _has(norm, _RESOLUTION_Q) or cheaper:
             reads.append(("montage.get_cost_basis", {"project_id": pid}))
+        if cheaper and not _has(norm, ("из них",)):
+            # «Сделай подешевле»: что стоит дороже всего и на что заменить — оценки шагов.
+            reads.extend(
+                ("step.get_run_cost_basis", {"project_id": pid, "step_code": code}) for code in ("img", "video", "audio")
+            )
         prompt_q = _has(norm, ("промт", "промпт"))
         if _has(norm, _FRAMES) or prompt_q:
             # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
@@ -711,6 +732,17 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         reads.append(("logs.tail", {"kind": "errors", "limit": 20}))
     if _has(norm, _SPEND):
         reads.append(("spend.summary", {}))
+    if _has(norm, _FINISH_COST) or _has(norm, ("дешевл", "дорож", "стоит", "стоить", "обойд")):
+        # «Что дешевле из них доделать (проекты 5, 7)»: оценка по каждому названному проекту.
+        from app.orchestrator.agents.launch_scope import _ids as _launch_ids
+
+        named = _launch_ids(norm)[:5]
+        if len(named) >= 2:
+            for one in named:
+                reads.extend(
+                    ("step.get_run_cost_basis", {"project_id": one, "step_code": code, "_named": True})
+                    for code in ("img", "video", "audio")
+                )
     return _allowed(reads)
 
 
@@ -1047,6 +1079,26 @@ class QuestionContext:
             )
         return montage_settings_text(meta)
 
+    async def _script(self, project_id: int) -> str:
+        from sqlalchemy import select
+
+        from app.models import Project
+        from app.services.action_layer import store
+
+        async with store.sessions()() as session:
+            text = await asyncio.wait_for(
+                session.scalar(select(Project.script_text).where(Project.id == int(project_id))), self.timeout_s
+            )
+        body = " ".join(str(text or "").split())
+        if not body:
+            return ""
+        return (
+            f"Текст сценария (закадровый текст) проекта #{project_id}: «{body[:4000]}». "
+            "Проверь каждое утверждение по общим знаниям: что верно, что спорно или неверно и как "
+            "исправить. Исправить текст можно фразой «перепиши текст первой сцены …» или «перепиши "
+            "сценарий …»."
+        )
+
     async def _voice(self, project_id: int) -> str:
         from sqlalchemy import select
 
@@ -1112,6 +1164,15 @@ class QuestionContext:
             named = await self._named_project(text)
             project_id = named if named is not None else project_id
         facts = await self.gather(text, project_id, app, session_id)
+        if project_id is not None and _FACT_CHECK_RE.search(norm):
+            # «Проверь факты в тексте»: сам сценарий проекта, иначе модель просила «пришлите текст».
+            try:
+                script = await self._script(int(project_id))
+            except Exception as exc:
+                logger.warning("orch question script failed: {}", type(exc).__name__)
+                script = ""
+            if script:
+                facts = [Fact("project.script", FACT_CHECK_TITLE, script), *facts]
         if project_id is not None and _has(norm, _VOICE_Q):
             # «Какой голос в озвучке»: чат отвечал «в фактах не указано, назовите проект».
             try:
@@ -1135,6 +1196,8 @@ class QuestionContext:
         if gap:
             # «Какой сид», «субтитры побольше»: прямо сказать, что такой настройки нет и что вместо.
             facts = [Fact("studio.gap", "Чего в студии нет", gap), *facts]
+        if _has(norm, ("подешевле", "сэконом", "бюджетнее", "экономнее", "потратить меньше")):
+            facts = [Fact("advice.cheaper", "Как сделать дешевле", CHEAPER_TEXT), *facts]
         missing = _MISSING.get()
         if missing:
             facts = [Fact("projects.missing", MISSING_TITLE, missing), *facts]
