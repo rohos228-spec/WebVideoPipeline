@@ -95,7 +95,7 @@ function Shell({ title, sub, children, foot }: { title: string; sub?: string; ch
     <div className="min-h-screen w-full bg-[#070909] text-white" style={FONT}>
       <style>{`@keyframes viaIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}@keyframes viaGlow{0%,100%{opacity:.35}50%{opacity:.6}}.via-in{animation:viaIn .45s cubic-bezier(.2,.8,.2,1) both}`}</style>
       <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
-        <aside className="relative hidden overflow-hidden border-r border-white/[0.06] lg:block">
+        <aside className="relative hidden overflow-hidden lg:block">
           <div className="absolute inset-0" style={{ background: `radial-gradient(60% 50% at 30% 30%, ${A}22, transparent 70%), radial-gradient(50% 40% at 80% 90%, ${A}14, transparent 70%)`, animation: "viaGlow 6s ease-in-out infinite" }} />
           <div className="relative flex h-full flex-col p-12">
             <a href="/home" className="inline-flex items-center">
@@ -106,7 +106,7 @@ function Shell({ title, sub, children, foot }: { title: string; sub?: string; ch
               <p className="mt-4 max-w-md text-[17px] text-zinc-400">Сценарий, персонажи, кадры, анимация, озвучка и монтаж — в одном пайплайне.</p>
             </div>
             <div className="mt-auto grid grid-cols-2 gap-3">
-              {[0, 1, 2, 3].map((i) => (
+              {[0, 1, 2, 3, 4].map((i) => (
                 <div key={i} className={`flex items-center justify-center rounded-[16px] border border-dashed border-white/10 bg-white/[0.02] text-zinc-600 ${i === 0 ? "col-span-2 aspect-[16/7]" : "aspect-[4/3]"}`}>
                   <div className="flex flex-col items-center gap-2 text-[13px]"><ImageIcon className="h-6 w-6" />изображение</div>
                 </div>
