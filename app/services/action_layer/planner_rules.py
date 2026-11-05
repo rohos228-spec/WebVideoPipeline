@@ -1130,6 +1130,12 @@ def param_parts_ru(params: dict | None, facts: dict | None = None) -> list[str]:
         if key == "titles" and value == (params or {}).get("topics"):
             continue
         txt = _param_text(key, value, facts)
+        target = (params or {}).get("target_node_type")
+        if key == "mode" and value == "until_node" and isinstance(target, str) and target:
+            # «режим до ноды» не говорил, до какой: карточка «запусти 5 6 7 до картинок».
+            from app.services.node_edit import TYPE_RU
+
+            txt = f"до ноды «{TYPE_RU.get(target, target)}»"
         if txt:
             parts.append(sanitize_text(txt, 90))
     return list(dict.fromkeys(parts))[:_MAX_PARAMS_SHOWN]
