@@ -907,6 +907,12 @@ async def _today_changes(project_id: int | None, session_id: str | None) -> list
     return await today_changes(project_id, operators=operators)
 
 
+def _now_utc() -> str:
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+
+
 def system_prompt(facts: list[Fact], project_id: int | None) -> str:
     lines = list(ANSWER_RULES)
     if not facts:
@@ -921,6 +927,9 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
     if any(fact.action == "diag.content_checks" and fact.ok for fact in facts):
         lines.append(CONTENT_RULE)
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
+    # «Ошибки за последний час», «стоит уже час»: без текущего времени модель отвечала
+    # «определить нельзя: текущее время в фактах не указано».
+    lines.append(f"[Сейчас] {_now_utc()} UTC — по нему считай «за последний час», «сегодня», «давно».")
     used = 0
     for fact in facts:
         body = fact.text if fact.ok and fact.text else "прочитать не удалось."
