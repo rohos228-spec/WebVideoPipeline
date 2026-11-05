@@ -52,6 +52,7 @@ class CreateJob:
     queue_position: int | None = None
     tenant_id: str | None = None
     storage_key: str | None = None
+    hold_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         from app.services.generation_storage import elapsed_from_iso, format_elapsed_min_sec
@@ -235,6 +236,7 @@ async def enqueue_generation(
     params: dict[str, Any] | None,
     quote: dict[str, Any] | None,
     run: GenerateFn,
+    hold_id: str | None = None,
 ) -> CreateJob:
     """Регистрирует job (queued) и стартует task — слот API берёт семафор."""
     fp = _job_fingerprint(media=media, model=model, provider=provider, prompt=prompt, params=params)
@@ -285,6 +287,7 @@ async def enqueue_generation(
         status="queued",
         history_id=history_id,
         tenant_id=tenant,
+        hold_id=hold_id,
     )
     async with _LOCK:
         _JOBS[job_id] = job
@@ -350,6 +353,16 @@ async def cancel_job(job_id: str) -> bool:
         target_job.status = "failed"
         target_job.error = "Генерация остановлена пользователем"
         target_job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
+        if target_job.hold_id:
+            try:
+                from app.db import session_scope
+                from app.services import credit_ledger as cl
+
+                async with session_scope() as session:
+                    await cl.release_hold(session, target_job.hold_id, memo="Отмена генерации пользователем")
+                target_job.hold_id = None
+            except Exception as e:
+                logger.warning("cancel_job: ошибка снятия холда {}: {}", target_job.hold_id, e)
         update_sidecar(
             target_job.path,
             status="failed",
@@ -504,6 +517,16 @@ async def _run_job(
                 finished_at=job.finished_at,
                 elapsed_sec=job.elapsed_sec,
             )
+            if job.hold_id:
+                try:
+                    from app.db import session_scope
+                    from app.services import credit_ledger as cl
+
+                    async with session_scope() as session:
+                        await cl.release_hold(session, job.hold_id, memo="Отмена генерации пользователем")
+                    job.hold_id = None
+                except Exception as e:
+                    logger.warning("_run_job: ошибка снятия холда {}: {}", job.hold_id, e)
             logger.info("create_job.cancelled_handled id={}", job.id)
             raise
         except Exception as e:  # noqa: BLE001
@@ -519,6 +542,16 @@ async def _run_job(
                 finished_at=job.finished_at,
                 elapsed_sec=job.elapsed_sec,
             )
+            if job.hold_id:
+                try:
+                    from app.db import session_scope
+                    from app.services import credit_ledger as cl
+
+                    async with session_scope() as session:
+                        await cl.release_hold(session, job.hold_id, memo=f"Сбой генерации ({job.error})")
+                    job.hold_id = None
+                except Exception as ex_hold:
+                    logger.warning("_run_job: ошибка снятия холда {}: {}", job.hold_id, ex_hold)
             logger.exception("create_job.failed id={}", job.id)
         finally:
             _refresh_queue_positions()

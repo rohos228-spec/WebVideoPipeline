@@ -343,10 +343,10 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
                         memo=memo,
                     )
             return res
-        except Exception:
+        except BaseException:
             if hold_id:
                 async with session_scope() as session:
-                    await cl.release_hold(session, hold_id, memo=f"Сбой {provider_label} генерации {media}")
+                    await cl.release_hold(session, hold_id, memo=f"Сбой/отмена {provider_label} генерации {media}")
             raise
 
     job_provider = provider_name
@@ -359,6 +359,7 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
         params={"model_id": model_id, "values": values, "project_id": project_id or None},
         quote={"credits": quote["credits"], "usd": quote["usd"], "note": quote["note"]},
         run=run,
+        hold_id=hold_id,
     )
     logger.info(
         "kie-create: generate {} ({}) → job {} (~{} кр. / ${})",

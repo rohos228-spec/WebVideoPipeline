@@ -143,13 +143,13 @@ function NodeExecutionTimer({
 
   if (status === "running") {
     let elapsed = 0;
-    if (localStartRef.current) {
-      elapsed = Math.max(0, Math.floor((now - localStartRef.current) / 1000));
-    } else if (startedAt) {
+    if (startedAt) {
       const parsed = parseUtcDate(startedAt).getTime();
       if (!Number.isNaN(parsed) && parsed > 0) {
         elapsed = Math.max(0, Math.floor((now - parsed) / 1000));
       }
+    } else if (localStartRef.current) {
+      elapsed = Math.max(0, Math.floor((now - localStartRef.current) / 1000));
     }
     const m = Math.floor(elapsed / 60);
     const s = elapsed % 60;

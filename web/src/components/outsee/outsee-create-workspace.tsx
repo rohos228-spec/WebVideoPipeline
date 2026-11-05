@@ -1095,33 +1095,54 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           (item.job_id && (j.job_id === item.job_id || j.history_id === item.job_id)),
       );
 
-    if (jobKey && localJobStartRef.current.has(jobKey)) {
-      const startMs = localJobStartRef.current.get(jobKey)!;
-      const diffSec = Math.max(0, Math.floor((nowTs - startMs) / 1000));
-      return formatElapsedMinSec(diffSec);
+    const isRunning = item.status === "processing" || activeJob?.status === "processing";
+    const iso = isRunning
+      ? (activeJob?.started_at || item.started_at || activeJob?.created_at || item.created_at)
+      : (activeJob?.created_at || item.created_at || activeJob?.started_at || item.started_at);
+
+    const rawServerSec = (activeJob as any)?.elapsed_sec ?? item.elapsed_sec;
+    const serverSec =
+      typeof rawServerSec === "number" && !Number.isNaN(rawServerSec) && rawServerSec >= 0
+        ? rawServerSec
+        : null;
+
+    let candidateStartMs: number | null = null;
+    if (iso) {
+      try {
+        const parsed = parseUtcDate(iso).getTime();
+        if (!Number.isNaN(parsed) && parsed > 0) {
+          const isoElapsed = Math.max(0, Math.floor((nowTs - parsed) / 1000));
+          const effectiveElapsed =
+            serverSec != null ? Math.max(isoElapsed, serverSec) : isoElapsed;
+          candidateStartMs = nowTs - effectiveElapsed * 1000;
+        }
+      } catch {
+        /* fallback to serverSec */
+      }
+    }
+    if (candidateStartMs == null && serverSec != null) {
+      candidateStartMs = nowTs - serverSec * 1000;
     }
 
-    const iso =
-      activeJob?.created_at ||
-      item.created_at ||
-      activeJob?.started_at ||
-      item.started_at;
-    if (!iso) {
-      if (item.elapsed_sec != null && item.elapsed_sec > 0) {
-        return formatElapsedMinSec(item.elapsed_sec);
+    let finalStartMs = nowTs;
+    if (jobKey && localJobStartRef.current.has(jobKey)) {
+      const cached = localJobStartRef.current.get(jobKey)!;
+      if (candidateStartMs != null && candidateStartMs < cached - 1500) {
+        // Сервер вернул более раннюю метку старта (например, после обновления страницы или резолва очереди)
+        finalStartMs = candidateStartMs;
+        localJobStartRef.current.set(jobKey, candidateStartMs);
+      } else {
+        finalStartMs = cached;
       }
-      if (jobKey) localJobStartRef.current.set(jobKey, nowTs);
-      return "0 мин 00 сек";
+    } else if (candidateStartMs != null) {
+      finalStartMs = candidateStartMs;
+      if (jobKey) localJobStartRef.current.set(jobKey, candidateStartMs);
+    } else if (jobKey) {
+      localJobStartRef.current.set(jobKey, nowTs);
     }
-    try {
-      const parsed = parseUtcDate(iso).getTime();
-      const startMs = !Number.isNaN(parsed) && parsed > 0 && parsed <= nowTs ? parsed : nowTs;
-      if (jobKey) localJobStartRef.current.set(jobKey, startMs);
-      const diffSec = Math.max(0, Math.floor((nowTs - startMs) / 1000));
-      return formatElapsedMinSec(diffSec);
-    } catch {
-      return item.elapsed_label || (item.elapsed_sec != null ? formatElapsedMinSec(item.elapsed_sec) : "0 мин 00 сек");
-    }
+
+    const diffSec = Math.max(0, Math.floor((nowTs - finalStartMs) / 1000));
+    return formatElapsedMinSec(diffSec);
   };
 
   const activeSlug =
