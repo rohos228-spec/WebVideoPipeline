@@ -77,9 +77,36 @@ _ABOUT = (
     "умеешь",
     "умеет",
     "можешь",
+    # «на каком мы этапе», «где застряло», «что мешает», «как починить»: без фактов модель
+    # отвечала «этап не указан» / «нет состояния проекта».
+    "этап",
+    "застрял",
+    "мешает",
+    "почин",
+    "исправ",
+    "сбо",
+    "срочн",
+    "проблем",
+    # «Сколько длится каждый кадр»: длительности с доски.
+    "кадр",
+    # «Картинки уже сгенерил?»: число кадров с картинками и видео.
+    "картин",
+    "сгенер",
+    "длит",
+    # «Какое разрешение у картинок»: генераторы и разрешения.
+    "разрешен",
+    "качеств",
+    "настройк",
+    # «Какой формат видео, вертикальный?»: формат кадра с доски.
+    "формат",
+    "вертикал",
+    "горизонтал",
+    # «Какой промт у картинок», «покажи промт кадра 2»: промты кадров с доски.
+    "промт",
+    "промпт",
 )
 _LOGS = ("лог", "журнал", "traceback", "трейсбек", "стектрейс")
-_FAILURE = ("почему", "ошиб", "упал", "сломал", "встал", "завис", "не работ", "сломан")
+_FAILURE = ("почему", "ошиб", "упал", "сломал", "встал", "завис", "не работ", "сломан", "сбо", "почин", "мешает")
 # «Разберись, в чём проблема», «найди саму причину»: без разбора ноды чат пересказывал
 # «схема отклонена» и говорил, что причину установить нельзя.
 _NODE_FAILURE = (
@@ -103,7 +130,7 @@ _NODE_FAILURE = (
 )
 # «Почему встал закадровый текст»: шаг назван по-русски, ключа ноды нет — без разбора сбоя
 # чат пересказывал старую ошибку («лимит $0.10»), хотя лимит уже подняли.
-_WHY_STOPPED = ("встал", "стоит", "останов", "пауз", "завис", "не идет", "не запуска")
+_WHY_STOPPED = ("встал", "стоит", "останов", "пауз", "завис", "не идет", "не запуска", "мешает", "застрял")
 FAILURE_TITLE = "Почему упала нода"
 FAILURE_RULE = (
     f"Факт «{FAILURE_TITLE}» — разбор падения по данным студии: назови причину из него своими "
@@ -146,6 +173,12 @@ _FINAL = (
     "где ролик",
     "скачать видео",
     "скачать ролик",
+    # «Скинь ссылку на ролик», «длительность ролика»: ответ из итогового видео ноды «Монтаж».
+    "ссылк",
+    "длительность ролика",
+    "длина ролика",
+    "сколько длится ролик",
+    "сколько длится видео",
 )
 FINAL_TITLE = "Готовое видео"
 _FINAL_WHERE = (
@@ -214,6 +247,10 @@ def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
 
 
 _SPEND = (
+    # «Сколько ушло на озвучку», «на что уходит денег».
+    "ушло на",
+    "ушли на",
+    "уходит",
     "трат",
     "потрат",
     "потрач",
@@ -287,16 +324,47 @@ _BLOCKED = ("блокир", "заблокир", "неизвестн", "исхо�
 _HASH_NUMBER_RE = re.compile(r"(?<![\w#])#(\d{1,5})(?!\d)")
 # В режиме «Проект» другой проект берём только по явному номеру, не по совпадению слов названия.
 _OTHER_NUMBER_RE = re.compile(
-    r"проект\w*\s+(?:№\s*)?#?\d|(?<![\w#])#\d|(?<![\w#])(?:на|по|у|в)\s+\d{1,5}\s*[?.!]*$"
+    r"проект\w*\s+(?:№\s*)?#?\d|(?<![\w#])#\d|(?<![\w#])(?:на|по|у|в|с|со|про)\s+\d{1,5}\s*[?.!]*$"
 )
 # «сколько ушло денег на 12», «что в 12?»: голый номер в конце фразы — проект, если такой есть.
-_TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в)\s+(\d{1,5})\s*[?.!]*$")
+_TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в|с|со|про)\s+(\d{1,5})\s*[?.!]*$")
+# «почему 13 встал», «продолжи 13»: в режиме «вся фабрика» единственное голое число — номер
+# проекта, если рядом нет единиц (кадров, секунд, денег, штук).
+_BARE_NUMBER_RE = re.compile(r"(?<![\w#.,$])(\d{1,5})(?![\w.,%$])(?!\s*(?:кадр|сек|мин|час|шаг|раз|штук|"
+    r"рол|видео|картин|сцен|доллар|долл|руб|бакс|\$|%|x|х\b))")
 # «что с 46 проектом», «в 4-м проекте»: номер перед словом «проект».
 _BEFORE_NUMBER_RE = re.compile(r"(?<![\w#.,])(\d{1,5})(?:-?(?:м|й|ом|ым|ой))?\s+проект")
 _NUMBER_IN_GROUP_RE = re.compile(r"\d{1,5}")
 MISSING_TITLE = "Такого проекта нет"
 # «Какой голос», «какой диктор», «кто озвучивает»: голос ноды «Озвучка».
 _VOICE_Q = ("голос", "диктор", "озвучива", "кто озвуч", "чей голос")
+# «Какие настройки у монтажа», «какая громкость музыки», «субтитры включены?»: параметры сборки.
+_MONTAGE_Q = ("настройк", "громк", "субтит", "музык", "хвост", "первые секунд", "монтаж", "сборк")
+MONTAGE_TITLE = "Настройки монтажа"
+# «Какое разрешение у картинок», «в каком качестве видео»: генераторы и разрешения проекта.
+_RESOLUTION_Q = ("разрешен", "качеств", "генератор", "2k", "4k", "720", "1080")
+
+
+def montage_settings_text(meta: Any) -> str:
+    from app.services.bgm import _meta_level
+
+    meta = meta if isinstance(meta, dict) else {}
+    nsp = meta.get("node_step_params") if isinstance(meta.get("node_step_params"), dict) else {}
+    asm = nsp.get("assemble") if isinstance(nsp.get("assemble"), dict) else {}
+    level = _meta_level(meta)
+    subs = asm.get("subtitles_enabled")
+    tail = asm.get("post_voiceover_tail_seconds")
+    skip = asm.get("skip_intro_seconds") if asm.get("skip_intro_enabled") is True else None
+    parts = [
+        f"громкость музыки {level} из 100",
+        "субтитры " + ("включены" if subs is True else "выключены" if subs is False else "по умолчанию студии"),
+        f"хвост после озвучки {tail} с" if tail not in (None, "") else "хвост после озвучки по умолчанию",
+        f"первые {skip} с ролика отрезаются" if skip else "начало ролика не обрезается",
+    ]
+    return (
+        "Монтаж (сборка ролика): " + "; ".join(parts) + ". Менять можно фразами: «музыку потише», "
+        "«включи субтитры», «хвост 2 секунды»; переходов, логотипа и размера субтитров в настройках нет."
+    )
 # Своё значение у каждого вопроса: вопросы разных сессий идут параллельно.
 _MISSING: contextvars.ContextVar[str | None] = contextvars.ContextVar("orch_missing_projects", default=None)
 # Образец команды в правиле ответа: тест сверяет, что чат принимает её как задачу.
@@ -464,7 +532,8 @@ _MONTAGE_STATUS = (
 )
 _REF_KIND = {"character": "персонаж", "item": "предмет", "manual": "загруженный"}
 _REF_TO_FRAME = ("привяз", "прилож", "кадр", "доск")
-_FRAMES = ("кадр", "шот")
+_FRAMES = ("кадр", "шот", "формат", "вертикал", "горизонтал", "длит", "длительн", "секунд", "картин", "видос",
+           "сгенер")
 _PROJECT_NO = re.compile(r"проект\w*\s+(?:№\s*|#\s*)?(\d{1,6})")
 
 
@@ -492,6 +561,9 @@ def _has(norm: str, words: tuple[str, ...]) -> bool:
         elif re.search(r"(?<![a-zа-я0-9_])" + re.escape(word), norm):
             return True
     return False
+
+
+_FINISH_COST = ("доделать", "доделат", "закончить", "довести", "до конца", "дорого выйдет", "во сколько обойд")
 
 
 def _cost_step(norm: str) -> str:
@@ -562,7 +634,8 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         _has(norm, ("почему",)) and (bool(nodes) or _has(norm, ("нод",)) or _has(norm, _WHY_STOPPED))
     )
     asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q or node_failure
-    if not asked and not wants_data_report(text):
+    if not asked and not wants_data_report(text) and project_id is None:
+        # Проект открыт или назван («а с 7?»): состояние читаем всегда — иначе «данных нет».
         return []
     logs = _has(norm, _LOGS) or _has(norm, _FAILURE)
     reads: list[tuple[str, dict[str, Any]]] = []
@@ -580,9 +653,19 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
                 # «Промты картинок отработали за 3 секунды»: нода названа шагом, а не ключом.
                 failure["step"] = _cost_step(norm)
             reads.append(("diag.node_failure", failure))
-        if _has(norm, _FRAMES):
+        if _has(norm, _RESOLUTION_Q):
+            reads.append(("montage.get_cost_basis", {"project_id": pid}))
+        prompt_q = _has(norm, ("промт", "промпт"))
+        if _has(norm, _FRAMES) or prompt_q:
             # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
-            reads.append(("montage.get_board", {"project_id": pid}))
+            board: dict[str, Any] = {"project_id": pid}
+            if prompt_q:
+                # «Какой промт у картинок»: промты названного кадра или первых трёх.
+                from app.orchestrator.agents.frame_scope import frame_number
+
+                number = frame_number(norm)
+                board["prompt_frames"] = [number] if number else [1, 2, 3]
+            reads.append(("montage.get_board", board))
         if logs:
             reads.append(("logs.tail", {"project_id": pid, "kind": "errors", "limit": 20}))
         if _has(norm, _SPEND):
@@ -600,8 +683,25 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             reads.append(("projects.overview", _overview(norm)))
         if _has(norm, _BLOCKED):
             reads.append(("media.list_unknown_outcomes", {"project_id": pid}))
+        # «Сколько будет стоить запустить проекты 5 и 6»: оценка по каждому названному, не по открытому.
+        from app.orchestrator.agents.launch_scope import _ids as _launch_ids
+
+        named = _launch_ids(norm)
+        cost_ids = named[:5] if len(named) >= 2 else [pid]
         if cost_q:
-            reads.append(("step.get_run_cost_basis", {"project_id": pid, "step_code": _cost_step(norm)}))
+            reads.extend(
+                ("step.get_run_cost_basis", {"project_id": one, "step_code": _cost_step(norm), **({"_named": True} if len(cost_ids) > 1 else {})})
+                for one in cost_ids
+            )
+        elif _has(norm, _FINISH_COST) or (_has(norm, ("сколько",)) and _has(norm, ("стоит", "стоить", "обойд"))):
+            # «Сколько будет стоить доделать»: оценка оставшихся платных шагов (картинки, видео, озвучка).
+            for one in cost_ids:
+                # Несколько проектов: название в заголовке факта, без отдельного статуса (общий предел фактов).
+                extra = {"_named": True} if len(cost_ids) > 1 else {}
+                reads.extend(
+                    ("step.get_run_cost_basis", {"project_id": one, "step_code": code, **extra})
+                    for code in ("img", "video", "audio")
+                )
         return _allowed(reads)
     reads.append(("projects.overview", _overview(norm)))
     data_report = report_params(text, None)
@@ -683,11 +783,47 @@ def _node_code(code: str) -> tuple[str, str]:
     return (m.group(1), m.group(2)) if m else (base, "")
 
 
+# «Что такое автозапуск», «что значит инцидент»: понятия студии простыми словами.
+_CONCEPT_Q = re.compile(r"что\s+(?:такое|значит|это|за)|зачем|как\s+работает|для\s+чего|объясни")
+_CONCEPTS = (
+    (("автозапуск", "автопродвиж", "авто режим", "автоматическ"),
+     "Автозапуск (автопродвижение) — студия сама запускает следующий шаг конвейера, как только готов "
+     "предыдущий. Выключен — каждый шаг ждёт ручного запуска: «запусти картинки», «доведи до конца». "
+     "Платные шаги при автозапуске тратят деньги без подтверждения каждого шага."),
+    (("очеред",),
+     "Очередь генерации — список проектов, которые студия ведёт сама по конвейеру (весь или до "
+     "заданной ноды), одновременно не больше окна параллели. Очередь правок монтажа — отдельная: "
+     "правки кадров, которые применяются кнопкой «Применить» или фразой «примени правки»."),
+    (("инцидент",),
+     "Инцидент — запись о сбое или предупреждении: упавший шаг, обрыв запроса к провайдеру, "
+     "неполный журнал. Открытый инцидент не всегда мешает работе: блокирующие называются отдельно."),
+    (("нод",),
+     "Нода — блок на канвасе проекта: один шаг конвейера (сценарий, промты картинок, картинки, видео, "
+     "озвучка, монтаж…). Ноды соединены стрелками в порядке работы."),
+    (("шот",),
+     "Шот — съёмка внутри кадра: у кадра может быть один или два шота со своими картинкой и видео."),
+    (("промт", "промпт"),
+     "Промт — текстовое задание модели: что нарисовать или написать. У каждого кадра свой промт "
+     "картинки и анимации; общий стиль задаёт промт ноды «Промты картинок»."),
+    (("карточк",),
+     "Карточка — предложение действия в чате: что будет сделано и сколько стоит. Ничего не "
+     "выполняется, пока не нажата «Подтвердить»."),
+)
+
+
+def concept_text(text: str) -> str:
+    norm = _norm(text)
+    if not _CONCEPT_Q.search(norm):
+        return ""
+    return "\n".join(note for words, note in _CONCEPTS if any(w in norm for w in words))
+
+
 def glossary_text(text: str) -> str:
     """Строки «код — что это» для кодов из вопроса; пусто, если кодов нет."""
+    concepts = concept_text(text)
     found = list(dict.fromkeys(_CODE_RE.findall((text or "").lower())))
     if not found:
-        return ""
+        return concepts
     try:
         steps, types = _code_titles()
     except Exception:
@@ -703,6 +839,8 @@ def glossary_text(text: str) -> str:
             lines.append(f"{code}{node} — шаг конвейера «{steps[base]}»{tail}{note}.")
         elif base in types:
             lines.append(f"{code}{node} — нода «{types[base]}»{tail}{note}.")
+    if concepts:
+        lines.append(concepts)
     return "\n".join(lines)
 
 
@@ -794,7 +932,21 @@ class QuestionContext:
 
     async def _one(self, action: str, params: dict[str, Any], app: Any) -> Fact:
         title = _TITLES.get(action, action)
+        if action in ("step.get_run_cost_basis", "project.status") and params.get("project_id"):
+            # «Сколько стоит запустить 5 и 6»: без номера в заголовке модель не знала, чья оценка.
+            kind = {"img": "картинки", "video": "видео", "audio": "озвучка"}.get(str(params.get("step_code")), "")
+            name = ""
+            if params.get("_named"):
+                try:
+                    from app.services.orch_tenancy import own_projects
+
+                    found = own_projects(None, [int(params["project_id"])])
+                    name = f" «{found[0][1]}»" if found and found[0][1] else ""
+                except Exception:  # noqa: BLE001 — без названия заголовок всё равно с номером
+                    name = ""
+            title = f"{title} — проект #{params['project_id']}{name}" + (f", {kind}" if kind else "")
         try:
+            params = {k: v for k, v in params.items() if k != "_named"}
             result = await asyncio.wait_for(self._runner(action, params, app), self.timeout_s)
         except Exception as exc:
             logger.warning("orch question read {} failed: {}", action, type(exc).__name__)
@@ -883,6 +1035,18 @@ class QuestionContext:
             await asyncio.gather(*(self._one(action, params, app) for action, params in reads))
         )
 
+    async def _montage_settings(self, project_id: int) -> str:
+        from sqlalchemy import select
+
+        from app.models import Project
+        from app.services.action_layer import store
+
+        async with store.sessions()() as session:
+            meta = await asyncio.wait_for(
+                session.scalar(select(Project.meta).where(Project.id == int(project_id))), self.timeout_s
+            )
+        return montage_settings_text(meta)
+
     async def _voice(self, project_id: int) -> str:
         from sqlalchemy import select
 
@@ -911,12 +1075,16 @@ class QuestionContext:
             logger.warning("orch question projects failed: {}", type(exc).__name__)
             return None
         items = [item for item in items or [] if isinstance(item, dict)]
+        known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
+        # «А со 2?»: номер в конце важнее названий «2 факта о котах», «2 факта о совах».
+        tail_first = _TAIL_NUMBER_RE.search(_norm(text))
+        if tail_first and int(tail_first.group(1)) in known:
+            return int(tail_first.group(1))
         named = named_projects(items, text)
         if len(named) == 1:
             return int(named[0]["id"])
         if named:
             return None
-        known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
         _MISSING.set(_missing_projects(text, known))
         numbered = numbered_projects(items, text)
         if not numbered:
@@ -927,6 +1095,9 @@ class QuestionContext:
             if not numbered:
                 tail = _TAIL_NUMBER_RE.search(_norm(text))
                 numbered = [int(tail.group(1))] if tail and int(tail.group(1)) in known else []
+            if not numbered:
+                bare = list(dict.fromkeys(int(n) for n in _BARE_NUMBER_RE.findall(_norm(text))))
+                numbered = bare if len(bare) == 1 and bare[0] in known else []
         return numbered[0] if len(numbered) == 1 else None
 
     async def messages(
@@ -947,12 +1118,23 @@ class QuestionContext:
                 facts = [Fact("audio.voice", "Голос озвучки", await self._voice(int(project_id))), *facts]
             except Exception as exc:
                 logger.warning("orch question voice failed: {}", type(exc).__name__)
+        if project_id is not None and _has(norm, _MONTAGE_Q) and not _has(norm, ("сколько стои", "трат")):
+            try:
+                facts = [Fact("montage.settings", MONTAGE_TITLE, await self._montage_settings(int(project_id))), *facts]
+            except Exception as exc:
+                logger.warning("orch question montage settings failed: {}", type(exc).__name__)
         if project_id is not None and _has(norm, _FINAL):
             try:
                 final = await asyncio.wait_for(final_video_text(int(project_id)), self.timeout_s)
                 facts = [Fact("project.final_video", FINAL_TITLE, final), *facts]
             except Exception as exc:
                 logger.warning("orch question final video failed: {}", type(exc).__name__)
+        from app.orchestrator.agents.summarizer import known_gap_text
+
+        gap = known_gap_text(text)
+        if gap:
+            # «Какой сид», «субтитры побольше»: прямо сказать, что такой настройки нет и что вместо.
+            facts = [Fact("studio.gap", "Чего в студии нет", gap), *facts]
         missing = _MISSING.get()
         if missing:
             facts = [Fact("projects.missing", MISSING_TITLE, missing), *facts]
@@ -1001,6 +1183,8 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
         if project_id is not None:
             # Без фактов модель не знала, что открыт проект, и просила «назовите номер проекта».
             lines.append(f"Человек сейчас в проекте #{project_id}: номер проекта не спрашивай.")
+        # «Какая сегодня дата», «который час»: без фактов модель отвечала «дата не указана».
+        lines.append(f"[Сейчас] {_now_utc()} UTC; в Москве на 3 часа больше.")
         return "\n".join(lines)
     done = next((fact for fact in facts if fact.action == "chat.changes" and fact.ok), None)
     if done is not None:
@@ -1011,6 +1195,9 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
         lines.append(FAILURE_RULE)
     if any(fact.action == "diag.content_checks" and fact.ok for fact in facts):
         lines.append(CONTENT_RULE)
+    if project_id is not None:
+        # «Номер проекта в фактах не указан»: модель не видела, что чат открыт в проекте.
+        lines.append(f"Человек сейчас в проекте #{project_id}: номер проекта не спрашивай и не пиши, что он не указан.")
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
     # «Ошибки за последний час», «стоит уже час»: без текущего времени модель отвечала
     # «определить нельзя: текущее время в фактах не указано».

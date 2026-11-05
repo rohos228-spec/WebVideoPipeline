@@ -693,6 +693,8 @@ async def load_frames(project_id: int) -> Any:
 
 
 _MAX_PROJECTS = 30
+# Поиск проекта по номеру и названию: все проекты, не 30 последних («а со 2?» отвечало «сведений нет»).
+_LOOKUP_PROJECTS = 1000
 PROJECTS_HEAD = (
     "Проекты фабрики (project_id: название, статус). project_id бери только отсюда; "
     "цифры в названии проекта — это не его номер:"
@@ -734,7 +736,7 @@ async def load_projects() -> Any:
             await session.execute(
                 select(Project.id, Project.title, Project.topic, Project.status)
                 .order_by(Project.id.desc())
-                .limit(_MAX_PROJECTS)
+                .limit(_LOOKUP_PROJECTS)
             )
         ).all()
     return [
@@ -782,7 +784,18 @@ def projects_text(items: list[dict[str, Any]], text: str) -> str:
     if not items:
         return ""
     lines = [PROJECTS_HEAD]
-    lines.extend(f"- {item['id']}: «{item['title']}», {item['status']}" for item in items[:_MAX_PROJECTS])
+    shown = list(items[:_MAX_PROJECTS])
+    # «Запусти проекты 2, 3, 5»: старые проекты вне 30 последних — тоже в список, иначе
+    # планировщик отвечал «проектов 2 и 3 нет».
+    seen = {item["id"] for item in shown}
+    asked = set(numbered_projects(items, text))
+    shown.extend(item for item in items[_MAX_PROJECTS:] if item["id"] in asked and item["id"] not in seen)
+    lines.extend(f"- {item['id']}: «{item['title']}», {item['status']}" for item in shown)
+    if len(items) > len(shown):
+        lines.append(
+            f"Показаны {len(shown)} из {len(items)} проектов; номер вне списка не называй отсутствующим, "
+            "если не уверен — прочитай project.status."
+        )
     named = named_projects(items, text)
     if len(named) == 1:
         lines.append(f"В запросе назван проект «{named[0]['title']}»: это project_id={named[0]['id']}.")

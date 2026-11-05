@@ -33,6 +33,13 @@ HELLO_TEXT = (
     "Если не знаете, с чего начать, напишите «помоги»."
 )
 THANKS_TEXT = "Пожалуйста. Если что-то ещё нужно, напишите."
+# «Не надо», «забей», «отбой»: отказ от просьбы — раньше отвечалось «Не понял, что сделать».
+DECLINE_TEXT = "Хорошо, ничего не делаю. Если что-то понадобится, напишите."
+# «Ты тупой», «бесполезный»: без спора — что не так и как помочь.
+RUDE_TEXT = (
+    "Извините, что не помог. Напишите, что именно не так или что нужно сделать, например "
+    "«что с проектом 4» или «запусти картинки в проекте 6», — разберусь."
+)
 OK_TEXT = "Хорошо. Если что-то ещё нужно, напишите."
 # «ок» при открытой карточке легко принять за согласие: ответ напоминает про кнопки.
 CARD_WAITING_TEXT = (
@@ -116,8 +123,74 @@ _HELP = frozenset(
         "что можно сделать",
         "что можно спросить",
         "как тобой пользоваться",
+        "я не понимаю как тут все работает",
+        "не понимаю как тут все работает",
+        "как тут все работает",
+        "как это работает",
+        "как тут работать",
+        "я не понимаю",
+        "ничего не понимаю",
+        "объясни как пользоваться",
     }
 )
+_NEVERMIND = frozenset(
+    {
+        "не надо",
+        "не нужно",
+        "забей",
+        "забудь",
+        "отбой",
+        "проехали",
+        "неважно",
+        "не важно",
+        "ничего не надо",
+        "ничего не нужно",
+        "уже не надо",
+        "уже не нужно",
+        "передумал",
+        "передумала",
+    }
+)
+_RUDE_RE = re.compile(
+    r"^(?:ты\s+)?(?:тупой|тупая|тупишь|дурак|дебил|идиот|бесполезн\w*|бестолков\w*|глупый|"
+    r"ничего\s+не\s+умеешь|не\s+работаешь|туп\w*\s+бот)(?:\s+\w+)?$"
+)
+# «Ты кто», «как тебя зовут»: модель планировщика называла себя «Codex».
+WHO_TEXT = (
+    "Я помощник видеостудии: веду проекты роликов от сценария до монтажа, отвечаю, что с ними и "
+    "почему встали, считаю траты, меняю промты, голос и музыку и запускаю шаги после вашего "
+    "«Подтвердить». Напишите «помоги» — покажу примеры."
+)
+GIBBERISH_TEXT = (
+    "Не разобрал сообщение. Напишите обычными словами, что нужно, например «что с проектом 4» "
+    "или «помоги»."
+)
+_WHO = frozenset({"ты кто", "кто ты", "кто ты такой", "ты кто такой", "как тебя зовут", "ты бот", "ты человек"})
+_TIME_RE = re.compile(r"^(?:который\s+час|сколько\s+(?:сейчас\s+)?времени|какое\s+(?:сейчас\s+)?время|время)$")
+_VOWELS = set("аеиоуыэюяaeiouy")
+
+
+def _looks_like_noise(norm: str) -> bool:
+    """«асдфгх», «ывапр»: одно слово без смысла — набор согласных подряд."""
+    words = norm.split()
+    if len(words) != 1 or not words[0].isalpha() or len(words[0]) < 4:
+        return False
+    run = best = 0
+    for ch in words[0]:
+        run = 0 if ch in _VOWELS else run + 1
+        best = max(best, run)
+    return best >= 5
+
+
+def time_text() -> str:
+    import datetime as dt
+
+    now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)
+    months = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+              "октября", "ноября", "декабря")
+    return f"Сейчас {now:%H:%M} по Москве, {now.day} {months[now.month - 1]} {now.year} года."
+
+
 _POLITE = _HELLO | _THANKS | _OK
 _HELP_RE = re.compile(
     r"^(?:(?:ты|вообще|еще|тут|здесь)\s+)*(?:что|че|чо|чего)\s+(?:(?:ты|вообще|еще|тут|здесь)\s+)*"
@@ -177,6 +250,14 @@ def small_talk_reply(text: str) -> str | None:
     if norm in _HELP or (len(norm.split()) <= 6 and _HELP_RE.search(norm)):
         # «А ты вообще что умеешь», «че ты можешь»: раньше уходило в план и отвечалось «План пуст».
         return HELP_TEXT
+    if norm in _WHO:
+        return WHO_TEXT
+    if _TIME_RE.match(norm):
+        return time_text()
+    if norm in _NEVERMIND:
+        return DECLINE_TEXT
+    if _RUDE_RE.match(norm):
+        return RUDE_TEXT
     if norm in _POLITE:
         return HELLO_TEXT if norm in _HELLO else THANKS_TEXT if norm in _THANKS else OK_TEXT
     # «ок спасибо», «привет спасибо»: только вежливые слова подряд.
@@ -187,6 +268,8 @@ def small_talk_reply(text: str) -> str | None:
         and all(word in _POLITE or word in _CLOSING for word in words)
     ):
         return THANKS_TEXT
+    if _looks_like_noise(norm):
+        return GIBBERISH_TEXT
     if len(words) <= 3 and all(word in _POLITE for word in words):
         if any(word in _THANKS for word in words):
             return THANKS_TEXT

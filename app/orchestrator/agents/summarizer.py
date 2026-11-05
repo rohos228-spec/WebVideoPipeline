@@ -132,8 +132,54 @@ def delete_refusal_text(goal: str) -> str:
     return DELETE_REFUSED if _DELETE_VERB.search(text) and _BOARD_THING.search(text) else ""
 
 
+# Просьбы, которых студия не умеет вовсе: прямой ответ и что можно вместо, а не «уточните кадры».
+_KNOWN_GAPS = (
+    (re.compile(r"переход\w*|склейк\w*\s+плавн|плавн\w*\s+склейк"),
+     "Переходов между кадрами в монтаже нет: кадры склеиваются встык. Можно сменить музыку или хвост "
+     "после озвучки («хвост 1 секунда»)."),
+    (re.compile(r"логотип|водян\w*\s+знак|вотермарк|watermark"),
+     "Логотипа в сборке ролика нет: его добавляют в видеоредакторе после скачивания ролика."),
+    (re.compile(r"обреж\w*|обрез\w*|отреж\w*\s+(?:конец|последн)"),
+     "Обрезать конец ролика чат не умеет. Можно отрезать начало до 2 секунд («отрежь первую секунду») "
+     "или сменить хвост после озвучки («хвост 1 секунда»)."),
+    (re.compile(r"субтитр\w*\s+(?:побольше|поменьше|больше|меньше|крупнее|мельче|шрифт|размер|цвет)"
+                r"|(?:размер|шрифт|цвет)\w*\s+субтитр"),
+     "Размер, шрифт и цвет субтитров не настраиваются: их можно только включить или выключить."),
+    (re.compile(r"озвучк\w*\s+(?:медленн|быстр)|(?:медленн|быстр)\w*\s+(?:озвучк|голос|говор)|скорост\w*\s+(?:голос|озвуч|речи)"),
+     "Скорость голоса не настраивается. Можно сменить голос («поставь голос Брайан») и перезапустить озвучку."),
+    (re.compile(r"(?:на|по)\s+почт|e-?mail|имейл|емейл|пост\w*\s+в\s+телеграм|в\s+телеграм|в\s+телегу"),
+     "Писать письма и посты чат не умеет. Готовый ролик можно открыть и скачать: «где посмотреть готовое видео»."),
+    (re.compile(r"лимит\w*.{0,30}(?:в\s+день|на\s+день|сутк)|дневн\w*\s+лимит|лимит\w*\s+на\s+(?:всю\s+)?(?:студи|фабрик)"),
+     "Дневной лимит всей студии ставится в настройках сервера, из чата его не поменять. Из чата можно "
+     "задать бюджет текстов проекта: «поставь бюджет проекта 4 5 долларов»."),
+    (re.compile(r"артефакт|(?:текст|букв|надпис)\w*\s+на\s+(?:картинк|кадр|видео)|на\s+картинк\w*\s+(?:текст|букв|надпис)"
+                r"|посмотри\s+(?:готов\w*\s+)?(?:видео|ролик|картинк)|оцени\s+(?:ролик|видео|картинк)"),
+     "Смотреть картинки и видео глазами чат пока не умеет. Он проверяет по данным студии промты, "
+     "закадр и героев («проверь промты картинок»), а сами картинки и ролик видны на доске монтажа."),
+    (re.compile(r"голос\w*\s+(?:слишком\s+)?(?:тих|громк)|(?:тих|громч)\w*\s+голос|громкост\w*\s+(?:голоса|озвучк)"),
+     "Громкость голоса отдельно не настраивается: озвучка идёт в полную громкость. Можно сделать "
+     "тише музыку («музыку потише»), тогда голос будет слышнее."),
+    (re.compile(r"архив"),
+     "Архива проектов в студии нет. Ненужный проект можно остановить («останови проект 5») или удалить "
+     "вручную в списке проектов слева: меню у проекта → «Удалить»."),
+    (re.compile(r"баланс|остаток\s+(?:денег|средств|кредит)|сколько\s+(?:денег|кредитов)\s+осталось"),
+     "Остаток баланса у провайдеров чат не видит: его смотрят в кабинете провайдера. В чате видны "
+     "траты по журналу расходов: «сколько я потратил за неделю»."),
+    (re.compile(r"(?<![а-я])сид\w*|seed"),
+     "Сид генерации студия не задаёт и не хранит: каждая генерация случайна."),
+)
+
+
+def known_gap_text(goal: str) -> str:
+    low = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    return next((text for rx, text in _KNOWN_GAPS if rx.search(low)), "")
+
+
 def missing_action_text(reason: str, goal: str = "") -> str:
     """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
+    gap = known_gap_text(goal)
+    if gap:
+        return f"{NOT_SUPPORTED} {gap}"
     if _NO_FRAME_DELETE.search(reason or ""):
         return FRAME_DELETE_HINT
     if _DELETE_PROJECT.search(goal or ""):
@@ -660,6 +706,10 @@ def _board_text(body: dict[str, Any]) -> str:
     frames = [f for f in body.get("frames") or [] if isinstance(f, dict)]
     count = body.get("frame_count") or len(frames)
     lines = [f"На доске монтажа {count} {_plural(int(count), 'кадр', 'кадра', 'кадров')}."]
+    aspect = str(body.get("frame_aspect") or "").strip()
+    if aspect:
+        kind = {"9:16": "вертикальный", "16:9": "горизонтальный", "1:1": "квадратный"}.get(aspect, "")
+        lines[0] += f" Формат кадра {aspect}{f' ({kind})' if kind else ''}."
     for frame in frames[:_BOARD_LINES]:
         text = " ".join(str(frame.get("voiceover_text") or "").split())
         two = ", два шота" if frame.get("has_shot2") else ""
@@ -667,7 +717,9 @@ def _board_text(body: dict[str, Any]) -> str:
         have = (
             f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
         )
-        lines.append(f"• кадр {frame.get('number')}{two}{have}: {text[:90] or 'без текста'}")
+        secs = frame.get("duration_seconds")
+        dur = f" {float(secs):.1f} с" if isinstance(secs, (int, float)) and secs else ""
+        lines.append(f"• кадр {frame.get('number')}{two}{have}{dur}: {text[:90] or 'без текста'}")
     if "frames_with_image" in body:
         lines.append(
             f"Картинки есть у {body['frames_with_image']} из {count}, видео у {body.get('frames_with_video', 0)} из {count}."
@@ -682,7 +734,21 @@ def _board_text(body: dict[str, Any]) -> str:
     stale = body.get("stale_videos") or []
     if stale:
         lines.append(f"Устаревших видео {len(stale)}: их нужно пересобрать.")
-    return "\n".join(lines)
+    # «Покажи промт второго кадра»: промты названных кадров целиком — сразу после числа кадров,
+    # чтобы не срезались лимитом факта.
+    prompt_lines: list[str] = []
+    for row in body.get("prompts") or []:
+        if not isinstance(row, dict):
+            continue
+        img = " ".join(str(row.get("image_prompt_shot1") or "").split())
+        img2 = " ".join(str(row.get("image_prompt_shot2") or "").split())
+        anim = " ".join(str(row.get("animation_prompt_shot1") or "").split())
+        prompt_lines.append(f"Промт картинки кадра {row.get('number')}: {img or 'пока пустой'}")
+        if img2:
+            prompt_lines.append(f"Промт картинки второго шота кадра {row.get('number')}: {img2}")
+        if anim:
+            prompt_lines.append(f"Промт анимации кадра {row.get('number')}: {anim}")
+    return "\n".join(lines[:1] + prompt_lines + lines[1:])
 
 
 def _voiceover_text(body: dict[str, Any]) -> str:
@@ -1543,6 +1609,10 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     from app.orchestrator.agents.question_context import _now_utc
 
     # «Ошибки за последний час», «стоит уже час»: без часов итог писал «время в фактах не указано».
+    pids = {n.project_id for n in facts.steps if isinstance(n.project_id, int) and n.project_id > 0}
+    pid = next(iter(pids)) if len(pids) == 1 else None
+    if pid is not None:
+        rules.append(f"Чат открыт в проекте #{pid}: не пиши, что номер проекта не указан.")
     lines = [
         "Факты, прочитанные шагами задачи:",
         f"[Сейчас] {_now_utc()} UTC — по нему считай «за последний час», «сегодня», «давно».",

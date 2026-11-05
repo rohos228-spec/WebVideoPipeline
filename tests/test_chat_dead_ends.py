@@ -242,3 +242,25 @@ def test_assembled_question_reads_status():
     from app.orchestrator.agents.question_context import plan_reads
 
     assert ("project.status", {"project_id": 4}) in plan_reads("видео собралось?", 4)
+
+
+def test_stage_and_stuck_questions_read_status():
+    from app.orchestrator.agents.question_context import plan_reads
+
+    for phrase in ("на каком мы этапе", "где застряло", "что мешает запустить картинки", "как это починить"):
+        assert ("project.status", {"project_id": 10}) in plan_reads(phrase, 10), phrase
+
+
+def test_bare_number_is_project_in_factory():
+    import asyncio
+
+    from app.orchestrator.agents.question_context import QuestionContext
+
+    class Nodes:
+        async def project_items(self):
+            return [{"id": 9, "title": "киты"}, {"id": 13, "title": "волки"}]
+
+    ctx = QuestionContext(nodes=Nodes())
+    assert asyncio.run(ctx._named_project("почему 13 встал")) == 13
+    assert asyncio.run(ctx._named_project("чё с 9")) == 9
+    assert asyncio.run(ctx._named_project("сделай кадры по 3 секунды")) is None

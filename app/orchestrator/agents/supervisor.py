@@ -554,7 +554,7 @@ class Supervisor:
         )
         self._session_task[session_id] = task_id
         self._change_ids[task_id] = []
-        self._context[task_id] = ""
+        self._context[task_id] = await self._dialog_context(session_id, goal)
         self._paid_done[task_id] = set()
         self._runs[task_id] = self._watch_run(
             task_id,
@@ -1521,6 +1521,25 @@ class Supervisor:
             self._queued.setdefault(session_id, []).append((task_id, goal))
             return task_id
         return await self.start_task(session_id, goal, project_id=bound)
+
+    async def _dialog_context(self, session_id: str, goal: str) -> str:
+        """«Сделай недостающие», «давай второй», «убавь в два раза»: короткая просьба продолжает
+        прошлый ответ чата. Без него планировщик отвечал «неясно, что считать недостающим»."""
+        if len(str(goal or "").split()) > 6:
+            return ""
+        try:
+            from app.orchestrator.queue import _recent_dialog
+
+            turns = await asyncio.to_thread(_recent_dialog, session_id, goal)
+        except Exception:
+            return ""
+        if not turns:
+            return ""
+        lines = [f"{'Человек' if t['role'] == 'user' else 'Чат'}: {t['content'][:400]}" for t in turns[-4:]]
+        return (
+            "Последние реплики этого чата — короткая просьба продолжает их (что «недостающие», "
+            "какой «второй», что «в два раза»):\n" + "\n".join(lines)
+        )
 
     async def _waiting_twin(self, session_id: str, goal: str) -> int | None:
         words = _goal_words(goal)
@@ -2849,16 +2868,47 @@ class Supervisor:
                 from app.orchestrator.agents.music_scope import music_volume_plan
 
                 fixed = await music_volume_plan(goal, self._task_project_id(task_id))
+                if fixed and " и " in f" {goal.lower()} ":
+                    # «Музыку тише и голос мужской»: вторая просьба терялась — добавить смену голоса.
+                    from app.orchestrator.agents.style_scope import voice_plan as _voice_also
+
+                    fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id)) or [])]
             if not fixed:
                 # «Сделай, чтобы во всех картинках был пластилин»: правка промта «Промты картинок».
                 from app.orchestrator.agents.style_scope import style_plan
 
                 fixed = await style_plan(goal, self._task_project_id(task_id))
             if not fixed:
+                # «Сделай все картинки темнее», «сократи текст озвучки»: правка промта всего проекта.
+                from app.orchestrator.agents.style_scope import wide_edit_plan
+
+                fixed = await wide_edit_plan(goal, self._task_project_id(task_id))
+            if not fixed:
                 # «Поменяй голос на мужской»: голос ноды «Озвучка», а не «загрузите файл».
                 from app.orchestrator.agents.style_scope import voice_plan
 
                 fixed = voice_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Перемонтируй», «доведи до конца»: планировщик отвечал «чат пока не умеет».
+                from app.orchestrator.agents.run_scope import run_plan
+
+                fixed = run_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Покажи промт второго кадра», «поменяй промт кадра 3 на …»: промт одного кадра.
+                from app.orchestrator.agents.frame_scope import frame_prompt_plan
+
+                fixed = frame_prompt_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Создай ролик про акул и доведи до картинок», «отчёт за неделю».
+                from app.orchestrator.agents.run_scope import create_run_plan
+
+                fixed = create_run_plan(goal)
+            if not fixed and self._launch_allowed("queue.enqueue_many"):
+                # «Запусти проекты 2, 3, 5 до видео»: очередь сразу, без «проектов 2 и 3 нет».
+                from app.orchestrator.agents.action_catalog import _studio_projects
+                from app.orchestrator.agents.launch_scope import seed_multi_launch
+
+                fixed = seed_multi_launch(goal, lambda: [pid for pid, _ in _studio_projects(task_id)])
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
@@ -2878,6 +2928,13 @@ class Supervisor:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
         drafted = scope_settings(list(drafted), goal)
+        # «Сколько длится каждый кадр»: доска монтажа, а не xlsx-отчёт работы с GPT.
+        from app.orchestrator.agents.frame_scope import board_not_report
+
+        drafted = board_not_report(list(drafted), goal)
+        from app.orchestrator.agents.run_scope import clip_report_ids
+
+        drafted = clip_report_ids(list(drafted))
         # «Кадр 8: ночное освещение» — свет на доске, а не платная перерисовка картинки.
         drafted = light_as_coverage(drafted, goal)
         # «Музыка для проекта 4 — файл C:\...\bgm.wav»: путь из просьбы, если шаг загрузки без файла.
@@ -2890,6 +2947,21 @@ class Supervisor:
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []
         drafted = route_multi_launch(drafted, goal, _queue_limit(), self._launch_allowed, launch_notes)
+        if any(_step_action(step) == "queue.enqueue_many" for step in drafted):
+            from app.orchestrator.agents.action_catalog import _studio_projects
+            from app.orchestrator.agents.launch_scope import drop_missing_projects
+
+            drafted = drop_missing_projects(
+                list(drafted), lambda: [pid for pid, _ in _studio_projects(task_id)], launch_notes
+            )
+            if not drafted and launch_notes:
+                # «Запусти проекты 300 и 400»: ни одного такого проекта — честный ответ, не «не понял».
+                nothing = " ".join(launch_notes)
+                await write_on_loop(self._save_plan, task_id, [])
+                self._fail_detail[task_id] = nothing
+                self._code_answers.add(task_id)
+                self._trace_plan(task_id, "projects_missing", [], nothing)
+                return []
         if launch_notes:
             self._launch_note[task_id] = " ".join(launch_notes)
         else:

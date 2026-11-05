@@ -28,7 +28,14 @@ from app.orchestrator.contracts import (
 from app.orchestrator.db.migrations import connect, utc_now
 from app.orchestrator.events import EventBus
 from app.orchestrator.safety_gate import Refusal, refusal_for
-from app.orchestrator.small_talk import CARD_WAITING_TEXT, OK_TEXT, THANKS_TEXT, is_decline, small_talk_reply
+from app.orchestrator.small_talk import (
+    CARD_WAITING_TEXT,
+    DECLINE_TEXT,
+    OK_TEXT,
+    THANKS_TEXT,
+    is_decline,
+    small_talk_reply,
+)
 
 _TOKEN_RE = re.compile(r"[a-zа-яё0-9]+", re.IGNORECASE)
 _STOP_TOKENS = frozenset(
@@ -93,6 +100,20 @@ _TASK_MARKERS = ("задач", "план", "шаг", "нод", "кадр", "сц
 _OPEN_STARTS = frozenset({"открой", "откройте", "открыть"})
 _ASK_STARTS = _QUESTION_STARTS - {"можно", "нужно"}
 _IMPERATIVE_WORDS = (
+    # «перемонтируй», «доведи до конца» после уточнения чата склеивались с прошлой просьбой.
+    "перемонтируй",
+    "пересобери",
+    "доведи",
+    "доделай",
+    "прогони",
+    "перегенери",
+    "сгенери",
+    "сгенерь",
+    "перерисуй",
+    "дорисуй",
+    "сократи",
+    "убавь",
+    "прибавь",
     "поставь",
     "ставь",
     "установи",
@@ -201,6 +222,43 @@ _NEGATIONS = frozenset({"не", "ни"})
 _NAME_IT_RE = re.compile(r"(?<![а-я])назови(?:те)?\s[^«\"]*[«\"]")
 
 
+# «Зопусти кортинки», «сгинирируй видосы», «чё с 9», «скок ещё ждать»: опечатки и разговорные
+# формы — чинить до классификатора и планировщика (планировщик отвечал «не понял»).
+_TYPOS = (
+    (re.compile(r"(?<![а-я])зопуст"), "запуст"),
+    (re.compile(r"(?<![а-я])запуск(?=ай(?![а-я]))"), "запуск"),
+    (re.compile(r"кортин"), "картин"),
+    (re.compile(r"(?<![а-я])сгинир"), "сгенер"),
+    (re.compile(r"(?<![а-я])генир"), "генер"),
+    (re.compile(r"(?<![а-я])перегинир"), "перегенер"),
+    (re.compile(r"(?<![а-я])видос(?:ы|ики|ов|ик)?(?![а-я])"), "видео"),
+    (re.compile(r"(?<![а-я])(?:чё|че|чо)(?=\s+(?:с|со|там|по|за|у|в)(?![а-я]))"), "что"),
+    (re.compile(r"(?<![а-я])скок(?:о)?(?![а-я])"), "сколько"),
+    (re.compile(r"(?<![а-я])пиресобер"), "пересобер"),
+    (re.compile(r"(?<![а-я])озвуч(?=ка(?![а-я]))"), "озвуч"),
+)
+
+
+_ALL_RUN_RE = re.compile(r"^(?:доведи|прогони|догони)\s+(?=(?:все|всё)\s+проект)", re.IGNORECASE)
+
+
+def fix_typos(text: str) -> str:
+    out = str(text or "")
+    low = out.lower()
+    for rx, good in _TYPOS:
+        if rx.search(low):
+            low = rx.sub(good, low)
+            out = low
+    # «Все проекты до монтажа доведи»: глагол в конце — переносим вперёд, как пишут планировщику.
+    tokens = out.split()
+    if len(tokens) >= 3:
+        last = tokens[-1].lower().strip(".!?")
+        if last in _IMPERATIVES and tokens[0].lower() not in _IMPERATIVES:
+            out = " ".join([tokens[-1].strip(".!?"), *tokens[:-1]])
+    # «Доведи все проекты до монтажа»: планировщик понимал только «запусти все проекты до …».
+    return _ALL_RUN_RE.sub("запусти ", out)
+
+
 def has_imperative(text: str) -> bool:
     norm = " ".join((text or "").lower().replace("ё", "е").split())
     tokens = _TOKEN_RE.findall(norm)
@@ -216,7 +274,13 @@ def is_plain_question(text: str) -> bool:
     if not norm or has_imperative(norm) or _RUN_VERBS_RE.search(norm):
         return False
     tokens = _TOKEN_RE.findall(norm)
-    return norm.endswith("?") or (bool(tokens) and tokens[0] in _ASK_STARTS)
+    # «А в рублях сколько», «а с 7?», «и какой голос»: союз перед вопросом — тоже вопрос.
+    while tokens and tokens[0] in ("а", "и", "ну", "так", "ок", "окей"):
+        tokens = tokens[1:]
+    asks = any(t in _ASK_STARTS for t in tokens[:4]) and len(tokens) <= 8
+    # «а с 7?», «а в 9?»: короткое продолжение после «а».
+    asks = asks or (norm.startswith("а ") and 0 < len(tokens) <= 3)
+    return norm.endswith("?") or (bool(tokens) and tokens[0] in _ASK_STARTS) or asks
 
 
 def is_status_question(text: str) -> bool:
@@ -349,16 +413,66 @@ _CLARIFY_RE = re.compile(
 _ANSWER_MAX_WORDS = 5
 
 
+# «А в рублях сколько?», «а с 7?», «а другие какие есть?»: вопрос продолжает прошлый ответ.
+# Без последних реплик ответ спрашивал «какую сумму перевести» и «какой проект».
+_DIALOG_TURNS = 4
+_FOLLOW_UP_RE = re.compile(r"^(?:а|и|ну|так)\s")
+# «Скинь ссылку на ролик», «где скачать видео»: ответ из итогового видео ноды «Монтаж», а не задача
+# (у задачи нода «Сборка» с «0 файлов», и чат отвечал, что ролика нет).
+_LINK_RE = re.compile(r"(?<![а-я])ссылк\w*|скачать\s+(?:готов\w*\s+)?(?:ролик|видео)|(?:где|как)\s+(?:скачать|посмотреть|найти)\s+(?:готов\w*\s+)?(?:ролик|видео)")
+# «Придумай 5 тем», «посоветуй тему для тикток»: совет текстом, план студии не нужен.
+_ADVICE_RE = re.compile(
+    r"^(?:ну\s+|а\s+)?(?:придумай|посоветуй|подскажи|предложи|накидай|дай\s+идеи|какую\s+тему|какие\s+темы|"
+    r"как\s+сделать\s+ролик|как\s+сделать\s+видео|как\s+набрать)"
+)
+_STUDIO_ACT_RE = re.compile(r"запуст|создай|сделай\s+проект|в\s+проект\w*\s+\d|поставь|поменяй|удали")
+_DIALOG_CHARS = 900
+
+
+def _recent_dialog(session_id: str, current: str) -> list[dict[str, str]]:
+    """Последние реплики сессии перед текущим вопросом, по порядку, для модели ответа."""
+    conn = connect()
+    try:
+        rows = conn.execute(
+            text(
+                "SELECT role, content FROM orch_messages WHERE session_id = :sid "
+                "ORDER BY id DESC LIMIT :lim"
+            ),
+            {"sid": session_id, "lim": _DIALOG_TURNS + 1},
+        ).all()
+    finally:
+        conn.close()
+    turns = [(str(r[0]), " ".join(str(r[1] or "").split())) for r in rows]
+    if turns and turns[0][0] == "user" and turns[0][1] == " ".join(str(current or "").split()):
+        turns = turns[1:]
+    out = [
+        {"role": role, "content": body[:_DIALOG_CHARS]}
+        for role, body in reversed(turns[:_DIALOG_TURNS])
+        if role in ("user", "assistant") and body
+    ]
+    while out and out[0]["role"] != "user":
+        out = out[1:]
+    return out
+
+
 def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
     """Исходная просьба вместе с коротким ответом на уточняющий вопрос чата; иначе None."""
     words = _TOKEN_RE.findall((reply or "").lower())
-    if not words or len(words) > _ANSWER_MAX_WORDS or has_imperative(reply) or len(previous) < 2:
+    if (
+        not words
+        or len(words) > _ANSWER_MAX_WORDS
+        or has_imperative(reply)
+        or _RUN_VERBS_RE.search(" ".join(words))
+        or len(previous) < 2
+    ):
         return None
     if is_plain_question(reply) or is_status_question(reply):
         # «Какой голос в озвучке» после уточнения чата — новый вопрос, а не ответ: иначе он
         # склеивался с прошлой просьбой («…; уточнение: какой голос») в карточку смены голоса.
         return None
     (role_a, asked), (role_u, request) = previous[0], previous[1]
+    if " ".join(request.lower().split()).rstrip(".!?") == " ".join(reply.lower().split()).rstrip(".!?"):
+        return None  # та же просьба ещё раз — не ответ на уточнение
     if role_a != "assistant" or role_u != "user" or not _CLARIFY_RE.search(asked.strip()):
         return None
     return f"{request.strip().rstrip('.')}; уточнение: {reply.strip()}"
@@ -605,7 +719,7 @@ class MessageQueue:
         job = asyncio.create_task(
             self._classify(
                 session_id,
-                canon_project_refs(parsed),
+                canon_project_refs(fix_typos(parsed)),
                 run_id,
                 mode,
                 project_id,
@@ -667,7 +781,9 @@ class MessageQueue:
                 # Явный append (API) остаётся вопросом к модели: готовый ответ только для реплик из чата.
                 reply = small_talk_reply(text)
                 # «Спасибо, не надо» при открытой карточке — не отказ: кнопка «Отклонить» на карточке.
-                if (reply == OK_TEXT or (reply == THANKS_TEXT and is_decline(text))) and self._card_waiting(
+                if (
+                    reply in (OK_TEXT, DECLINE_TEXT) or (reply == THANKS_TEXT and is_decline(text))
+                ) and self._card_waiting(
                     session_id
                 ):
                     reply = CARD_WAITING_TEXT
@@ -752,6 +868,15 @@ class MessageQueue:
                     if decided.mode is MessageMode.steer and task_id is None:
                         # Уточнять нечего: прошлая задача закончена — это новая просьба.
                         decided = decided.model_copy(update={"mode": MessageMode.task, "tier": "strong"})
+                    low = " ".join(text.lower().replace("ё", "е").split())
+                    if decided.mode is MessageMode.task and (
+                        _LINK_RE.search(low) or (_ADVICE_RE.match(low) and not _STUDIO_ACT_RE.search(low))
+                    ):
+                        decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
+                    if decided.mode is MessageMode.task and _FOLLOW_UP_RE.match(low) and is_plain_question(text):
+                        # «А в рублях сколько», «а с 7?»: продолжение прошлого ответа — вопрос с историей
+                        # диалога, а не задача (у планировщика истории нет, он просил «уточните сумму»).
+                        decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
             await self.bus.publish(
                 session_id,
                 "classification",
@@ -980,7 +1105,20 @@ class MessageQueue:
             if project_id is None:
                 project_id = await asyncio.to_thread(self._session_project, session_id)
             app = self.app if self.app is not None else getattr(self.supervisor, "app", None)
-            return await self.context.messages(text, project_id, app, session_id)
+            messages = await self.context.messages(text, project_id, app, session_id)
+            try:
+                dialog = await asyncio.to_thread(_recent_dialog, session_id, text)
+            except Exception:
+                dialog = []
+            if dialog and messages and messages[0].get("role") == "system":
+                note = {
+                    "role": "system",
+                    "content": "Ниже — последние реплики этого чата. Короткий вопрос («а в рублях?», "
+                    "«а с 7?», «а другие?») продолжает их: отвечай про то же самое. Факты бери из "
+                    "системного сообщения выше, а не из старых ответов, если они расходятся.",
+                }
+                return [messages[0], note, *dialog, *messages[1:]]
+            return messages
         except Exception:
             logger.exception("orch question context failed for session {}", session_id)
             return plain

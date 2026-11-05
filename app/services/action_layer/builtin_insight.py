@@ -1311,6 +1311,21 @@ def _spend_line(head: str, window: dict) -> str:
 
 
 _TOP_SPEND = 5
+_WEEK_DAYS = 7
+# «На что больше всего уходит денег»: статьи трат по источнику записи журнала.
+_SPEND_ITEMS = (
+    ("orch_llm", None, "чат-помощник (модель)"),
+    ("native_call", None, "текстовые шаги конвейера (GPT)"),
+    ("media_native", "elevenlabs", "озвучка"),
+    ("media_native", None, "картинки и видео"),
+)
+
+
+def _spend_item(source: str, provider: str) -> str:
+    for src, prov, title in _SPEND_ITEMS:
+        if source == src and (prov is None or prov == provider):
+            return title
+    return "прочее"
 
 
 async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
@@ -1327,6 +1342,25 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     try:
         async with _sessions()() as s:
             today = _spend_window((await s.execute(text(cols + "day = :d"), {"d": day})).all())
+            # «Сколько я потратил за неделю»: окно 7 дней и статьи трат.
+            import datetime as _dt
+
+            since = (_dt.date.fromisoformat(day) - _dt.timedelta(days=_WEEK_DAYS - 1)).isoformat()
+            week = _spend_window((await s.execute(text(cols + "day >= :d"), {"d": since})).all())
+            items: dict[str, float] = {}
+            items_all: dict[str, float] = {}
+            for target, since_day in ((items, since), (items_all, "0000-00-00")):
+                for src, prov, usd in (
+                    await s.execute(
+                        text(
+                            "SELECT source, provider, SUM(COALESCE(usd, 0)) FROM spend_ledger "
+                            "WHERE day >= :d AND kind NOT IN ('reserve', 'settle') GROUP BY source, provider"
+                        ),
+                        {"d": since_day},
+                    )
+                ).all():
+                    title = _spend_item(str(src or ""), str(prov or ""))
+                    target[title] = target.get(title, 0.0) + float(usd or 0.0)
             project = run = None
             run_id = ""
             top: list[tuple[int, float, int]] = []
@@ -1362,10 +1396,22 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     except SQLAlchemyError:
         empty = _spend_window([])
         today, project, run, run_id = empty, (empty if pid is not None else None), None, ""
+        week, items, items_all, since = empty, {}, {}, day
         top = []
     caps = spend_guard.caps()
     caps_ru = {k: ("без лимита" if not v or v <= 0 else f"${v:g}") for k, v in caps.items()}
     lines = [_spend_line(f"Сегодня ({day}), вся фабрика", today)]
+    lines.append(_spend_line(f"За {_WEEK_DAYS} дней (с {since}), вся фабрика", week))
+    ranked = sorted(((t, v) for t, v in items.items() if v > 0.005), key=lambda kv: -kv[1])
+    if ranked:
+        lines.append(
+            f"На что ушло за {_WEEK_DAYS} дней (оценка): " + ", ".join(f"{t} — {_usd_text(v)}" for t, v in ranked) + "."
+        )
+    ranked_all = sorted(((t, v) for t, v in items_all.items() if v > 0.005), key=lambda kv: -kv[1])
+    if ranked_all:
+        lines.append(
+            "На что ушло за всё время (оценка): " + ", ".join(f"{t} — {_usd_text(v)}" for t, v in ranked_all) + "."
+        )
     if project is not None:
         lines.append(_spend_line(f"Проект #{pid}, за всё время", project))
     if run is not None:
@@ -1393,6 +1439,8 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
         "project_id": pid,
         "day": day,
         "today": today,
+        "week": week,
+        "week_items": {t: _money(v) for t, v in items.items()},
         "project": project,
         "run": run,
         "run_id": run_id or None,

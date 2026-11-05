@@ -1043,6 +1043,9 @@ def _short(text: str) -> str:
     return text if len(text) <= _VALUE_LIMIT else text[: _VALUE_LIMIT - 3] + "..."
 
 
+_TOGGLE_KEYS = frozenset({"subtitles_enabled", "skip_intro_enabled"})
+
+
 def _param_text(key: str, value: Any, facts: dict | None) -> str:
     if key.endswith("frame_id") and isinstance(value, int) and not isinstance(value, bool) and facts:
         row = _row_by_id(facts, value)
@@ -1050,6 +1053,9 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
             value = row[0]
     label = _PARAM_LABELS.get(key, key)
     if isinstance(value, bool):
+        if key in _TOGGLE_KEYS:
+            # «Выключи субтитры»: карточка была пустой — «проект #4» без сути правки.
+            return f"{label}: {'включить' if value else 'выключить'}"
         return label if value else ""
     if isinstance(value, dict):
         return ""

@@ -337,7 +337,13 @@ async def _set_auto_mode(ctx, params):
     got = bool((data or {}).get("auto_mode"))
     if got != want:
         raise ActionCallError(409, f"автопродвижение не переключилось (сейчас {got})")
-    return {"auto_mode": got}
+    # «Выключи автозапуск»: итог был «Готово: Автопродвижение проекта: включить или выключить».
+    text = (
+        f"Автозапуск проекта #{pid} включён: студия сама пойдёт по шагам, платные шаги тратят деньги."
+        if got
+        else f"Автозапуск проекта #{pid} выключен: каждый следующий шаг ждёт ручного запуска."
+    )
+    return {"auto_mode": got, "text_ru": text}
 
 
 async def _poll_project_idle(ctx, params, started) -> JobState:
