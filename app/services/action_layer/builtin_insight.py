@@ -160,6 +160,16 @@ _REPORT_COLUMNS = (
 _OVERVIEW_GROUPS = ("running", "attention", "queue")
 
 
+def _human_gap(fact: object) -> object:
+    """Старые инциденты в базе хранят «Не хватает доказательств: body_not_available» — словами."""
+    if not isinstance(fact, str) or "Не хватает доказательств: " not in fact:
+        return fact
+    from app.services.diagnosis import gap_text
+
+    head, _, code = fact.partition("Не хватает доказательств: ")
+    return f"{head}Не хватает доказательств: {gap_text(code.strip())}"
+
+
 def _schema(props: dict, required: list[str]) -> dict:
     return {"type": "object", "properties": props, "required": required, "additionalProperties": False}
 
@@ -447,7 +457,7 @@ def _incident_item(row, details: dict, labels: dict[str, str]) -> dict:
         "title": details.get("title") or TITLES.get(row.type, row.type),
         "node": labels.get(node) or node or None,
         "node_key": node or None,
-        "fact": _clip(details.get("fact"), 300) or None,
+        "fact": _clip(_human_gap(details.get("fact")), 300) or None,
         "cause": _clip(cause.get("hypothesis"), 200) or "причина не установлена",
         "retry": retry,
         "what_to_do": _clip(outcome.get("summary_ru") or rec.get("title"), 300) or None,
@@ -1330,7 +1340,11 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
                     ),
                     {"n": _TOP_SPEND},
                 )
-                top = [(int(r[0]), float(r[1] or 0.0), int(r[2] or 0)) for r in rows.all() if float(r[1] or 0) > 0]
+                top = [
+                    (int(r[0]), float(r[1] or 0.0), int(r[2] or 0))
+                    for r in rows.all()
+                    if float(r[1] or 0) > 0
+                ]
             if pid is not None:
                 project = _spend_window((await s.execute(text(cols + "project_id = :p"), {"p": pid})).all())
                 run_id = str(

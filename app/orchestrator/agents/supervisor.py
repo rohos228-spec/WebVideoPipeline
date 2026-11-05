@@ -2849,6 +2849,11 @@ class Supervisor:
                 from app.orchestrator.agents.music_scope import music_volume_plan
 
                 fixed = await music_volume_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Сделай, чтобы во всех картинках был пластилин»: правка промта «Промты картинок».
+                from app.orchestrator.agents.style_scope import style_plan
+
+                fixed = await style_plan(goal, self._task_project_id(task_id))
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))

@@ -208,6 +208,20 @@ INCIDENT_OUTCOMES = {
 NOTIFY_ENV = "INCIDENT_TELEGRAM_TYPES"
 
 
+# Коды пробелов журнала словами: «body_not_available» попадал в ответ чата как есть.
+GAP_TEXT = {
+    "body_not_available": "текст события не сохранился в журнале",
+    "observer_error": "наблюдатель журнала сам дал сбой",
+    "business_commit_unconfirmed": "не подтверждено, что результат шага записался",
+    "observer gap": "часть записей журнала потеряна",
+}
+
+
+def gap_text(kind: object) -> str:
+    raw = str(kind or "observer gap").strip()
+    return GAP_TEXT.get(raw, "часть записей журнала потеряна" if "_" in raw or raw.isascii() else raw)
+
+
 def outcome_for(item):
     base = dict(INCIDENT_OUTCOMES[item["type"]])
     base.setdefault("recovery_class", None)
@@ -1091,8 +1105,7 @@ def derive_incidents(scope, events, snapshot):
             severity="warning",
             action="restore_journal",
             incomplete=True,
-            fact="Не хватает доказательств: "
-            + str(gap.get("kind") or gap.get("error_type") or "observer gap"),
+            fact="Не хватает доказательств: " + gap_text(gap.get("kind") or gap.get("error_type")),
         )
     latest_attempt = {}
     for e in rows:
