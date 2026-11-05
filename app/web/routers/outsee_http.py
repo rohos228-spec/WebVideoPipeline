@@ -197,10 +197,10 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
                 # id фактов именно этой задачи — по ним и списываем (см. create_billing).
                 with capture_rows() as rows:
                     res = await actual_run(out_path)
-            except Exception:
+            except BaseException:
                 if hold_id:
                     async with session_scope() as session:
-                        await cl.release_hold(session, hold_id, memo=f"Сбой генерации {media_type}")
+                        await cl.release_hold(session, hold_id, memo=f"Сбой/отмена генерации {media_type}")
                 raise
             if hold_id:
                 async with session_scope() as session:
@@ -242,6 +242,7 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
             params=params,
             quote=None,
             run=_wrap_with_billing(run, "video", model),
+            hold_id=hold_id,
         )
     else:
         try:
@@ -275,6 +276,7 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
             params=params,
             quote=None,
             run=_wrap_with_billing(run, "image", model),
+            hold_id=hold_id,
         )
 
     payload = job.to_dict()

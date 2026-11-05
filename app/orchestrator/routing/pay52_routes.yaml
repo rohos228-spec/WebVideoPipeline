@@ -55,48 +55,50 @@ providers:
     chat_path: /chat/completions
     api: openai-chat
 
-# До D1: primary gpt-5.6-sol high (52pay), затем Kie.
-# После D1: claude-fable-5 → gpt-5.6-sol high → Kie.
-# Fast (только после D6): glm-5.3-flash → claude-haiku-4-5 → strong. Без reasoning_effort=high.
-# Wire-id 52pay режет resolve_text (gpt-5-6-sol → gpt-5.6-sol, ключ pay52_gpt_api_key).
-# Kie — последний резерв, всегда stream. Слаг: settings.gpt_model (дефолт gpt-5-6-sol).
+# До D1: primary gpt-6.1-sol high (52pay), затем Kie.
+# После D1: claude-sonnet-5 → gpt-6.1-sol high → Kie.
+# Fast (только после D6): glm-5.3-flash → claude-haiku-5-5 → strong. Без reasoning_effort=high.
+# Wire-id 52pay режет resolve_text (gpt-6-1-sol → gpt-6.1-sol, ключ pay52_gpt_key).
+# Kie — последний резерв, всегда stream. Слаг: settings.gpt_model (дефолт gpt-6-1-sol).
 chains:
   fast:
     - model: glm-5.3-flash
       provider: 52pay
       reasoning_effort: null
-    - model: claude-haiku-4-5
+    - model: claude-haiku-5-5
       provider: 52pay
       reasoning_effort: null
     - delegate: strong
   strong_unconfirmed:
-    - model: gpt-5.6-sol
+    - model: gpt-6.1-sol
       provider: 52pay
       reasoning_effort: high
-    - model: gpt-5-6-sol
+    - model: gpt-6-1-sol
       provider: kie
       reasoning_effort: high
-    - model: gpt-5.6-sol
+    - model: gpt-6.1-sol
       provider: vibecode
       reasoning_effort: high
   strong_confirmed:
-    - model: claude-fable-5
+    - model: claude-sonnet-5
       provider: 52pay
       reasoning_effort: high
-    - model: gpt-5.6-sol
+    - model: gpt-6.1-sol
       provider: 52pay
       reasoning_effort: high
-    - model: gpt-5-6-sol
+    - model: gpt-6-1-sol
       provider: kie
       reasoning_effort: high
-    - model: gpt-5.6-sol
+    - model: gpt-6.1-sol
       provider: vibecode
       reasoning_effort: high
 
 # Оценки USD / 1M токенов (сырые, без наценки ×3 UI). Уточнить по прайсу 52pay.
 prices_usd_per_million:
-  glm-5.3-flash: {prompt: 0.10, completion: 0.40, reasoning: 0.40}
-  claude-haiku: {prompt: 0.47, completion: 2.35, reasoning: 2.35}
-  claude-fable-5: {prompt: 4.71, completion: 23.53, reasoning: 23.53}
-  gpt-5.6-sol: {prompt: 0.43, completion: 2.56, reasoning: 2.56}
+  glm-5.3-flash: {prompt: 0.48, completion: 1.66, reasoning: 1.66}
+  claude-haiku-5-5: {prompt: 0.08, completion: 0.35, reasoning: 0.35}
+  claude-sonnet-5: {prompt: 1.38, completion: 6.90, reasoning: 6.90}
+  claude-fable-5-1: {prompt: 6.90, completion: 34.50, reasoning: 34.50}
+  gpt-6.1-sol: {prompt: 1.11, completion: 5.52, reasoning: 5.52}
+  deepseek-v4.1-flash: {prompt: 0.90, completion: 3.60, reasoning: 3.60}
   default: {prompt: 1.0, completion: 4.0, reasoning: 4.0}

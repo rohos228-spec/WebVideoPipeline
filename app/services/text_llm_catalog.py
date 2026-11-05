@@ -155,7 +155,51 @@ CATALOG: list[dict[str, str]] = [
         "site": "vibecode.moe",
         "api_model": "glm-5.3-flashx",
     },
-    # Cloud LLM (GLM / Claude Low / Claude High / GPT)
+    # Cloud LLM (52pay.com)
+    # DeepSeek
+    {
+        "id": "deepseek-v4.1-flash-pay52",
+        "provider": "pay52",
+        "group": "DeepSeek",
+        "label": "DeepSeek v4.1 Flash",
+        "site": "Cloud API",
+        "api_model": "deepseek-v4.1-flash",
+    },
+    # Kimi
+    {
+        "id": "kimi-k3.1-pro-pay52",
+        "provider": "pay52",
+        "group": "Kimi",
+        "label": "Kimi k3.1 Pro",
+        "site": "Cloud API",
+        "api_model": "kimi-k3.1-pro",
+    },
+    # Gemini
+    {
+        "id": "gemini-4-argon-pay52",
+        "provider": "pay52",
+        "group": "Google",
+        "label": "Gemini 4 Argon",
+        "site": "Cloud API",
+        "api_model": "gemini-4-argon",
+    },
+    {
+        "id": "gemini-3.8-flash-pay52",
+        "provider": "pay52",
+        "group": "Google",
+        "label": "Gemini 3.8 Flash",
+        "site": "Cloud API",
+        "api_model": "gemini-3.8-flash",
+    },
+    {
+        "id": "gemini-flash-lite-pay52",
+        "provider": "pay52",
+        "group": "Google",
+        "label": "Gemini Flash Lite",
+        "site": "Cloud API",
+        "api_model": "gemini-flash-lite-latest",
+    },
+    # GLM
     {
         "id": "glm-5.3-flash-pay52",
         "provider": "pay52",
@@ -172,136 +216,40 @@ CATALOG: list[dict[str, str]] = [
         "site": "Cloud API",
         "api_model": "glm-5.3",
     },
+    # Claude (Anthropic)
     {
-        "id": "glm-5.2-pay52",
-        "provider": "pay52",
-        "group": "GLM",
-        "label": "GLM 5.2",
-        "site": "Cloud API",
-        "api_model": "glm-5.2",
-    },
-    # Claude Low (Cost-effective / Эконом)
-    {
-        "id": "claude-haiku-4-5-pay52-low",
+        "id": "claude-haiku-5-5-pay52",
         "provider": "pay52",
         "group": "Anthropic",
-        "label": "Claude Haiku 4.5 (Эконом)",
-        "site": "Cloud API",
-        "api_model": "claude-haiku-4-5-20251001",  # gitleaks:allow — имя модели API, не секрет
-    },
-    {
-        "id": "claude-sonnet-4-5-pay52-low",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Sonnet 4.5 (Эконом)",
-        "site": "Cloud API",
-        "api_model": "claude-sonnet-4-5-20250929",
-    },
-    {
-        "id": "claude-sonnet-5-pay52-low",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Sonnet 5 (Эконом)",
-        "site": "Cloud API",
-        "api_model": "claude-sonnet-5",
-    },
-    {
-        "id": "claude-sonnet-5-5-pay52-low",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Sonnet 5.5 (Эконом)",
-        "site": "Cloud API",
-        "api_model": "claude-sonnet-5-5",
-    },
-    {
-        "id": "claude-opus-5-pay52-low",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Opus 5 (Эконом)",
-        "site": "Cloud API",
-        "api_model": "claude-opus-5",
-    },
-    {
-        "id": "claude-opus-5-5-pay52-low",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Opus 5.5 (Эконом)",
-        "site": "Cloud API",
-        "api_model": "claude-opus-5-5",
-    },
-    # Claude High (Code Max / Full-blood / Высокое качество)
-    {
-        "id": "claude-fable-5-1-pay52-high",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Fable 5.1 (High Quality)",
-        "site": "Cloud API",
-        "api_model": "claude-fable-5-1",
-    },
-    {
-        "id": "claude-fable-5-pay52-high",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Fable 5 (High Quality)",
-        "site": "Cloud API",
-        "api_model": "claude-fable-5",
-    },
-    {
-        "id": "claude-haiku-5-5-pay52-high",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Haiku 5.5 (High Quality)",
+        "label": "Claude Haiku 5.5",
         "site": "Cloud API",
         "api_model": "claude-haiku-5-5",
     },
     {
-        "id": "claude-sonnet-5-pay52-high",
+        "id": "claude-sonnet-5-pay52",
         "provider": "pay52",
         "group": "Anthropic",
-        "label": "Claude Sonnet 5 (High Quality)",
+        "label": "Claude Sonnet 5",
         "site": "Cloud API",
         "api_model": "claude-sonnet-5",
     },
     {
-        "id": "claude-sonnet-5-5-pay52-high",
+        "id": "claude-opus-5-5-pay52",
         "provider": "pay52",
         "group": "Anthropic",
-        "label": "Claude Sonnet 5.5 (High Quality)",
-        "site": "Cloud API",
-        "api_model": "claude-sonnet-5-5",
-    },
-    {
-        "id": "claude-opus-5-pay52-high",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Opus 5 (High Quality)",
-        "site": "Cloud API",
-        "api_model": "claude-opus-5",
-    },
-    {
-        "id": "claude-opus-5-5-pay52-high",
-        "provider": "pay52",
-        "group": "Anthropic",
-        "label": "Claude Opus 5.5 (High Quality)",
+        "label": "Claude Opus 5.5",
         "site": "Cloud API",
         "api_model": "claude-opus-5-5",
     },
     {
-        "id": "gpt-5.6-sol-pay52",
+        "id": "claude-fable-5-1-pay52",
         "provider": "pay52",
-        "group": "OpenAI",
-        "label": "GPT 5.6 Sol",
+        "group": "Anthropic",
+        "label": "Claude Fable 5.1",
         "site": "Cloud API",
-        "api_model": "gpt-5.6-sol",
+        "api_model": "claude-fable-5-1",
     },
-    {
-        "id": "gpt-6-sol-pay52",
-        "provider": "pay52",
-        "group": "OpenAI",
-        "label": "GPT 6 Sol",
-        "site": "Cloud API",
-        "api_model": "gpt-6-sol",
-    },
+    # OpenAI
     {
         "id": "gpt-6.1-sol-pay52",
         "provider": "pay52",
@@ -311,12 +259,28 @@ CATALOG: list[dict[str, str]] = [
         "api_model": "gpt-6.1-sol",
     },
     {
+        "id": "gpt-6.1-terra-pay52",
+        "provider": "pay52",
+        "group": "OpenAI",
+        "label": "GPT 6.1 Terra",
+        "site": "Cloud API",
+        "api_model": "gpt-6.1-terra",
+    },
+    {
         "id": "gpt-6-astra-pay52",
         "provider": "pay52",
         "group": "OpenAI",
         "label": "GPT 6 Astra",
         "site": "Cloud API",
         "api_model": "gpt-6-astra",
+    },
+    {
+        "id": "gpt-6-luna-pay52",
+        "provider": "pay52",
+        "group": "OpenAI",
+        "label": "GPT 6 Luna",
+        "site": "Cloud API",
+        "api_model": "gpt-6-luna",
     },
     # kie.ai — модель берётся из GPT_MODEL, api_model не фиксируем.
     {
@@ -389,37 +353,50 @@ _MODEL_ALIASES = {
     "glm-5.3-flashx": "glm-5.3-flashx-vibecode",
     "glm-5.3-flashx-vibecode": "glm-5.3-flashx-vibecode",
     # 52pay aliases
-    "glm-5.2": "glm-5.2-pay52",
+    "deepseek-v4.1-flash": "deepseek-v4.1-flash-pay52",
+    "deepseek-v4.1-flash-pay52": "deepseek-v4.1-flash-pay52",
+    "kimi-k3.1-pro": "kimi-k3.1-pro-pay52",
+    "kimi-k3.1-pro-pay52": "kimi-k3.1-pro-pay52",
+    "gemini-4-argon": "gemini-4-argon-pay52",
+    "gemini-4-argon-pay52": "gemini-4-argon-pay52",
+    "gemini-3.8-flash-pay52": "gemini-3.8-flash-pay52",
+    "gemini-flash-lite": "gemini-flash-lite-pay52",
+    "gemini-flash-lite-pay52": "gemini-flash-lite-pay52",
+    "glm-5.2": "glm-5.3-pay52",
     "glm-5.3": "glm-5.3-pay52",
-    "glm-5.2-pay52": "glm-5.2-pay52",
+    "glm-5.2-pay52": "glm-5.3-pay52",
     "glm-5.3-pay52": "glm-5.3-pay52",
     "glm-5.3-flash-pay52": "glm-5.3-flash-pay52",
-    "claude-haiku-4-5-pay52": "claude-haiku-4-5-pay52-low",
-    "claude-haiku-4-5-pay52-low": "claude-haiku-4-5-pay52-low",
-    "claude-sonnet-4-5-pay52": "claude-sonnet-4-5-pay52-low",
-    "claude-sonnet-4-5-pay52-low": "claude-sonnet-4-5-pay52-low",
-    "claude-sonnet-5-pay52": "claude-sonnet-5-pay52-low",
-    "claude-sonnet-5-pay52-low": "claude-sonnet-5-pay52-low",
-    "claude-sonnet-5-pay52-high": "claude-sonnet-5-pay52-high",
-    "claude-sonnet-5-5-pay52": "claude-sonnet-5-5-pay52-high",
-    "claude-sonnet-5-5-pay52-low": "claude-sonnet-5-5-pay52-low",
-    "claude-sonnet-5-5-pay52-high": "claude-sonnet-5-5-pay52-high",
-    "claude-opus-5-pay52": "claude-opus-5-pay52-low",
-    "claude-opus-5-pay52-low": "claude-opus-5-pay52-low",
-    "claude-opus-5-pay52-high": "claude-opus-5-pay52-high",
-    "claude-opus-5-5-pay52": "claude-opus-5-5-pay52-high",
-    "claude-opus-5-5-pay52-low": "claude-opus-5-5-pay52-low",
-    "claude-opus-5-5-pay52-high": "claude-opus-5-5-pay52-high",
-    "claude-haiku-5-5-pay52": "claude-haiku-5-5-pay52-high",
-    "claude-haiku-5-5-pay52-high": "claude-haiku-5-5-pay52-high",
-    "claude-fable-5-1-pay52": "claude-fable-5-1-pay52-high",
-    "claude-fable-5-1-pay52-high": "claude-fable-5-1-pay52-high",
-    "claude-fable-5-pay52": "claude-fable-5-pay52-high",
-    "claude-fable-5-pay52-high": "claude-fable-5-pay52-high",
-    "gpt-5.6-sol-pay52": "gpt-5.6-sol-pay52",
-    "gpt-6-sol-pay52": "gpt-6-sol-pay52",
+    # Claude on 52pay (all point to active models)
+    "claude-haiku-4-5-pay52": "claude-haiku-5-5-pay52",
+    "claude-haiku-4-5-pay52-low": "claude-haiku-5-5-pay52",
+    "claude-haiku-5-5-pay52": "claude-haiku-5-5-pay52",
+    "claude-haiku-5-5-pay52-high": "claude-haiku-5-5-pay52",
+    "claude-sonnet-4-5-pay52": "claude-sonnet-5-pay52",
+    "claude-sonnet-4-5-pay52-low": "claude-sonnet-5-pay52",
+    "claude-sonnet-5-pay52": "claude-sonnet-5-pay52",
+    "claude-sonnet-5-pay52-low": "claude-sonnet-5-pay52",
+    "claude-sonnet-5-pay52-high": "claude-sonnet-5-pay52",
+    "claude-sonnet-5-5-pay52": "claude-sonnet-5-pay52",
+    "claude-sonnet-5-5-pay52-low": "claude-sonnet-5-pay52",
+    "claude-sonnet-5-5-pay52-high": "claude-sonnet-5-pay52",
+    "claude-opus-5-pay52": "claude-opus-5-5-pay52",
+    "claude-opus-5-pay52-low": "claude-opus-5-5-pay52",
+    "claude-opus-5-pay52-high": "claude-opus-5-5-pay52",
+    "claude-opus-5-5-pay52": "claude-opus-5-5-pay52",
+    "claude-opus-5-5-pay52-low": "claude-opus-5-5-pay52",
+    "claude-opus-5-5-pay52-high": "claude-opus-5-5-pay52",
+    "claude-fable-5-1-pay52": "claude-fable-5-1-pay52",
+    "claude-fable-5-1-pay52-high": "claude-fable-5-1-pay52",
+    "claude-fable-5-pay52": "claude-fable-5-1-pay52",
+    "claude-fable-5-pay52-high": "claude-fable-5-1-pay52",
+    # OpenAI on 52pay
+    "gpt-5.6-sol-pay52": "gpt-6.1-sol-pay52",
+    "gpt-6-sol-pay52": "gpt-6.1-sol-pay52",
     "gpt-6.1-sol-pay52": "gpt-6.1-sol-pay52",
+    "gpt-6.1-terra-pay52": "gpt-6.1-terra-pay52",
     "gpt-6-astra-pay52": "gpt-6-astra-pay52",
+    "gpt-6-luna-pay52": "gpt-6-luna-pay52",
     # KIE
     "gpt-kie": "gpt-kie",
 }
@@ -626,19 +603,20 @@ def catalog_status(cfg: Settings | None = None) -> dict[str, Any]:
         elif prov == "pay52":
             model = item.get("api_model") or PAY52_DEFAULT_API_MODEL
             m_id = item["id"].lower()
-            if "glm" in m_id:
+            if "deepseek" in m_id:
+                key_ok = bool((getattr(s, "pay52_deepseek_key", "") or "").strip())
+            elif "kimi" in m_id:
+                key_ok = bool((getattr(s, "pay52_kimi_key", "") or "").strip())
+            elif "gemini" in m_id:
+                key_ok = bool((getattr(s, "pay52_gemini_key", "") or "").strip())
+            elif "glm" in m_id:
                 key_ok = bool((s.pay52_glm_key or "").strip())
-            elif "low" in m_id:
-                # Тот же порядок, что в settings.gpt_api_effective_key: «…-5-5-pay52-low» идёт на низкий ключ.
-                key_ok = bool((s.pay52_claude_low_key or "").strip())
-            elif "high" in m_id or "fable" in m_id or "5-5" in m_id:
-                key_ok = bool((s.pay52_claude_high_key or "").strip())
-            elif "claude" in m_id:
-                key_ok = bool((s.pay52_claude_low_key or "").strip())
+            elif "claude" in m_id or "fable" in m_id:
+                key_ok = bool((s.pay52_claude_low_key or s.pay52_claude_high_key or "").strip())
             elif "gpt" in m_id:
                 key_ok = bool((s.pay52_gpt_key or "").strip())
             else:
-                key_ok = bool((s.pay52_gpt_key or s.pay52_glm_key or "").strip())
+                key_ok = bool((s.pay52_gpt_key or s.pay52_glm_key or s.pay52_claude_low_key or "").strip())
             base = s.pay52_base_url
         else:
             model = s.gpt_model

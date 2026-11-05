@@ -31,7 +31,6 @@
     "моделей с unit=sec цена за секунду (usd_per_unit), иначе за генерацию",
     "(usd_per_call). Это подтверждённые прайсы провайдера, не оценка.",
     "Модели, которых здесь нет, остаются unpriced — это честнее выдумки."
-
   ],
   "models": {
     "outsee:gpt-image-2": {
@@ -393,6 +392,62 @@
     "wavespeed:elevenlabs-v4": {
       "unit": "char",
       "usd_per_unit": 1.5e-05
+    },
+    "pay52:seedance-2.0-mini": {
+      "unit": "item",
+      "usd_per_call": 0.1901
+    },
+    "pay52:seedance-2.0-fast": {
+      "unit": "item",
+      "usd_per_call": 0.3551
+    },
+    "pay52:seedance-2.5": {
+      "unit": "item",
+      "usd_per_call": 1.0301
+    },
+    "pay52:kling-4.0-k1": {
+      "unit": "item",
+      "usd_per_call": 0.4899
+    },
+    "pay52:veo-3.1-fast-generate-preview": {
+      "unit": "item",
+      "usd_per_call": 0.0899
+    },
+    "pay52:gpt-image-2": {
+      "unit": "item",
+      "usd_per_unit": 0.1101
+    },
+    "pay52:gpt-image-2.5": {
+      "unit": "item",
+      "usd_per_unit": 0.1299
+    },
+    "pay52:gpt-image-2-4k": {
+      "unit": "item",
+      "usd_per_unit": 0.2
+    },
+    "pay52:gpt-image-2.5-flare": {
+      "unit": "item",
+      "usd_per_unit": 0.5002
+    },
+    "pay52:doubao-seedream-5.0-flash": {
+      "unit": "item",
+      "usd_per_unit": 0.1002
+    },
+    "pay52:doubao-seedream-5.0-pro": {
+      "unit": "item",
+      "usd_per_unit": 0.24
+    },
+    "pay52:nano-banana-2": {
+      "unit": "item",
+      "usd_per_unit": 0.2602
+    },
+    "pay52:nano-banana-pro": {
+      "unit": "item",
+      "usd_per_unit": 0.4301
+    },
+    "pay52:nano-banana-2.1": {
+      "unit": "item",
+      "usd_per_unit": 0.32
     }
   }
 }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter
@@ -10,11 +11,24 @@ from app.services.create_jobs import get_job, max_parallel, queue_snapshot
 from app.settings import settings
 
 router = APIRouter(prefix="/create", tags=["create-queue"])
+_LAST_STALE_SWEEP = 0.0
 
 
 @router.get("/queue")
 async def create_queue() -> dict[str, Any]:
     """Параллельные задачи и ожидание для Studio Create."""
+    global _LAST_STALE_SWEEP
+    now = time.time()
+    if now - _LAST_STALE_SWEEP > 60:
+        _LAST_STALE_SWEEP = now
+        try:
+            from app.db import session_scope
+            from app.services.credit_ledger import expire_stale
+
+            async with session_scope() as session:
+                await expire_stale(session)
+        except Exception:
+            pass
     snap = queue_snapshot()
     return {
         **snap,
