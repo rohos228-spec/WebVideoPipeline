@@ -577,3 +577,58 @@ input[type="text"]:focus-visible {
   animation-delay: 0.65s;
 }
 
+/* Mobile surfaces stay inside the visual viewport; canvas itself keeps pan/zoom. */
+@media (max-width: 767px) {
+  html { -webkit-text-size-adjust: 100%; }
+  :is(input, textarea, select) { font-size: max(16px, 1em); }
+
+  [data-vp-dialog] {
+    max-width: calc(100vw - 1rem) !important;
+    max-height: calc(100dvh - 1rem) !important;
+    min-width: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 1rem;
+    border-radius: 1rem;
+  }
+  [data-vp-dialog] :is(input, textarea, select) { min-width: 0; }
+
+  [data-rail-panel] {
+    left: .5rem !important;
+    right: .5rem;
+    bottom: max(.5rem, env(safe-area-inset-bottom)) !important;
+    width: auto !important;
+    max-height: calc(100dvh - 1rem) !important;
+    overflow-y: auto;
+  }
+  [data-canvas-toolbar] {
+    left: .5rem;
+    right: .5rem;
+    top: .5rem;
+    max-width: none;
+    translate: none;
+    transform: none;
+    flex-wrap: nowrap;
+  }
+  [data-canvas-toolbar] > div {
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  [data-canvas-toolbar] > div > * { flex-shrink: 0; }
+  [data-canvas-toolbar] button { min-height: 40px; min-width: 40px; }
+  [data-studio-workspace] .react-flow__minimap { display: none; }
+
+  [data-testid="orch-dock"][data-open="true"] {
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  [data-testid="orch-dock"] > div:first-child { height: auto; min-height: 44px; flex-wrap: wrap; }
+  [data-testid="orch-dock"] :is(pre, table), [data-ai-agent-panel] pre { max-width: 100%; overflow-x: auto; }
+  [data-testid="orch-dock"] p, [data-ai-agent-panel] p { overflow-wrap: anywhere; }
+  [data-ai-agent-panel] { padding-block: env(safe-area-inset-top) env(safe-area-inset-bottom); }
+}
+

@@ -232,13 +232,13 @@ function HomeHeader({ active }: { active: string }) {
           <a href="/login" className="rounded-xl px-4 py-2.5 text-base text-white/70 transition hover:bg-white/[0.05] hover:text-white">Войти</a>
           <a href="/register" className="rounded-xl bg-[#2bb8a0]/20 px-5 py-2.5 text-base text-[#bff3e8] ring-1 ring-[#2bb8a0]/35 transition hover:bg-[#2bb8a0]/30">Регистрация</a>
         </div>
-        <button aria-label="Меню" onClick={() => setMenu(!menu)} className="ml-auto flex h-11 w-11 items-center justify-center rounded-xl text-white/75 ring-1 ring-white/10 lg:hidden">
+        <button aria-label="Меню" aria-expanded={menu} aria-controls="home-mobile-menu" onClick={() => setMenu(!menu)} className="ml-auto flex h-11 w-11 items-center justify-center rounded-xl text-white/75 ring-1 ring-white/10 lg:hidden">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
             {menu ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
           </svg>
         </button>
       </div>
-      <div className="grid transition-all duration-500 lg:hidden" style={{ gridTemplateRows: menu ? "1fr" : "0fr" }}>
+      <div id="home-mobile-menu" inert={!menu} aria-hidden={!menu} className="grid max-h-[calc(100dvh-5rem)] overflow-y-auto transition-all duration-500 lg:hidden" style={{ gridTemplateRows: menu ? "1fr" : "0fr" }}>
         <div className="overflow-hidden">
           <nav className="flex flex-col gap-1 border-t border-white/[0.06] px-6 py-4">
             {NAV.map((n) => link(n, true))}

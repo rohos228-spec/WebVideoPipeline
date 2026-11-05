@@ -44,6 +44,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { api, ApiError, type DbOrchestratorChatResult } from "@/lib/api";
 import { usePersistedState } from "@/hooks/use-persisted-state";
+import { useMediaQuery, NARROW_QUERY } from "@/hooks/use-media-query";
 import { cn } from "@/lib/utils";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { MarkdownRenderer } from "@/components/gpt/markdown-renderer";
@@ -312,12 +313,19 @@ interface ChatSession {
 }
 
 export function OrchestratorPanel({ projectId }: Props) {
+  const narrow = useMediaQuery(NARROW_QUERY);
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId!),
     enabled: projectId != null,
   });
-  const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
+  const [openStored, setOpenStored] = usePersistedState("vp-orchestrator-open", true);
+  const [mobileTouched, setMobileTouched] = useState(false);
+  const open = openStored && (!narrow || mobileTouched);
+  const setOpen = useCallback((value: boolean | ((previous: boolean) => boolean)) => {
+    setMobileTouched(true);
+    setOpenStored(typeof value === "function" ? value(open) : value);
+  }, [open, setOpenStored]);
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -1633,7 +1641,9 @@ export function OrchestratorPanel({ projectId }: Props) {
     <div
       className={cn(
         "flex flex-col bg-[#0c0c0e]/98 backdrop-blur-2xl select-none",
-        isMaximized
+        narrow
+          ? "pointer-events-auto absolute inset-y-0 left-0 z-30 w-[min(280px,100%)] border-r border-white/15"
+          : isMaximized
           ? "w-64 shrink-0 h-full border-r border-white/[0.08]"
           : "pointer-events-auto absolute top-0 right-[calc(100%+8px)] h-full w-64 border border-white/[0.14] rounded-2xl shadow-2xl shadow-black/90 ring-1 ring-emerald-500/20 overflow-hidden animate-in fade-in slide-in-from-right-3 duration-150",
       )}
@@ -1654,6 +1664,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {narrow && <button type="button" aria-label="Закрыть список диалогов" className="flex h-10 w-10 items-center justify-center" onClick={() => setIsChatsOpen(false)}><X className="h-4 w-4" /></button>}
           <button
             type="button"
             onClick={handleCreateNewChat}
@@ -1687,7 +1698,7 @@ export function OrchestratorPanel({ projectId }: Props) {
           return (
             <div
               key={s.id}
-              onClick={() => handleSwitchChat(s.id)}
+              onClick={() => { handleSwitchChat(s.id); if (narrow) setIsChatsOpen(false); }}
               className={cn(
                 "group relative flex flex-col gap-1 rounded-xl p-2.5 cursor-pointer transition-all border",
                 isActive
@@ -1807,8 +1818,11 @@ export function OrchestratorPanel({ projectId }: Props) {
   return (
     <div
       ref={panelRef}
+      data-ai-agent-panel=""
       style={
-        isMaximized
+        narrow
+          ? { left: 0, top: 0, width: "100%", height: "100dvh" }
+          : isMaximized
           ? {
               left: "64px",
               top: 0,
@@ -1840,7 +1854,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         )}
       >
         {/* Ручки изменения размера (resizing handles) по всем 4 сторонам и 4 углам */}
-        {!isMaximized && (
+        {!isMaximized && !narrow && (
           <>
             <div
               onMouseDown={(e) => startResize("e", e)}
@@ -1889,7 +1903,7 @@ export function OrchestratorPanel({ projectId }: Props) {
 
         {/* Заголовок окна (drag handle для перемещения) */}
         <div
-          onMouseDown={onHeaderMouseDown}
+          onMouseDown={narrow ? undefined : onHeaderMouseDown}
           className={cn(
             "flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 bg-gradient-to-r from-emerald-950/40 via-black/50 to-black/50 select-none",
             !isMaximized ? "cursor-grab active:cursor-grabbing" : "cursor-default",

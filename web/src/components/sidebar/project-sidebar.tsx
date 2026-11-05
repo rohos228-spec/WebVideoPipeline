@@ -39,6 +39,8 @@ import { GenQueueDialog } from "@/components/sidebar/gen-queue-dialog";
 import { SidebarResizeHandle } from "@/components/sidebar/sidebar-resize-handle";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { useSidebarWidth } from "@/hooks/use-sidebar-width";
+import { useMobileLayout } from "@/components/shell/use-mobile-layout";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 type DragPayload =
   | { kind: "project"; id: number; folderId: string | null }
@@ -77,12 +79,17 @@ export function ProjectSidebar({
   onSelect,
   collapsed,
   onToggleCollapsed,
+  mobileOpen = false,
+  onMobileOpenChange,
 }: {
   selectedProjectId: number | null;
   onSelect: (id: number) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
+  mobileOpen?: boolean;
+  onMobileOpenChange?: (open: boolean) => void;
 }) {
+  const mobile = useMobileLayout();
   const [slideAnimating, setSlideAnimating] = useState(false);
   const firstCollapsedRef = useRef(true);
   useEffect(() => {
@@ -108,10 +115,13 @@ export function ProjectSidebar({
   // Мастер нового проекта открывают не только кнопкой «+»: с лендинга приходит
   // «Начать проект» событием studio-open-new-project.
   useEffect(() => {
-    const openWizard = () => setWizardOpen(true);
+    const openWizard = () => {
+      if (mobile) onMobileOpenChange?.(true);
+      setWizardOpen(true);
+    };
     window.addEventListener("studio-open-new-project", openWizard);
     return () => window.removeEventListener("studio-open-new-project", openWizard);
-  }, []);
+  }, [mobile, onMobileOpenChange]);
   const [newFolderName, setNewFolderName] = useState("");
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [queueDialogProject, setQueueDialogProject] = useState<ProjectSummary | null>(null);
@@ -523,29 +533,24 @@ export function ProjectSidebar({
   );
   const visibleRootProjects = rootProjects.filter(matchProject);
 
-  return (
-    <div
-      aria-hidden={collapsed}
-      className="relative flex min-h-0 shrink-0 overflow-hidden"
-      style={{
-        width: collapsed ? 0 : sidebarWidth,
-        transition: slideAnimating ? `width ${SLIDE_MS}ms ${SLIDE_EASE}` : undefined,
-      }}
-    >
+  const sidebar = (
     <aside
+      id="studio-projects-sidebar"
+      aria-label="Проекты"
+      inert={!mobile && collapsed}
       style={{
-        width: sidebarWidth,
-        transform: collapsed ? "translateX(-100%)" : "translateX(0)",
-        transition: slideAnimating ? `transform ${SLIDE_MS}ms ${SLIDE_EASE}` : undefined,
+        width: mobile ? "100%" : sidebarWidth,
+        transform: !mobile && collapsed ? "translateX(-100%)" : "translateX(0)",
+        transition: !mobile && slideAnimating ? `transform ${SLIDE_MS}ms ${SLIDE_EASE}` : undefined,
       }}
       className="relative flex h-full min-h-0 shrink-0 flex-col border-r border-[#232327] bg-[#111114] font-normal"
     >
-      <SidebarResizeHandle
+      {!mobile && <SidebarResizeHandle
         width={sidebarWidth}
         onWidthChange={setSidebarWidth}
         minWidth={minWidth}
         maxWidth={maxWidth}
-      />
+      />}
       <div className="flex items-center justify-between gap-2 px-3.5 py-3.5">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="flex h-8 w-8 items-center justify-center rounded-none bg-[#1a1a1e]">
@@ -598,7 +603,8 @@ export function ProjectSidebar({
             variant="ghost"
             className="h-8 w-8 rounded-none bg-transparent text-zinc-400 hover:bg-[#1a1a1e] hover:text-white"
             title="Скрыть панель"
-            onClick={onToggleCollapsed}
+            aria-label={mobile ? "Закрыть проекты" : "Скрыть панель проектов"}
+            onClick={mobile ? () => onMobileOpenChange?.(false) : onToggleCollapsed}
           >
             <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
           </Button>
@@ -912,7 +918,25 @@ export function ProjectSidebar({
         project={queueDialogProject}
       />
     </aside>
-    </div>
+  );
+
+  return (
+    <>
+      {!mobile ? (
+        <div
+          aria-hidden={collapsed}
+          className="relative hidden min-h-0 shrink-0 overflow-hidden md:flex"
+          style={{ width: collapsed ? 0 : sidebarWidth, transition: slideAnimating ? `width ${SLIDE_MS}ms ${SLIDE_EASE}` : undefined }}
+        >{sidebar}</div>
+      ) : (
+        <Sheet open={mobileOpen} onOpenChange={onMobileOpenChange}>
+          <SheetContent side="left" hideClose aria-describedby={undefined} className="w-[min(24rem,calc(100vw-1rem))] overflow-hidden bg-[#111114] pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
+            <SheetTitle className="sr-only">Проекты</SheetTitle>
+            {sidebar}
+          </SheetContent>
+        </Sheet>
+      )}
+    </>
   );
 }
 

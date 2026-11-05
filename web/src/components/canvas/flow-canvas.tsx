@@ -1422,7 +1422,7 @@ function WorkflowToolbar({
   };
 
   return (
-    <div className="pointer-events-none absolute left-1/2 top-4 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap gap-2">
+    <div data-canvas-toolbar className="pointer-events-none absolute left-1/2 top-4 z-10 flex max-w-[calc(100%-2rem)] -translate-x-1/2 flex-wrap gap-2">
       <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-lg border border-white/10 bg-card/90 p-1 backdrop-blur-md shadow-md">
         <NodePalette
           projectId={projectId ?? null}

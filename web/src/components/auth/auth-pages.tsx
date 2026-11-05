@@ -114,12 +114,12 @@ function Shell({ title, sub, children, foot }: { title: string; sub?: string; ch
             </div>
           </div>
         </aside>
-        <main className="flex items-center justify-center px-6 py-12">
-          <div className="via-in w-full max-w-[460px]">
+        <main className="flex min-w-0 items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
+          <div className="via-in min-w-0 w-full max-w-[460px] break-words">
             <a href="/home" className="mb-8 inline-flex items-center lg:hidden">
               <img src="/via-logo.png" alt="VIA" className="h-8 w-auto select-none" draggable={false} />
             </a>
-            <h1 className="text-[36px] font-semibold leading-tight">{title}</h1>
+            <h1 className="text-[30px] font-semibold leading-tight sm:text-[36px]">{title}</h1>
             {sub ? <p className="mt-2 text-[17px] text-zinc-400">{sub}</p> : null}
             <div className="mt-8">{children}</div>
             {foot ? <div className="mt-8 text-[16px] text-zinc-400">{foot}</div> : null}

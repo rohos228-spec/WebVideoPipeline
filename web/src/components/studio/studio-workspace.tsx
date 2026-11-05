@@ -679,7 +679,7 @@ export function StudioWorkspace({
 
   return (
     <CanvasActionsProvider value={canvasActions}>
-      <div className="relative h-full w-full">
+      <div data-studio-workspace className="relative h-full min-h-0 w-full min-w-0">
         <FlowCanvas
           projectId={projectId}
           selectedNodeKey={selectedNodeKey}

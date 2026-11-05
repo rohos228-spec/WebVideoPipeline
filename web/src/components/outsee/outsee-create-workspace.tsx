@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -52,6 +53,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { usePipelineMode } from "@/hooks/use-pipeline-mode";
+import { useMobileLayout } from "@/components/shell/use-mobile-layout";
 import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -839,6 +841,36 @@ function CreateImageViewer({
 }
 
 export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) {
+  const mobile = useMobileLayout();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyTriggerRef = useRef<HTMLButtonElement>(null);
+  const historyRef = useRef<HTMLElement>(null);
+  const closeHistory = () => {
+    setHistoryOpen(false);
+    historyTriggerRef.current?.focus();
+  };
+  useEffect(() => {
+    setHistoryOpen(false);
+  }, [open, mobile]);
+  useEffect(() => {
+    if (!open || !mobile || !historyOpen) return;
+    historyRef.current?.querySelector<HTMLElement>("button, input, [tabindex='0']")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); closeHistory(); }
+      if (event.key !== "Tab") return;
+      const elements = Array.from(historyRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), [tabindex='0']") ?? []);
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, mobile, historyOpen]);
+  const selectHistory = (id: string) => {
+    setSelectedId(id);
+    if (mobile) closeHistory();
+  };
   const qc = useQueryClient();
   const [mediaType, setMediaType] = useState<OutseeMediaType>("image");
   const [feedKind, setFeedKind] = useState<OutseeFeedKind>("all");
@@ -1026,7 +1058,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     if (!modelOpen) return;
     const onDown = (e: MouseEvent) => {
       const t = e.target as Node;
-      if (modelRef.current?.contains(t) || modelRef2.current?.contains(t)) return;
+      if (modelRef.current?.contains(t) || modelRef2.current?.contains(t) || (t instanceof Element && t.closest("[data-generation-model-picker]"))) return;
       setModelOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -2363,13 +2395,14 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   };
 
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col bg-[#0a0a0a] text-white">
-      <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-white/10 bg-[#0d0d11]/90 px-4 backdrop-blur-xl">
+    <div data-generation-workspace className="fixed inset-0 z-[80] flex min-h-0 flex-col overflow-hidden bg-[#0a0a0a] text-white">
+      <header className="flex min-h-[52px] shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#0d0d11]/90 px-2 py-1 backdrop-blur-xl md:h-[52px] md:flex-nowrap md:px-4 md:py-0">
         <div className="flex items-center gap-3">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/70 transition hover:bg-white/[0.08] hover:text-white"
+            aria-label="Закрыть генерацию"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-white/[0.03] text-white/70 transition hover:bg-white/[0.08] hover:text-white md:h-8 md:w-8"
           >
             <X className="h-4 w-4" />
           </button>
@@ -2383,7 +2416,8 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2 md:gap-2.5">
+          <button ref={historyTriggerRef} type="button" aria-label="Открыть историю генераций" aria-expanded={historyOpen} aria-controls="generation-history" onClick={() => setHistoryOpen(true)} className="flex h-10 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 text-xs text-white/80 md:hidden"><History className="h-4 w-4" />История</button>
           {projectId != null && (
             <span className="rounded-full border border-[#22d3ee]/30 bg-[#22d3ee]/10 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-[#22d3ee]">
               проект #{projectId}
@@ -2409,8 +2443,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
       <div className="flex min-h-0 flex-1">
         {/* History + feed filter */}
-        <aside className="flex w-[250px] shrink-0 flex-col border-r border-white/10 bg-[#0a0a0d]/95 backdrop-blur-xl lg:w-[290px]">
-          <div className="flex items-center gap-2 border-b border-white/[0.08] px-3.5 py-2.5">
+        {mobile && historyOpen && <button type="button" tabIndex={-1} aria-label="Закрыть историю генераций по фону" onClick={closeHistory} className="absolute inset-0 z-30 bg-black/65 backdrop-blur-sm" />}
+        <aside ref={historyRef} id="generation-history" aria-label="История генераций" role={mobile ? "dialog" : undefined} aria-modal={mobile && historyOpen ? true : undefined} inert={mobile && !historyOpen} className={cn("absolute inset-y-0 left-0 z-40 flex w-[min(320px,calc(100vw-2rem))] shrink-0 flex-col overflow-y-auto border-r border-white/10 bg-[#0a0a0d] backdrop-blur-xl md:static md:z-auto md:flex md:w-[250px] md:bg-[#0a0a0d]/95 lg:w-[290px]", !historyOpen && "hidden")}>
+          <div className="flex shrink-0 items-center gap-2 border-b border-white/[0.08] px-3.5 py-2.5">
             <History className="h-3.5 w-3.5 text-white/50" />
             <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/50">
               История
@@ -2428,6 +2463,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             <span className="ml-auto font-mono text-[10px] text-white/40 font-semibold">
               {historyItems.length}
             </span>
+            <button type="button" aria-label="Закрыть историю генераций" onClick={closeHistory} className="flex h-10 w-10 items-center justify-center rounded-lg hover:bg-white/10 md:hidden"><X className="h-4 w-4" /></button>
           </div>
           <div className="space-y-2 border-b border-white/[0.08] px-2.5 py-2.5">
             <div>
@@ -2444,7 +2480,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     <button
                       key={j.job_id}
                       type="button"
-                      onClick={() => j.history_id && setSelectedId(j.history_id)}
+                      onClick={() => j.history_id && selectHistory(j.history_id)}
                       className="flex w-full items-center gap-2 rounded-xl border border-[#22d3ee]/40 bg-[#22d3ee]/10 px-2.5 py-2 text-left shadow-[0_0_15px_rgba(34,211,238,0.15)] transition"
                     >
                       <Loader2
@@ -2482,7 +2518,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     <button
                       key={j.job_id}
                       type="button"
-                      onClick={() => j.history_id && setSelectedId(j.history_id)}
+                      onClick={() => j.history_id && selectHistory(j.history_id)}
                       className="flex w-full items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-2.5 py-2 text-left transition hover:border-white/20 hover:bg-white/[0.06]"
                     >
                       <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white/10 font-mono text-[9px] font-bold text-white/70">
@@ -2560,12 +2596,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       key={item.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setSelectedId(item.id)}
+                      onClick={() => selectHistory(item.id)}
                       onDoubleClick={() => applyHistoryConfig(item)}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          setSelectedId(item.id);
+                          selectHistory(item.id);
                         }
                       }}
                       className={cn(
@@ -2717,7 +2753,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         </aside>
 
         {/* Result + dock */}
-        <section className="relative flex min-w-0 flex-1 flex-col">
+        <section inert={mobile && historyOpen} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto md:overflow-visible">
           {/* Ambient glow backlight */}
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center -z-0">
             <div className="h-80 w-80 rounded-full bg-[#22d3ee]/10 blur-[110px]" />
@@ -2754,10 +2790,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
           <div
             className={cn(
-              "relative z-10 flex min-h-0 flex-1 flex-col items-center px-4 pb-[260px] lg:px-6 w-full",
+              "relative z-10 flex min-h-[180px] shrink-0 flex-col items-center px-3 pb-3 pt-16 w-full md:min-h-0 md:flex-1 md:px-4 md:pb-[260px] lg:px-6",
               selected?.kind === "audio" || !selected?.preview_url || selected?.status === "failed" || selected?.status === "queued" || selected?.status === "processing"
                 ? "justify-center my-auto"
-                : "justify-start pt-2",
+                : "justify-start md:pt-2",
             )}
           >
             {selected?.preview_url &&
@@ -2912,10 +2948,10 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
           </div>
 
           {/* prompt dock + vertical type toggle */}
-          <div className="absolute bottom-0 left-0 right-0 z-10 px-3 pb-3 lg:px-5 lg:pb-4">
-            <div className="flex items-end gap-2">
+          <div data-generation-composer className="relative z-10 shrink-0 px-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:absolute md:bottom-0 md:left-0 md:right-0 md:px-3 md:pb-3 lg:px-5 lg:pb-4">
+            <div className="flex flex-col items-stretch gap-2 md:flex-row md:items-end">
               {/* cs-typetoggle */}
-              <div className="flex shrink-0 flex-col gap-2">
+              <div className="flex shrink-0 flex-row gap-2 md:flex-col">
                 {OUTSEE_TYPE_TABS.map((t) => {
                   const active = mediaType === t.id;
                   return (
@@ -2929,7 +2965,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                       }}
                       aria-pressed={active}
                       className={cn(
-                        "flex min-w-[76px] flex-col items-center gap-1.5 rounded-xl border px-3 py-2.5 transition-all duration-200",
+                        "flex min-w-0 flex-1 flex-row items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 transition-all duration-200 md:min-w-[76px] md:flex-none md:flex-col md:px-3",
                         active
                           ? "border-[#22d3ee] bg-[#22d3ee]/15 text-[#22d3ee] shadow-[0_0_18px_rgba(34,211,238,0.25)]"
                           : "border-white/10 bg-[#16161b]/90 text-white/45 hover:border-white/20 hover:bg-[#1e1e24] hover:text-white",
@@ -3049,7 +3085,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
               {/* выбор модели при открытом помощнике: док скрыт, поэтому отдельный якорь у правой панели */}
               {assistantOpen && mediaType === "image" && modelOpen && (
                 <div
-                  className="absolute bottom-full right-3 z-50 mb-2 w-[520px] lg:right-5"
+                  className="absolute bottom-full right-3 z-50 mb-2 w-[min(520px,calc(100vw-1rem))] lg:right-5"
                   ref={modelRef2}
                 >
                   <ModelPickerPopover
@@ -3057,6 +3093,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                     selectedSlug={activeSlug}
                     kieModels={kieModels}
                     creditUsd={kieCatalogQ.data?.credit_usd ?? 0.005}
+                        onClose={() => setModelOpen(false)}
                     onSelect={(slug) => {
                       if (mediaType === "image") setImageSlug(slug);
                       else if (mediaType === "video") setVideoSlug(slug);
@@ -3526,6 +3563,7 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
                         selectedSlug={activeSlug}
                         kieModels={kieModels}
                         creditUsd={kieCatalogQ.data?.credit_usd ?? 0.005}
+                        onClose={() => setModelOpen(false)}
                         onSelect={(slug) => {
                           if (mediaType === "image") setImageSlug(slug);
                           else if (mediaType === "video") setVideoSlug(slug);
@@ -4692,14 +4730,17 @@ function ModelPickerPopover({
   selectedSlug,
   kieModels = [],
   creditUsd = 0.005,
+  onClose,
   onSelect,
 }: {
   mediaType: OutseeMediaType;
   selectedSlug: string;
   kieModels?: KieModelSpec[];
   creditUsd?: number;
+  onClose?: () => void;
   onSelect: (slug: string) => void;
 }) {
+  const mobile = useMobileLayout();
   const [search, setSearch] = useState("");
   const isAudio = mediaType === "audio";
   const [sunoOpen, setSunoOpen] = useState(() => {
@@ -4998,11 +5039,12 @@ function ModelPickerPopover({
     );
   };
 
-  return (
+  const picker = (
     <div
-      className="absolute bottom-full left-0 z-50 mb-3 flex max-h-[76vh] flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216]/95 backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
+      data-generation-model-picker
+      className="fixed bottom-3 left-2 right-2 top-16 z-[100] flex flex-col overflow-hidden rounded-2xl border border-white/15 bg-[#121216] backdrop-blur-2xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] ring-1 ring-white/10 md:absolute md:bottom-full md:left-0 md:right-auto md:top-auto md:mb-3 md:max-h-[76vh] md:bg-[#121216]/95"
       style={{
-        width: mediaType === "video" ? 620 : mediaType === "audio" ? 480 : 520,
+        width: mobile ? undefined : mediaType === "video" ? 620 : mediaType === "audio" ? 480 : 520,
       }}
       role="dialog"
       aria-label={title}
@@ -5017,6 +5059,7 @@ function ModelPickerPopover({
               {isAudio ? `2 движка · ${filteredSunoActions.length + filteredElevenLabsActions.length} действ.` : totalCount}
             </span>
           </div>
+          {onClose && <button type="button" aria-label="Закрыть выбор модели генерации" onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-white/60 hover:bg-white/10"><X className="h-4 w-4" /></button>}
         </div>
         <div className="relative flex items-center">
           <Search className="absolute left-2.5 h-3.5 w-3.5 text-white/40" />
@@ -5210,4 +5253,5 @@ function ModelPickerPopover({
       </div>
     </div>
   );
+  return mobile ? createPortal(picker, document.body) : picker;
 }

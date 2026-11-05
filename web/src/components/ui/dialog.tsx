@@ -37,6 +37,7 @@ const DialogContent = React.forwardRef<
     <DialogOverlay className={overlayClassName} />
     <DialogPrimitive.Content
       ref={ref}
+      data-vp-dialog=""
       style={{ backdropFilter: "none", WebkitBackdropFilter: "none", ...style }}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-zinc-800 bg-zinc-950 p-6 shadow-2xl duration-200 sm:rounded-2xl",
@@ -45,7 +46,7 @@ const DialogContent = React.forwardRef<
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg border border-transparent opacity-70 transition-all hover:opacity-100 hover:border-white/10 hover:bg-white/[0.04] focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none">
+      <DialogPrimitive.Close className="absolute right-2 top-2 flex h-10 w-10 items-center justify-center rounded-lg border border-transparent opacity-70 transition-all hover:opacity-100 hover:border-white/10 hover:bg-white/[0.04] focus:outline-none focus:ring-1 focus:ring-ring disabled:pointer-events-none">
         <X className="h-4 w-4" />
         <span className="sr-only">Закрыть</span>
       </DialogPrimitive.Close>

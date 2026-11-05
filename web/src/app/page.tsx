@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SlidersHorizontal, X } from "lucide-react";
+import { useMobileLayout } from "@/components/shell/use-mobile-layout";
 import { AppShell } from "@/components/shell/app-shell";
 import { SiteEntryGate } from "@/components/shell/site-entry-gate";
 import { ProjectSidebar } from "@/components/sidebar/project-sidebar";
@@ -16,6 +18,11 @@ import { usePersistedState } from "@/hooks/use-persisted-state";
 import { api } from "@/lib/api";
 
 function HomePageInner() {
+  const mobile = useMobileLayout();
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  useEffect(() => {
+    if (!mobile) setProjectsOpen(false);
+  }, [mobile]);
   const [selectedProjectId, setSelectedProjectId] = usePersistedState<number | null>(
     "vp-studio-selected-project-id",
     null,
@@ -32,15 +39,15 @@ function HomePageInner() {
   useGlobalEvents();
 
   useEffect(() => {
-    const openSidebar = () => setSidebarCollapsed(false);
+    const openSidebar = () => mobile ? setProjectsOpen(true) : setSidebarCollapsed(false);
     window.addEventListener("studio-open-projects-sidebar", openSidebar);
-    const toggleSidebar = () => setSidebarCollapsed((v) => !v);
+    const toggleSidebar = () => mobile ? setProjectsOpen((v) => !v) : setSidebarCollapsed((v) => !v);
     window.addEventListener("studio-toggle-projects-sidebar", toggleSidebar);
     return () => {
       window.removeEventListener("studio-open-projects-sidebar", openSidebar);
       window.removeEventListener("studio-toggle-projects-sidebar", toggleSidebar);
     };
-  }, []);
+  }, [mobile, setSidebarCollapsed]);
 
   useEffect(() => {
     const openOutsee = (ev: Event) => {
@@ -68,6 +75,7 @@ function HomePageInner() {
       setSelectedProjectId(detail.projectId);
       setSelectedNodeKey(null);
       setStudioOpen(false);
+      setProjectsOpen(false);
     };
     window.addEventListener("studio-select-project", onSelectProject);
     return () => window.removeEventListener("studio-select-project", onSelectProject);
@@ -104,18 +112,21 @@ function HomePageInner() {
 
   return (
     <AppShell>
-      <div className="flex h-screen min-h-0">
+      <div className="flex min-h-0 flex-1">
         <ProjectSidebar
           selectedProjectId={selectedProjectId}
           onSelect={(id) => {
             setSelectedProjectId(id);
             setSelectedNodeKey(null);
             setStudioOpen(false);
+            setProjectsOpen(false);
           }}
           collapsed={sidebarCollapsed}
           onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+          mobileOpen={projectsOpen}
+          onMobileOpenChange={setProjectsOpen}
         />
-        <main className="relative min-w-0 flex-1 overflow-hidden">
+        <main data-studio-main className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
           <StudioWorkspace
             projectId={selectedProjectId}
             selectedNodeKey={selectedNodeKey}
@@ -142,6 +153,9 @@ function HomePageInner() {
 }
 
 function StreamsFloat({ projectId }: { projectId: number | null }) {
+  const mobile = useMobileLayout();
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => setExpanded(false), [projectId]);
   const project = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => api.getProject(projectId!),
@@ -149,8 +163,11 @@ function StreamsFloat({ projectId }: { projectId: number | null }) {
   });
   if (projectId == null) return null;
   return (
-    <div className="pointer-events-none absolute right-4 top-4 z-30 w-[300px]">
-      <div className="pointer-events-auto flex max-h-[calc(100vh-2rem)] flex-col gap-3 overflow-y-auto rounded-2xl border border-sky-500/25 bg-zinc-900/80 p-3.5 shadow-lg backdrop-blur-md">
+    <div className="pointer-events-none absolute right-2 top-16 z-30 max-w-[calc(100%-1rem)] md:right-4 md:top-4 md:w-[300px]">
+      <button type="button" aria-label={expanded ? "Скрыть параметры проекта" : "Показать параметры проекта"} aria-expanded={expanded} aria-controls="studio-project-controls" onClick={() => setExpanded((v) => !v)} className="pointer-events-auto ml-auto flex h-11 items-center gap-2 rounded-xl border border-sky-500/25 bg-zinc-900/95 px-3 text-sm text-zinc-200 shadow-lg md:hidden">
+        {expanded ? <X className="h-4 w-4" /> : <SlidersHorizontal className="h-4 w-4" />}Параметры
+      </button>
+      <div id="studio-project-controls" hidden={mobile && !expanded} className={`pointer-events-auto mt-2 ${mobile && !expanded ? "hidden" : "flex"} max-h-[calc(100dvh-12rem)] w-[300px] max-w-full flex-col gap-3 overflow-y-auto rounded-2xl border border-sky-500/25 bg-zinc-900/95 p-3.5 shadow-lg backdrop-blur-md md:mt-0 md:max-h-[calc(100dvh-2rem)] md:bg-zinc-900/80`}>
         <div id="vp-right-controls" />
         <StreamsPanel project={project.data ?? null} hideTextModels bare />
       </div>

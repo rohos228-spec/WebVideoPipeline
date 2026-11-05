@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, createContext, useContext } from "react";
-import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck, Workflow } from "lucide-react";
+import { Film, Bot, User, Settings, FolderOpen, HardDrive, CreditCard, Wallet, ShieldCheck, Workflow, Menu, X } from "lucide-react";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger, SheetClose } from "@/components/ui/sheet";
+import { useMobileLayout } from "./use-mobile-layout";
 import { cn } from "@/lib/utils";
 import { FramesGrid } from "@/components/frames/frames-grid";
 import { StudioVersionBadge } from "@/components/shell/studio-version-badge";
@@ -27,6 +29,11 @@ export function useUi(): UiState {
 }
 
 export function Topbar({ children }: { children?: React.ReactNode }) {
+  const mobile = useMobileLayout();
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  useEffect(() => {
+    if (!mobile) setNavigationOpen(false);
+  }, [mobile]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [railPanel, setRailPanel] = useState<null | "Хранилище" | "Оплата" | "Выплаты">(null);
   const togglePanel = (k: "Хранилище" | "Оплата" | "Выплаты") => setRailPanel((v) => (v === k ? null : k));
@@ -85,10 +92,11 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
     );
   };
 
-  return (
-    <UiContext.Provider value={{ framesProjectId, openFrames, openOutsee }}>
-      <div className="flex h-full min-h-0 w-full flex-1 flex-row">
-      <nav className="flex w-[64px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-[#0e0e10] py-3">
+  const navigation = (
+      <nav id="studio-navigation" aria-label="Основная навигация" className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto bg-[#0e0e10] py-3 md:w-[64px] md:shrink-0 md:overflow-visible md:border-r md:border-white/[0.06]" onClick={(event) => {
+        const target = event.target as HTMLElement;
+        if (target.closest("[data-navigation-action], a")) setNavigationOpen(false);
+      }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <a href="/home" title="Главная"><img src="/via-logo.png" alt="VIA" className="mb-3 w-[46px] select-none" draggable={false} /></a>
         <RailBtn icon={<Film className="h-[18px] w-[18px]" />} label="Генерация" title="Полный интерфейс генерации" onClick={() => openOutsee()} />
@@ -117,9 +125,6 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
         <div className="min-h-2" style={{ flexGrow: 1.55 }} />
         <RailBtn icon={<CreditCard className="h-[18px] w-[18px]" />} label="Оплата" active={railPanel === "Оплата"} onClick={() => togglePanel("Оплата")} />
         <RailBtn icon={<Wallet className="h-[18px] w-[18px]" />} label="Выплаты" active={railPanel === "Выплаты"} onClick={() => togglePanel("Выплаты")} />
-        {railPanel === "Хранилище" ? <StoragePanel onClose={() => setRailPanel(null)} /> : null}
-        {railPanel === "Оплата" ? <PaymentsPanel onClose={() => setRailPanel(null)} /> : null}
-        {railPanel === "Выплаты" ? <PayoutsPanel onClose={() => setRailPanel(null)} /> : null}
         {railPanel && railPanel !== "Хранилище" && railPanel !== "Оплата" && railPanel !== "Выплаты" ? (
           <div data-rail-panel={railPanel} className="fixed left-[72px] top-3 z-50 w-[320px] rounded-[14px] border border-white/10 bg-[#0a0a0a] p-4 shadow-2xl" style={{ fontFamily: "Rubik, sans-serif" }}>
             <div className="mb-3 flex items-center justify-between">
@@ -129,7 +134,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             <div className="rounded-lg border border-white/[0.06] bg-black/60 px-3 py-6 text-center text-[13px] text-zinc-400">скоро</div>
           </div>
         ) : null}
-        <button type="button" onClick={() => { window.location.href = "/profile"; }} className="flex h-10 w-10 items-center justify-center text-zinc-400 hover:bg-white/[0.05] hover:text-white" title="Пользователь" aria-label="Пользователь">
+        <button type="button" data-navigation-action onClick={() => { window.location.href = "/profile"; }} className="flex h-10 w-10 items-center justify-center text-zinc-400 hover:bg-white/[0.05] hover:text-white" title="Пользователь" aria-label="Пользователь">
           <User className="h-5 w-5" strokeWidth={1.6} />
         </button>
         <div className="relative">
@@ -137,7 +142,7 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             <Settings className="h-5 w-5" strokeWidth={1.6} />
           </button>
           {settingsOpen ? (
-            <div className="absolute bottom-0 left-full z-50 ml-2 w-[300px] border border-white/10 bg-[#141417] p-3 shadow-2xl">
+            <div className="absolute bottom-0 left-1/2 z-50 w-[min(260px,calc(100vw-4rem))] -translate-x-1/2 border border-white/10 bg-[#141417] p-3 shadow-2xl md:left-full md:ml-2 md:w-[300px] md:translate-x-0">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[13px] font-medium uppercase tracking-[0.12em] text-zinc-300">Настройки</span>
                 <button type="button" className="text-zinc-500 hover:text-white" onClick={() => setSettingsOpen(false)} aria-label="Закрыть">×</button>
@@ -148,8 +153,35 @@ export function Topbar({ children }: { children?: React.ReactNode }) {
             </div>
           ) : null}
         </div>
-        <UserPrefsApplier />
       </nav>
+  );
+
+  return (
+    <UiContext.Provider value={{ framesProjectId, openFrames, openOutsee }}>
+      <UserPrefsApplier />
+      <div className="flex h-full min-h-0 w-full flex-1 flex-col md:flex-row">
+        <header className="flex shrink-0 items-center gap-2 border-b border-white/[0.06] bg-[#0e0e10] px-2 pb-1 pt-[max(0.25rem,env(safe-area-inset-top))] md:hidden">
+          <Sheet open={navigationOpen && mobile} onOpenChange={setNavigationOpen}>
+            <SheetTrigger asChild>
+              <button type="button" aria-label="Открыть навигацию" aria-expanded={navigationOpen && mobile} aria-controls="studio-navigation" className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-200 hover:bg-white/10">
+                <Menu className="h-5 w-5" />
+              </button>
+            </SheetTrigger>
+            <SheetContent side="left" hideClose aria-describedby={undefined} className="w-[min(20rem,calc(100vw-2rem))] bg-[#0e0e10] pb-[env(safe-area-inset-bottom)]">
+              <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-2">
+                <SheetTitle>Навигация</SheetTitle>
+                <SheetClose aria-label="Закрыть навигацию" className="flex h-11 w-11 items-center justify-center rounded-lg hover:bg-white/10"><X className="h-5 w-5" /></SheetClose>
+              </div>
+              {mobile ? navigation : null}
+            </SheetContent>
+          </Sheet>
+          <a href="/home" className="min-w-0 flex-1 text-sm font-semibold text-zinc-100">VIA · Студия</a>
+          <button type="button" aria-label="Открыть проекты" onClick={() => window.dispatchEvent(new CustomEvent("studio-open-projects-sidebar"))} className="flex h-11 shrink-0 items-center gap-2 rounded-lg px-3 text-sm text-zinc-200 hover:bg-white/10"><FolderOpen className="h-5 w-5" />Проекты</button>
+        </header>
+        {!mobile ? <div className="hidden min-h-0 shrink-0 md:flex">{navigation}</div> : null}
+        {railPanel === "Хранилище" ? <StoragePanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel === "Оплата" ? <PaymentsPanel onClose={() => setRailPanel(null)} /> : null}
+        {railPanel === "Выплаты" ? <PayoutsPanel onClose={() => setRailPanel(null)} /> : null}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <FramesGrid
         projectId={framesProjectId}
@@ -179,7 +211,7 @@ function openOrchestratorDock() {
 
 function RailBtn({ icon, label, title, onClick, active, labelClassName }: { icon: React.ReactNode; label: string; title?: string; onClick: () => void; active?: boolean; labelClassName?: string }) {
   return (
-    <button type="button" onClick={onClick} title={title ?? label} className={"flex w-[62px] flex-col items-center gap-1 py-1.5 text-[11px] tracking-[-0.02em] transition-colors " + (active ? "text-white" : "text-zinc-400") + " hover:bg-white/[0.05] hover:text-white"}>
+    <button type="button" data-navigation-action aria-label={label} onClick={onClick} title={title ?? label} className={"flex min-h-11 w-full shrink-0 flex-row items-center gap-3 px-5 py-2 text-sm tracking-[-0.02em] transition-colors md:min-h-0 md:w-[62px] md:flex-col md:gap-1 md:px-0 md:py-1.5 md:text-[11px] " + (active ? "text-white" : "text-zinc-400") + " hover:bg-white/[0.05] hover:text-white"}>
       {icon}
       <span className={cn("leading-none", labelClassName)}>{label}</span>
     </button>
@@ -213,10 +245,11 @@ function OrchestratorRailBtn({
   return (
     <button
       type="button"
+      data-navigation-action
       onClick={onClick}
       title={active ? "Скрыть ИИ-агент" : "Открыть ИИ-агент"}
       className={cn(
-        "group relative flex w-[62px] flex-col items-center gap-1.5 py-1.5 text-[11px] tracking-[-0.02em] transition-all rounded-md select-none",
+        "group relative flex min-h-11 w-full shrink-0 flex-row items-center gap-3 px-5 py-2 text-sm tracking-[-0.02em] transition-all rounded-md select-none md:min-h-0 md:w-[62px] md:flex-col md:gap-1.5 md:px-0 md:py-1.5 md:text-[11px]",
         active
           ? "text-emerald-300 bg-emerald-500/10"
           : "text-zinc-400 hover:text-emerald-200 hover:bg-white/[0.05]",

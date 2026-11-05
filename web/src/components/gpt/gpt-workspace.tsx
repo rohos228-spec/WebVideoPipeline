@@ -53,6 +53,7 @@ import {
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { cn } from "@/lib/utils";
 import { MarkdownRenderer } from "./markdown-renderer";
+import { useMobileLayout } from "@/components/shell/use-mobile-layout";
 
 const GPT_ERR_NETWORK = "Нет связи с сервером. Проверьте интернет и повторите.";
 const GPT_ERR_UNAVAILABLE = "Модель сейчас недоступна, попробуйте чуть позже.";
@@ -209,6 +210,26 @@ type Props = {
 };
 
 export function GptWorkspace({ open, onOpenChange }: Props) {
+  const mobile = useMobileLayout();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyTriggerRef = useRef<HTMLButtonElement>(null);
+  const historyRef = useRef<HTMLElement>(null);
+  const closeHistory = () => { setHistoryOpen(false); historyTriggerRef.current?.focus(); };
+  useEffect(() => setHistoryOpen(false), [open, mobile]);
+  useEffect(() => {
+    if (!open || !mobile || !historyOpen) return;
+    historyRef.current?.querySelector<HTMLElement>("button, input, [tabindex='0']")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); closeHistory(); }
+      if (event.key !== "Tab") return;
+      const elements = Array.from(historyRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), [tabindex='0']") ?? []);
+      const first = elements[0]; const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, mobile, historyOpen]);
   const qc = useQueryClient();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -358,6 +379,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
     mutationFn: () => api.gptCreateSession(),
     onSuccess: (s) => {
       setSessionId(s.id);
+      if (mobile) closeHistory();
       void qc.invalidateQueries({ queryKey: ["gpt-workspace", "sessions"] });
       setTimeout(() => textareaRef.current?.focus(), 100);
     },
@@ -647,7 +669,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex bg-[#0a0a0a] text-white font-sans backdrop-blur-2xl animate-in fade-in duration-200"
+      data-gpt-workspace
+      className="fixed inset-0 z-[80] flex min-h-0 overflow-hidden bg-[#0a0a0a] text-white font-sans backdrop-blur-2xl animate-in fade-in duration-200"
       onDragOver={(e) => {
         e.preventDefault();
         setDragOver(true);
@@ -668,10 +691,12 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
       )}
 
       {/* ─── LEFT SIDEBAR ─────────────────────────────────────────── */}
+      {mobile && historyOpen && <button type="button" tabIndex={-1} aria-label="Закрыть историю чатов по фону" onClick={closeHistory} className="absolute inset-0 z-40 bg-black/65 backdrop-blur-sm" />}
       <aside
+        ref={historyRef} id="gpt-history" aria-label="История чатов" role={mobile ? "dialog" : undefined} aria-modal={mobile && historyOpen ? true : undefined} inert={mobile ? !historyOpen : !sidebarOpen}
         className={cn(
-          "flex flex-col border-r border-white/[0.08] bg-[#121216]/90 transition-all duration-200 ease-in-out shrink-0",
-          sidebarOpen ? "w-72" : "w-0 overflow-hidden border-r-0"
+          "absolute inset-y-0 left-0 z-50 flex min-h-0 flex-col border-r border-white/[0.08] bg-[#121216] transition-all duration-200 ease-in-out shrink-0 md:static md:z-auto md:bg-[#121216]/90",
+          mobile ? (historyOpen ? "w-[min(320px,calc(100vw-2rem))]" : "hidden") : sidebarOpen ? "w-72" : "w-0 overflow-hidden border-r-0"
         )}
       >
         {/* Sidebar Header */}
@@ -722,8 +747,14 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
               return (
                 <div
                   key={s.id}
+                  role="button" tabIndex={0}
                   onClick={() => {
-                    if (!isEditing) setSessionId(s.id);
+                    if (!isEditing) { setSessionId(s.id); if (mobile) closeHistory(); }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                    event.preventDefault();
+                    if (!isEditing) { setSessionId(s.id); if (mobile) closeHistory(); }
                   }}
                   className={cn(
                     "group relative flex items-center justify-between rounded-xl px-3 py-2.5 text-xs transition-all cursor-pointer outline-none",
@@ -766,7 +797,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                   </div>
 
                   {!isEditing && (
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                       <button
                         type="button"
                         onClick={(e) => {
@@ -808,7 +839,8 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
           </div>
           <button
             type="button"
-            onClick={() => setSidebarOpen(false)}
+            onClick={() => mobile ? closeHistory() : setSidebarOpen(false)}
+            aria-label={mobile ? "Закрыть историю чатов" : "Свернуть историю чатов"}
             className="rounded-lg p-1.5 text-white/50 hover:bg-white/10 hover:text-white outline-none"
             title="Свернуть боковую панель"
           >
@@ -818,11 +850,12 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
       </aside>
 
       {/* ─── MAIN CHAT VIEW ───────────────────────────────────────── */}
-      <main className="flex flex-1 flex-col min-w-0 bg-[#0a0a0a]">
+      <main inert={mobile && historyOpen} className="flex min-h-0 flex-1 flex-col min-w-0 bg-[#0a0a0a]">
         {/* Top Navigation Bar */}
-        <header className="relative z-30 flex h-14 shrink-0 items-center justify-between border-b border-white/[0.08] bg-[#121216]/80 px-4 backdrop-blur-xl">
+        <header className="relative z-30 flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/[0.08] bg-[#121216]/80 px-2 py-2 backdrop-blur-xl md:h-14 md:flex-nowrap md:px-4 md:py-0">
           <div className="flex items-center gap-3 min-w-0">
-            {!sidebarOpen && (
+            <button ref={historyTriggerRef} type="button" aria-label="Открыть историю чатов" aria-expanded={historyOpen} aria-controls="gpt-history" onClick={() => setHistoryOpen(true)} className="flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 text-xs text-white/80 md:hidden"><MessageSquare className="h-4 w-4" />История</button>
+            {!sidebarOpen && !mobile && (
               <button
                 type="button"
                 onClick={() => setSidebarOpen(true)}
@@ -840,26 +873,28 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2 md:flex-nowrap">
             {/* Model Selector Dropdown Button (Clean, compact, no sparkles, turquoise style) */}
             <div className="relative">
               <button
                 type="button"
                 onClick={() => setModelPickerOpen(!modelPickerOpen)}
-                className="flex items-center gap-2 rounded-xl border border-white/15 bg-[#16161b] px-3 py-1.5 text-xs font-semibold text-white transition hover:border-[#22d3ee]/50 hover:bg-white/[0.08] shadow-sm outline-none focus:outline-none focus-visible:outline-none ring-0"
+                aria-label="Выбрать модель GPT"
+                aria-expanded={modelPickerOpen}
+                className="flex min-h-10 max-w-[160px] items-center gap-2 rounded-xl border border-white/15 bg-[#16161b] px-3 py-1.5 text-xs font-semibold text-white transition hover:border-[#22d3ee]/50 hover:bg-white/[0.08] shadow-sm outline-none focus:outline-none focus-visible:outline-none ring-0 md:min-h-0 md:max-w-none"
               >
-                <span>{activeModelDisplay}</span>
+                <span className="truncate">{activeModelDisplay}</span>
                 <ChevronDown className="h-3.5 w-3.5 text-white/50" />
               </button>
 
               {/* Model Picker Popover Menu */}
               {modelPickerOpen && (
-                <div className="absolute right-0 top-full mt-2 z-[100] w-80 rounded-2xl border border-white/15 bg-[#16161b]/98 p-2.5 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 ring-1 ring-white/10">
-                  <div className="px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#22d3ee] border-b border-white/[0.08] mb-1 flex items-center justify-between">
+                <div role="dialog" aria-label="Модели GPT" className="fixed inset-x-2 top-16 z-[100] flex max-h-[calc(100dvh-5rem)] flex-col rounded-2xl border border-white/15 bg-[#16161b] p-2.5 shadow-2xl backdrop-blur-2xl animate-in fade-in zoom-in-95 duration-150 ring-1 ring-white/10 md:absolute md:inset-x-auto md:right-0 md:top-full md:mt-2 md:w-80">
+                  <div className="shrink-0 px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-[#22d3ee] border-b border-white/[0.08] mb-1 flex items-center justify-between gap-2">
                     <span>Выберите ИИ модель</span>
-                    <span className="text-[10px] text-white/40 font-mono">52 / vibecode / kie</span>
+                    <button type="button" aria-label="Закрыть выбор модели GPT" onClick={() => setModelPickerOpen(false)} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-white/10"><X className="h-4 w-4" /></button>
                   </div>
-                  <div className="max-h-96 overflow-y-auto space-y-2 pr-1">
+                  <div className="min-h-0 max-h-96 overflow-y-auto space-y-2 pr-1">
                     {["OpenAI", "Anthropic", "Google", "xAI", "GLM", "KIE"].map((groupName) => {
                       const groupModels = (textLlmQ.data?.models || []).filter(
                         (m: any) => (m.group || (m.provider === "kie" ? "KIE" : "OpenAI")) === groupName
@@ -1003,6 +1038,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
             <button
               type="button"
               onClick={() => onOpenChange(false)}
+              aria-label="Закрыть GPT чат"
               className="rounded-xl border border-white/10 bg-white/[0.04] p-2 text-white/60 transition hover:bg-white/10 hover:text-white outline-none"
               title="Закрыть (Esc)"
             >
@@ -1015,7 +1051,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
-          className="flex-1 overflow-y-auto px-4 py-6 md:px-8 lg:px-16 space-y-6 relative"
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-4 md:px-8 md:py-6 lg:px-16 space-y-6 relative"
         >
           {/* If chat has search active and 0 matches */}
           {msgSearchQuery.trim() && messagesToRender.length === 0 && (
@@ -1373,7 +1409,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
         </div>
 
         {/* ─── BOTTOM INPUT CONTAINER (Style like Generation workspace) ──────── */}
-        <div className="p-4 md:px-8 lg:px-16 border-t border-white/[0.08] bg-[#0a0a0a]">
+        <div data-gpt-composer className="max-h-[50dvh] shrink-0 overflow-y-auto p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:max-h-none md:p-4 md:pb-4 md:px-8 lg:px-16 border-t border-white/[0.08] bg-[#0a0a0a]">
           <div className="max-w-4xl mx-auto flex flex-col gap-2">
             {/* Attachment preview chips above input */}
             {!busy && (session?.attachments?.length ?? 0) > 0 && (
@@ -1441,7 +1477,7 @@ export function GptWorkspace({ open, onOpenChange }: Props) {
                 rows={1}
                 style={{ outline: "none" }}
                 placeholder="Спросите что угодно или перетащите файл (Enter — отправить, Shift+Enter — перенос строки)..."
-                className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-xs text-white placeholder:text-white/40 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus:border-0 min-h-[44px] max-h-[180px] leading-relaxed"
+                className="w-full resize-none bg-transparent px-4 pt-3.5 pb-2 text-base md:text-xs text-white placeholder:text-white/40 border-0 outline-none ring-0 focus:outline-none focus:ring-0 focus:border-0 min-h-[44px] max-h-[180px] leading-relaxed"
               />
 
               {/* Bottom action bar inside container */}
