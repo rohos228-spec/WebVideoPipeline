@@ -228,6 +228,8 @@ export interface ApprovalView {
   details?: string[];
   /** `destructive_effects`: что изменится без возврата. */
   effects?: string[];
+  /** `approval_required.warnings`: «Не поставлен в очередь: #6 — …». Без них проект молча пропадал из карточки. */
+  warnings?: string[];
   resolved: "approved" | "rejected" | "retried" | "closed" | null;
 }
 
@@ -489,12 +491,14 @@ function approvalWire(body: Record<string, unknown>): {
   stepChangeId: string | null;
   details: string[];
   effects: string[];
+  warnings: string[];
 } {
   return {
     actions: readStringList(body.actions),
     stepChangeId: readStepChangeId(body.step_change_id),
     details: approvalDetails(body.steps),
     effects: readChangeIds(body.destructive_effects),
+    warnings: (readStringList(body.warnings) ?? []).map((item) => item.trim()).filter(Boolean),
   };
 }
 

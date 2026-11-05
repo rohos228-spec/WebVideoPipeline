@@ -782,6 +782,13 @@ function DockApprovalCard({ approval, chat, titles }: { approval: ApprovalView; 
           ))}
         </ul>
       ) : null}
+      {!terminal && approval.warnings?.length ? (
+        <ul data-testid="orch-approval-warnings" className="mt-2 space-y-0.5 text-[11px] leading-relaxed text-warning">
+          {approval.warnings.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
       {!terminal && approval.effects?.length ? (
         <p data-testid="orch-approval-effects" className="mt-1.5 text-[11px] leading-relaxed text-white/60">
           {approval.effects.join(" ")}

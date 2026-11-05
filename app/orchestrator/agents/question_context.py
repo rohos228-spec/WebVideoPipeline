@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -232,6 +233,12 @@ _OTHER_NUMBER_RE = re.compile(
 )
 # «сколько ушло денег на 12», «что в 12?»: голый номер в конце фразы — проект, если такой есть.
 _TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в)\s+(\d{1,5})\s*[?.!]*$")
+# «что с 46 проектом», «в 4-м проекте»: номер перед словом «проект».
+_BEFORE_NUMBER_RE = re.compile(r"(?<![\w#.,])(\d{1,5})(?:-?(?:м|й|ом|ым|ой))?\s+проект")
+_NUMBER_IN_GROUP_RE = re.compile(r"\d{1,5}")
+MISSING_TITLE = "Такого проекта нет"
+# Своё значение у каждого вопроса: вопросы разных сессий идут параллельно.
+_MISSING: contextvars.ContextVar[str | None] = contextvars.ContextVar("orch_missing_projects", default=None)
 # Образец команды в правиле ответа: тест сверяет, что чат принимает её как задачу.
 EXAMPLE_COMMAND = "запусти промты картинок в проекте 6"
 # «Что ты сделал / менял сегодня»: свои шаги чата за день, иначе ответ «я ничего не делал».
@@ -271,8 +278,10 @@ ANSWER_RULES = (
     "(«Да, …», «Нет, …», число, состояние), а не с «Проверь…», «Покажи…» или пересказа вопроса.",
     "Время событий бери из фактов: если есть дата, назови её; событие старше суток не называй "
     "свежим или недавним.",
-    "Открыть проект в студии ты не можешь: назови его номер и подскажи «откройте проект #N слева "
-    "в списке проектов».",
+    "Открыть проект в студии ты не можешь: если просят открыть проект, назови его номер и подскажи "
+    "«откройте проект #N слева в списке проектов». Без такой просьбы эту подсказку не добавляй.",
+    f"Есть факт «{MISSING_TITLE}» — начни ответ с того, что такого проекта нет, и назови, какие номера "
+    "есть. Не пиши «данных нет» и не советуй открыть несуществующий проект.",
     "Без технических слов: вместо split — «разбивка на кадры», вместо master/project и snapshot — "
     "«две базы данных проекта» и «снимок», вместо run, node, step — «запуск», «нода», «шаг».",
     "Оформление: чат показывает Markdown. Несколько проектов или нод — таблица, первая колонка "
@@ -834,9 +843,13 @@ class QuestionContext:
             return int(named[0]["id"])
         if named:
             return None
+        known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
+        _MISSING.set(_missing_projects(text, known))
         numbered = numbered_projects(items, text)
         if not numbered:
-            known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
+            before = [int(n) for n in _BEFORE_NUMBER_RE.findall(_norm(text)) if int(n) in known]
+            numbered = list(dict.fromkeys(before))
+        if not numbered:
             numbered = list(dict.fromkeys(int(n) for n in _HASH_NUMBER_RE.findall(text) if int(n) in known))
             if not numbered:
                 tail = _TAIL_NUMBER_RE.search(_norm(text))
@@ -846,17 +859,42 @@ class QuestionContext:
     async def messages(
         self, text: str, project_id: int | None, app: Any = None, session_id: str | None = None
     ) -> list[dict[str, str]]:
+        _MISSING.set(None)
+        norm = _norm(text)
         if project_id is None:
             project_id = await self._named_project(text)
-        elif _OTHER_NUMBER_RE.search(_norm(text)):
-            # Открыт #14, а спрашивают «что с проектом 6?»: читаем названный номером проект.
+        elif _OTHER_NUMBER_RE.search(norm) or _BEFORE_NUMBER_RE.search(norm):
+            # Открыт #14, а спрашивают «что с проектом 6?» / «что с 6 проектом»: читаем названный.
             named = await self._named_project(text)
             project_id = named if named is not None else project_id
         facts = await self.gather(text, project_id, app, session_id)
+        missing = _MISSING.get()
+        if missing:
+            facts = [Fact("projects.missing", MISSING_TITLE, missing), *facts]
         return [
             {"role": "system", "content": system_prompt(facts, project_id)},
             {"role": "user", "content": text},
         ]
+
+
+def _missing_projects(text: str, known: set[int]) -> str | None:
+    """«Что с 46 проектом», а проектов 33: прямой ответ «такого нет» вместо «данных нет»."""
+    if not known:
+        return None
+    norm = _norm(text)
+    from app.orchestrator.agents.project_nodes import _NUMBERED_RE
+
+    asked: list[int] = []
+    for group in _NUMBERED_RE.findall(norm):
+        asked.extend(int(n) for n in _NUMBER_IN_GROUP_RE.findall(group))
+    asked += [int(n) for n in _BEFORE_NUMBER_RE.findall(norm)]
+    asked += [int(n) for n in _HASH_NUMBER_RE.findall(text)]
+    missing = [n for n in dict.fromkeys(asked) if n not in known]
+    if not missing or len(missing) != len(dict.fromkeys(asked)):
+        return None
+    names = ", ".join(f"#{n}" for n in missing)
+    word = "Проекта" if len(missing) == 1 else "Проектов"
+    return f"{word} {names} в студии нет. Есть проекты с номерами от #{min(known)} до #{max(known)} (всего {len(known)})."
 
 
 async def _today_changes(project_id: int | None, session_id: str | None) -> list[str]:

@@ -200,3 +200,26 @@ def test_cyrillic_gpt_finds_gpt_node():
         {"key": "n_split", "type": "split", "type_ru": "Разбивка", "label": "Разбивка"},
     ]
     assert match_nodes(rows, "что делает нода работа с гпт") == ["n_excel_gpt_1"]
+
+
+def test_missing_project_is_named_plainly():
+    from app.orchestrator.agents.question_context import _missing_projects
+
+    known = set(range(1, 34))
+    assert "Проекта #46 в студии нет" in (_missing_projects("что с 46 проектом", known) or "")
+    assert "от #1 до #33" in (_missing_projects("что с проектом 46?", known) or "")
+    assert _missing_projects("что с 4 проектом", known) is None
+    assert _missing_projects("сравни 5 и 7 проект", known) is None
+
+
+def test_number_before_word_project_resolves():
+    import asyncio
+
+    from app.orchestrator.agents.question_context import QuestionContext
+
+    class Nodes:
+        async def project_items(self):
+            return [{"id": 4, "title": "совы"}, {"id": 10, "title": "ежи"}]
+
+    ctx = QuestionContext(nodes=Nodes())
+    assert asyncio.run(ctx._named_project("хз че делать, видео не собирается в 4 проекте")) == 4
