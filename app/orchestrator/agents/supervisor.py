@@ -3958,12 +3958,25 @@ class Supervisor:
 
             paid_in_batch = False
             rejected = False
+            rejected_writes = False
             for offset, (item, result) in enumerate(zip(started, results, strict=True)):
                 done_step, step_id = item
                 if done_step.paid:
                     paid_in_batch = True
                 if not await self._record(task_id, session_id, done_step, step_id, result, index + offset):
                     rejected = True
+                    rejected_writes = rejected_writes or not step_is_readonly(done_step, self.actions)
+            # «Найди, где теряется стиль»: план из шести чтений падал целиком, если одно чтение
+            # отказало (ноды с таким ключом нет), и ответ был «ошибка без пояснения». Если дальше
+            # только чтения — идём дальше и отвечаем по остальным фактам, отказ виден в сводке.
+            rest_readonly = all(step_is_readonly(later, self.actions) for later in plan[index + len(batch) :])
+            if (
+                rejected
+                and not rejected_writes
+                and rest_readonly
+                and self._status(task_id) is TaskStatus.executing
+            ):
+                rejected = False
             if rejected:
                 current = self._status(task_id)
                 if current not in TERMINAL_STATUSES and current is not TaskStatus.waiting_approval:

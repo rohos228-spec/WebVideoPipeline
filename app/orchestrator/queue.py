@@ -186,6 +186,11 @@ _STATUS_PHRASES = (
 # Глаголы запуска, которых нет в _IMPERATIVE_WORDS: «прогони», «пусти», «запускай».
 _RUN_VERBS_RE = re.compile(r"(?<![а-я])(?:прогони|прогоняй|пусти|запускай|гони|продолжай)(?:те)?(?![а-я])")
 _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IMPERATIVE_WORDS))
+# «Я ноду запускал!», «запустил, а он отработал 3 секунды»: рассказ о прошлом запуске —
+# вопрос о том, что случилось, а не просьба запустить ещё раз (была карточка запуска).
+_PAST_RUN_RE = re.compile(
+    r"(?<![а-я])(?:за|про)?(?:пускал|пустил|гонял|гнал)(?:а|и|ось)?(?![а-я])|(?<![а-я])отработал\w*"
+)
 _NEGATIONS = frozenset({"не", "ни"})
 
 
@@ -457,6 +462,13 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
         return ClassifyResult(
             tier="strong",
             mode=MessageMode.task,
+            deterministic=True,
+            confidence=1.0,
+        )
+    if _PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm):
+        return ClassifyResult(
+            tier="fast",
+            mode=MessageMode.append,
             deterministic=True,
             confidence=1.0,
         )

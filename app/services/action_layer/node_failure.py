@@ -629,6 +629,42 @@ def _when(nr: dict) -> float:
     return max(_ts_of(nr.get("finished_at")), _ts_of(nr.get("started_at")))
 
 
+_QUICK_RUN_S = 15
+
+
+def run_seconds(nr: dict | None) -> float | None:
+    """Длительность запуска ноды по started_at / finished_at; None, если не видно."""
+    if not nr:
+        return None
+    start, end = _ts_of(nr.get("started_at")), _ts_of(nr.get("finished_at"))
+    if start <= 0 or end <= 0 or end < start:
+        return None
+    return end - start
+
+
+def format_seconds(value: float) -> str:
+    sec = int(round(value))
+    if sec < 60:
+        return f"{sec} с"
+    minutes, sec = divmod(sec, 60)
+    return f"{minutes} мин {sec} с" if minutes < 60 else f"{minutes // 60} ч {minutes % 60} мин"
+
+
+def node_for_step(meta: dict, node_runs: list[dict], step: str) -> str | None:
+    """Нода холста по коду шага («img_pr»): последняя запущенная из таких, иначе первая."""
+    keys = [
+        str(n["id"])
+        for n in bi._canvas_nodes(meta)
+        if bi._step_code(*bi._node_types(n)) == step and n.get("id")
+    ]
+    if not keys:
+        return None
+    ran = [r for r in node_runs if str(r.get("node_key")) in keys]
+    if ran:
+        return str(max(ran, key=_when)["node_key"])
+    return keys[0]
+
+
 def pick_node(meta: dict, node_runs: list[dict], data_dir: Path | str | None) -> tuple[str | None, str]:
     """Упавшая нода без явного ключа: запуск со статусом failed, ошибка шага, дневник, отказы."""
     failed = [nr for nr in node_runs if str(nr.get("status")) == "failed" and nr.get("node_key")]
@@ -739,8 +775,17 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     runs = await bi._node_runs(ctx, pid)
     key = str(params.get("node_key") or "").strip() or None
     how = "названа в просьбе"
+    hint = str(params.get("step") or "").strip()
+    if key is None and hint:
+        key = node_for_step(meta, runs, hint)
+        how = "названа шагом в просьбе"
     if key is None:
         key, how = pick_node(meta, runs, data_dir)
+    if key is None and runs:
+        # Упавших нет, а спрашивают «что случилось»: разбираем последний запуск.
+        last = max((r for r in runs if r.get("node_key")), key=_when, default=None)
+        if last is not None and _when(last) > 0:
+            key, how = str(last["node_key"]), "последний запуск, упавших нод нет"
     if key is None:
         return {
             "project_id": pid,
@@ -812,6 +857,22 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Нода выбрана сама: {how}.")
     if nr:
         lines.append(f"Попыток запуска: {int(nr.get('attempts') or 0)}.")
+    took = run_seconds(nr)
+    if took is not None:
+        lines.append(f"Последний запуск длился {format_seconds(took)}.")
+    quick = (
+        took is not None
+        and took < _QUICK_RUN_S
+        and str((nr or {}).get("status")) == "done"
+        and not errors
+        and not int((metrics or {}).get("attempts") or 0)
+    )
+    if quick:
+        lines.append(
+            "Нода закончилась почти сразу и без ответов модели: скорее всего ей нечего было делать — "
+            "у кадров уже есть результат этого шага (шаг пропускает заполненные кадры) или на входе "
+            "пусто. Чтобы пересобрать, сначала очистите результат нужных кадров."
+        )
     if model:
         lines.append(f"Модель: {model}.")
     if prompt:
@@ -836,7 +897,10 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Ошибка пачки в дневнике: {trace['batch_error']}")
     for reason in (trace or {}).get("skipped") or []:
         lines.append(f"Пачка не записана: {reason}")
-    lines.append(f"Причина: {cause['title_ru']}. {cause['explain_ru']}")
+    if str((nr or {}).get("status")) == "done" and not errors and not rejects:
+        lines.append("Нода завершилась без ошибки.")
+    else:
+        lines.append(f"Причина: {cause['title_ru']}. {cause['explain_ru']}")
     usable = [f for f in fixes if f.get("phrase_ru")]
     if fixes:
         lines.append(
@@ -855,6 +919,8 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         "step": step,
         "status_ru": status,
         "attempts": int((nr or {}).get("attempts") or 0),
+        "run_seconds": took,
+        "quick_no_work": quick,
         "model": model,
         "prompt": prompt,
         "check_node": is_check,
@@ -889,7 +955,17 @@ def node_failure_spec() -> ActionSpec:
         "провайдера, закадр кадров не сходится с текстом, прочий формат; и варианты "
         "исправления существующими действиями. Без node_key — сама берёт упавшую ноду "
         "проекта. Только чтение.",
-        params_schema=bi._schema({"project_id": _PID, "node_key": _NODE_KEY}, ["project_id"]),
+        params_schema=bi._schema(
+            {
+                "project_id": _PID,
+                "node_key": _NODE_KEY,
+                "step": {
+                    "type": "string",
+                    "description": "код шага (img_pr, img, video…), если ноду назвали шагом",
+                },
+            },
+            ["project_id"],
+        ),
         executor=_diag_node_failure,
         risk=RISK_READ,
         idempotent=True,
