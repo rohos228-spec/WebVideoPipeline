@@ -223,3 +223,9 @@ def test_number_before_word_project_resolves():
 
     ctx = QuestionContext(nodes=Nodes())
     assert asyncio.run(ctx._named_project("хз че делать, видео не собирается в 4 проекте")) == 4
+
+
+def test_priciest_project_reads_spend():
+    from app.orchestrator.agents.question_context import plan_reads
+
+    assert ("spend.summary", {}) in plan_reads("где самый дорогой проект", None)

@@ -1300,6 +1300,9 @@ def _spend_line(head: str, window: dict) -> str:
     return line + "."
 
 
+_TOP_SPEND = 5
+
+
 async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     from sqlalchemy import text
 
@@ -1316,6 +1319,18 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
             today = _spend_window((await s.execute(text(cols + "day = :d"), {"d": day})).all())
             project = run = None
             run_id = ""
+            top: list[tuple[int, float, int]] = []
+            if pid is None:
+                # «Где самый дорогой проект»: без разбивки по проектам чат отвечал «нельзя определить».
+                rows = await s.execute(
+                    text(
+                        "SELECT project_id, SUM(COALESCE(usd, 0)), COUNT(*) FROM spend_ledger "
+                        "WHERE project_id IS NOT NULL AND project_id > 0 GROUP BY project_id "
+                        "ORDER BY 2 DESC LIMIT :n"
+                    ),
+                    {"n": _TOP_SPEND},
+                )
+                top = [(int(r[0]), float(r[1] or 0.0), int(r[2] or 0)) for r in rows.all() if float(r[1] or 0) > 0]
             if pid is not None:
                 project = _spend_window((await s.execute(text(cols + "project_id = :p"), {"p": pid})).all())
                 run_id = str(
@@ -1333,6 +1348,7 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     except SQLAlchemyError:
         empty = _spend_window([])
         today, project, run, run_id = empty, (empty if pid is not None else None), None, ""
+        top = []
     caps = spend_guard.caps()
     caps_ru = {k: ("без лимита" if not v or v <= 0 else f"${v:g}") for k, v in caps.items()}
     lines = [_spend_line(f"Сегодня ({day}), вся фабрика", today)]
@@ -1340,6 +1356,14 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
         lines.append(_spend_line(f"Проект #{pid}, за всё время", project))
     if run is not None:
         lines.append(_spend_line("Последний запуск", run))
+    if top:
+        lines.append(
+            "Больше всего потрачено по проектам (за всё время, оценка): "
+            + ", ".join(f"#{p} — {_usd_text(usd)}" for p, usd, _n in top)
+            + "."
+        )
+    elif pid is None:
+        lines.append("Трат по проектам в журнале расходов нет.")
     if any(w and w["unknown_cost_rows"] for w in (today, project, run)):
         lines.append("Часть вызовов без известной цены: сумма занижена, это оценка.")
     lines.append(
@@ -1360,6 +1384,7 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
         "run_id": run_id or None,
         "caps_usd": caps,
         "caps_ru": caps_ru,
+        "top_projects": [{"project_id": p, "usd": round(usd, 4), "rows": n} for p, usd, n in top],
         "text_ru": " ".join(lines),
     }
     return _safe(out)

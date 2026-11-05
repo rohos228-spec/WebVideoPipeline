@@ -188,6 +188,8 @@ _RUN_VERBS_RE = re.compile(r"(?<![а-я])(?:прогони|прогоняй|пу
 _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IMPERATIVE_WORDS))
 # «Я ноду запускал!», «запустил, а он отработал 3 секунды»: рассказ о прошлом запуске —
 # вопрос о том, что случилось, а не просьба запустить ещё раз (была карточка запуска).
+# Срок разбора фразы моделью: дольше человек ждать не будет.
+CLASSIFY_DEADLINE_S = 25.0
 _PAST_RUN_RE = re.compile(
     r"(?<![а-я])(?:за|про)?(?:пускал|пустил|гонял|гнал)(?:а|и|ось)?(?![а-я])|(?<![а-я])отработал\w*"
 )
@@ -705,12 +707,27 @@ class MessageQueue:
                         confidence=1.0,
                     )
                 if decided is None:
-                    decided = await self.router.classify(
-                        text,
-                        run_id=run_id,
-                        task_id=None if task_id is None else str(task_id),
-                    )
-                    decided = decided.model_copy(update={"deterministic": False})
+                    try:
+                        decided = await asyncio.wait_for(
+                            self.router.classify(
+                                text,
+                                run_id=run_id,
+                                task_id=None if task_id is None else str(task_id),
+                            ),
+                            CLASSIFY_DEADLINE_S,
+                        )
+                        decided = decided.model_copy(update={"deterministic": False})
+                    except TimeoutError:
+                        # Провайдер тянул классификатор по 3–4 минуты, чат стоял, ответы приходили
+                        # на чужие фразы. Не дождались — решаем по фразе: вопрос — ответ, иначе задача.
+                        logger.warning("orch classify deadline {}s for session {}", CLASSIFY_DEADLINE_S, session_id)
+                        question = is_status_question(text) or is_plain_question(text)
+                        decided = ClassifyResult(
+                            tier="fast" if question else ORCH_DEFAULT_TIER,
+                            mode=MessageMode.append if question else MessageMode.task,
+                            deterministic=True,
+                            confidence=0.5,
+                        )
                     if decided.mode is MessageMode.interrupt and not _has_stop_word(text):
                         # «Проект 12 на каком шаге стоит?»: модель читала «стоит» как «стоп» и отвечала
                         # «нечего останавливать». Без стоп-слова это вопрос или просьба.
