@@ -29,6 +29,8 @@ _NODE_RE = re.compile(r"\bn_[a-z0-9_]{2,60}\b")
 
 _ABOUT = (
     "проект",
+    "собрал",
+    "смонтир",
     "статус",
     "ошиб",
     "упал",
@@ -130,8 +132,61 @@ _WHERE_PROMPTS = re.compile(
 )
 
 
+_LOOK = ("темн", "светл", "ярк", "мрачн", "блекл", "тускл", "выцвет", "черно-бел", "серые", "бледн")
+# «Видео собралось?», «где готовое видео»: финальный ролик проекта и где его смотреть.
+_FINAL = (
+    "собрал",
+    "смонтир",
+    "готовое видео",
+    "готовый ролик",
+    "готовое видос",
+    "итоговое видео",
+    "финальн",
+    "где видео",
+    "где ролик",
+    "скачать видео",
+    "скачать ролик",
+)
+FINAL_TITLE = "Готовое видео"
+_FINAL_WHERE = (
+    "Смотреть и скачать ролик: на холсте проекта откройте ноду «Монтаж» — в «Результате ноды» "
+    "лежит готовое видео."
+)
+
+
+async def final_video_text(pid: int) -> str:
+    """Есть ли финальный ролик проекта, когда собран и где его смотреть в студии."""
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from app.models import Artifact, ArtifactKind
+    from app.services.action_layer import store
+
+    async with store.sessions()() as session:
+        art = await session.scalar(
+            select(Artifact)
+            .where(Artifact.project_id == int(pid), Artifact.kind == ArtifactKind.final_video)
+            .order_by(Artifact.id.desc())
+            .limit(1)
+        )
+    if art is None:
+        return f"Готового видео у проекта #{pid} нет: монтаж ещё не собирал ролик."
+    when = art.created_at.strftime("%Y-%m-%d %H:%M") if art.created_at else "время не записано"
+    present = bool(art.path) and Path(str(art.path)).is_file()
+    head = f"Готовое видео проекта #{pid} собрано {when} UTC."
+    if not present:
+        head += " Но файла ролика на диске сейчас нет — монтаж нужно собрать заново."
+        return head
+    return f"{head} {_FINAL_WHERE}"
+
+
 def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
     """Параметры diag.content_checks, если просят проверить результат шага; иначе None."""
+    if _has(norm, ("картин", "изображ", "кадр")) and _has(norm, _LOOK):
+        # «Почему картинки тёмные»: тон картинок задают стиль и промты — проверка промтов
+        # покажет стиль проекта (нуар, пластилин), а не «причина неизвестна».
+        return {"project_id": int(pid), "step": "img_pr"}
     if "стил" in norm and _has(norm, ("картин", "промт", "изображ", "теря", "без стил", "пропал")):
         # «Картинки без стиля пластилин, найди где он теряется»: стиль пишет вариант промта
         # картинок, проверка промтов покажет кадры без стиля.
@@ -871,6 +926,12 @@ class QuestionContext:
             named = await self._named_project(text)
             project_id = named if named is not None else project_id
         facts = await self.gather(text, project_id, app, session_id)
+        if project_id is not None and _has(norm, _FINAL):
+            try:
+                final = await asyncio.wait_for(final_video_text(int(project_id)), self.timeout_s)
+                facts = [Fact("project.final_video", FINAL_TITLE, final), *facts]
+            except Exception as exc:
+                logger.warning("orch question final video failed: {}", type(exc).__name__)
         missing = _MISSING.get()
         if missing:
             facts = [Fact("projects.missing", MISSING_TITLE, missing), *facts]

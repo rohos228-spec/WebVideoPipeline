@@ -229,3 +229,16 @@ def test_priciest_project_reads_spend():
     from app.orchestrator.agents.question_context import plan_reads
 
     assert ("spend.summary", {}) in plan_reads("где самый дорогой проект", None)
+
+
+def test_dark_images_check_prompts_style():
+    from app.orchestrator.agents.question_context import plan_reads
+
+    reads = plan_reads("почему картинки темные", 4)
+    assert ("diag.content_checks", {"project_id": 4, "step": "img_pr"}) in reads
+
+
+def test_assembled_question_reads_status():
+    from app.orchestrator.agents.question_context import plan_reads
+
+    assert ("project.status", {"project_id": 4}) in plan_reads("видео собралось?", 4)

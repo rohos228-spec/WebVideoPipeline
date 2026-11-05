@@ -2844,6 +2844,11 @@ class Supervisor:
         try:
             # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
             fixed = await plan_fix_from_last(last_check)
+            if not fixed:
+                # «Перемонтируй с музыкой потише»: громкость от текущей, без вопроса «сколько 0–100».
+                from app.orchestrator.agents.music_scope import music_volume_plan
+
+                fixed = await music_volume_plan(goal, self._task_project_id(task_id))
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
