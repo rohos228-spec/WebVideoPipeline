@@ -2,7 +2,7 @@
 
 Планировщик на такую просьбу отдавал пустой план с вопросом, а итог приклеивал «Этого чат
 пока не умеет» — хотя настройка сборки ``montage.set_assemble_params(bgm_level)`` есть.
-Здесь «потише» / «погромче» без числа — сдвиг на ``STEP`` пунктов от громкости проекта, а
+Здесь «потише» / «погромче» без числа — на треть тише / громче от громкости проекта, а
 «перемонтируй» / «пересобери» — ещё и монтаж. Подтверждение карточкой остаётся.
 """
 
@@ -13,7 +13,8 @@ from typing import Any
 
 from app.orchestrator.contracts import PlanStep
 
-STEP = 25
+# Ниже — уже почти не слышно: «потише» не выключает музыку.
+MIN_LEVEL = 5
 _MUSIC = re.compile(r"музык|музон|фонов\w* (?:трек|звук)|\bbgm\b")
 _QUIETER = re.compile(r"тише|потиш|приглуш|убав|поменьше|тихую|тихая|тихо\b")
 _LOUDER = re.compile(r"громче|погромч|прибав|побольше|громкую|громкая")
@@ -36,7 +37,11 @@ def volume_direction(goal: str) -> int:
 
 
 def shifted_level(current: int, direction: int) -> int:
-    return max(0, min(100, int(current) + STEP * direction))
+    """«Потише» — примерно на треть тише, но не в ноль (ноль — это «без музыки»); «погромче» — на треть громче."""
+    cur = max(0, min(100, int(current)))
+    if direction < 0:
+        return max(MIN_LEVEL, min(cur - 1, round(cur * 0.65))) if cur > MIN_LEVEL else cur
+    return min(100, max(cur + 5, round(cur * 1.35)))
 
 
 async def _current_level(project_id: int) -> int:

@@ -31,7 +31,14 @@ def test_plan_shifts_from_current_and_remounts(monkeypatch) -> None:
     monkeypatch.setattr(music_scope, "_current_level", level)
     plan = asyncio.run(music_scope.music_volume_plan("перемонтируй с музыкой потише", 4))
     assert [s.action for s in plan] == ["montage.set_assemble_params", "montage.run_montage"]
-    assert plan[0].params == {"project_id": 4, "bgm_level": 45}
+    assert plan[0].params == {"project_id": 4, "bgm_level": 46}
     only = asyncio.run(music_scope.music_volume_plan("музыку погромче в 7 проекте", None))
     assert [s.action for s in only] == ["montage.set_assemble_params"]
-    assert only[0].params == {"project_id": 7, "bgm_level": 95}
+    assert only[0].params == {"project_id": 7, "bgm_level": 94}
+
+
+def test_quieter_never_mutes() -> None:
+    assert music_scope.shifted_level(20, -1) == 13
+    assert music_scope.shifted_level(6, -1) == 5
+    assert music_scope.shifted_level(5, -1) == 5
+    assert music_scope.shifted_level(0, 1) == 5
