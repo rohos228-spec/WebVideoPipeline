@@ -1396,7 +1396,7 @@ function WorkflowToolbar({
 }: {
   workflowId?: number;
   projectId?: number | null;
-  onSave: () => void;
+  onSave: () => Promise<void> | void;
   saving: boolean;
   onAddNode: (type: string) => void;
   getSelectedNodeIds: () => string[];
@@ -1428,6 +1428,7 @@ function WorkflowToolbar({
           projectId={projectId ?? null}
           onAddNode={onAddNode}
           getSelectedNodeIds={getSelectedNodeIds}
+          onPersistCanvas={onSave}
         />
         <div className="h-4 w-px bg-white/10" />
         <Button
