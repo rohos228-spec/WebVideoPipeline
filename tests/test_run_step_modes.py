@@ -89,3 +89,34 @@ async def test_start_step_ui_play_without_force_wipe_keeps_images(session, tmp_p
     assert img_file.exists()
     # Тумблер «Автозапуск» ручной ▶ не включает — только сам тумблер.
     assert p.auto_mode is False
+
+
+@pytest.mark.asyncio
+async def test_start_step_ui_play_img_pr_without_force_wipe_clears_old_prompts(session):
+    """Явный ▶ img_pr без явного force_wipe обязан очищать старые image_prompt, чтобы GPT пересобрал."""
+    p = Project(
+        slug="p_img_pr",
+        topic="Clay Test",
+        status=ProjectStatus.image_prompts_ready,
+        auto_mode=False,
+    )
+    session.add(p)
+    await session.flush()
+
+    fr = Frame(
+        project_id=p.id,
+        number=1,
+        voiceover_text="Voiceover for frame 1",
+        image_prompt="Old cinematic prompt",
+        status=FrameStatus.image_prompt_ready,
+    )
+    session.add(fr)
+    await session.commit()
+
+    # Запуск без force_wipe (force_wipe=None, как из веб-роутера при явном старте)
+    await start_step(session, p, "img_pr", explicit_ui_start=True, force_wipe=None)
+    await session.commit()
+
+    await session.refresh(fr)
+    assert not (fr.image_prompt or "").strip()
+

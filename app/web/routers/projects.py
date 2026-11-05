@@ -659,7 +659,7 @@ async def run_project_step(
             payload=payload,
         )
         return p
-    resolved_force_wipe = bool(force_wipe) if force_wipe is not None else False
+    resolved_force_wipe = force_wipe
     from sqlalchemy.orm.attributes import flag_modified
 
     from app.services import spend_guard
