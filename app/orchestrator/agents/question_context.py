@@ -295,6 +295,8 @@ _TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в)\s+(\d{1,5})\s*[?.!]
 _BEFORE_NUMBER_RE = re.compile(r"(?<![\w#.,])(\d{1,5})(?:-?(?:м|й|ом|ым|ой))?\s+проект")
 _NUMBER_IN_GROUP_RE = re.compile(r"\d{1,5}")
 MISSING_TITLE = "Такого проекта нет"
+# «Какой голос», «какой диктор», «кто озвучивает»: голос ноды «Озвучка».
+_VOICE_Q = ("голос", "диктор", "озвучива", "кто озвуч", "чей голос")
 # Своё значение у каждого вопроса: вопросы разных сессий идут параллельно.
 _MISSING: contextvars.ContextVar[str | None] = contextvars.ContextVar("orch_missing_projects", default=None)
 # Образец команды в правиле ответа: тест сверяет, что чат принимает её как задачу.
@@ -939,7 +941,7 @@ class QuestionContext:
             named = await self._named_project(text)
             project_id = named if named is not None else project_id
         facts = await self.gather(text, project_id, app, session_id)
-        if project_id is not None and "голос" in norm:
+        if project_id is not None and _has(norm, _VOICE_Q):
             # «Какой голос в озвучке»: чат отвечал «в фактах не указано, назовите проект».
             try:
                 facts = [Fact("audio.voice", "Голос озвучки", await self._voice(int(project_id))), *facts]
@@ -996,6 +998,9 @@ def _now_utc() -> str:
 def system_prompt(facts: list[Fact], project_id: int | None) -> str:
     lines = list(ANSWER_RULES)
     if not facts:
+        if project_id is not None:
+            # Без фактов модель не знала, что открыт проект, и просила «назовите номер проекта».
+            lines.append(f"Человек сейчас в проекте #{project_id}: номер проекта не спрашивай.")
         return "\n".join(lines)
     done = next((fact for fact in facts if fact.action == "chat.changes" and fact.ok), None)
     if done is not None:
