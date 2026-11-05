@@ -1164,16 +1164,21 @@ def read_resolved_project_prompt(
     """(имя варианта, путь к .md, текст, источник) — единая точка для шагов и логов."""
     overrides = getattr(project, "prompt_overrides", None) or {}
     meta = getattr(project, "meta", None) or {}
-    name, source = resolve_project_prompt_with_source(
-        overrides, step_code, meta=meta, node_key=node_key, slot_id=slot_id
-    )
-    gid = _group_id_from_canvas_node(project, node_key)
-    if is_excel_gpt_prompt_step(step_code):
-        path = resolve_excel_gpt_prompt_path(name, group_id=gid, project=project, node_key=node_key)
-        text = read_prompt(step_code, name, group_id=gid, project=project, node_key=node_key)
-    else:
-        path = prompt_path(step_code, name)
-        text = read_prompt(step_code, name)
+    tenant_id = getattr(project, "tenant_id", None)
+    from app.services.tenant import current_tenant, tenant_scope
+
+    effective_tenant = str(tenant_id) if tenant_id else current_tenant()
+    with tenant_scope(effective_tenant):
+        name, source = resolve_project_prompt_with_source(
+            overrides, step_code, meta=meta, node_key=node_key, slot_id=slot_id
+        )
+        gid = _group_id_from_canvas_node(project, node_key)
+        if is_excel_gpt_prompt_step(step_code):
+            path = resolve_excel_gpt_prompt_path(name, group_id=gid, project=project, node_key=node_key)
+            text = read_prompt(step_code, name, group_id=gid, project=project, node_key=node_key)
+        else:
+            path = prompt_path(step_code, name)
+            text = read_prompt(step_code, name)
     from app.services.gpt_text_builder import inject_topic_placeholders
     from app.services.prompt_style_vars import apply_style_vars
 
