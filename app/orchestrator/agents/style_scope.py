@@ -92,3 +92,33 @@ async def style_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
             "Новые промты и картинки появятся после перезапуска этих шагов.",
         )
     ]
+
+
+_VOICE_CHANGE = re.compile(
+    r"(?<![а-я])(?:поменяй|поменять|смени|сменить|поставь|поставить|сделай|хочу|нужен|давай|выбери)(?![а-я])"
+)
+
+
+def voice_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    """«Поменяй голос на мужской», «поставь голос Сара»: смена голоса ноды «Озвучка»."""
+    text = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    if "голос" not in text or not _VOICE_CHANGE.search(text) or _QUESTION.search(text):
+        return None
+    from app.services.action_layer.builtin_voice import pick_voice
+
+    if pick_voice(text, "") is None:
+        return None
+    named = _PROJECT.search(text)
+    if named:
+        project_id = int(named.group(1) or named.group(2))
+    if project_id is None:
+        return None
+    return [
+        PlanStep(
+            action="audio.set_voice",
+            params={"project_id": int(project_id), "voice": text[:60]},
+            mutating=True,
+            risk="medium",
+            expected="Голос озвучки сменён; новая озвучка — после перезапуска шага озвучки.",
+        )
+    ]

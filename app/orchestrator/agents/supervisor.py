@@ -2854,6 +2854,11 @@ class Supervisor:
                 from app.orchestrator.agents.style_scope import style_plan
 
                 fixed = await style_plan(goal, self._task_project_id(task_id))
+            if not fixed:
+                # «Поменяй голос на мужской»: голос ноды «Озвучка», а не «загрузите файл».
+                from app.orchestrator.agents.style_scope import voice_plan
+
+                fixed = voice_plan(goal, self._task_project_id(task_id))
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))

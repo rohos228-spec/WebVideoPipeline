@@ -881,6 +881,19 @@ class QuestionContext:
             await asyncio.gather(*(self._one(action, params, app) for action, params in reads))
         )
 
+    async def _voice(self, project_id: int) -> str:
+        from sqlalchemy import select
+
+        from app.models import Project
+        from app.services.action_layer import store
+        from app.services.action_layer.builtin_voice import voice_text
+
+        async with store.sessions()() as session:
+            meta = await asyncio.wait_for(
+                session.scalar(select(Project.meta).where(Project.id == int(project_id))), self.timeout_s
+            )
+        return voice_text(meta if isinstance(meta, dict) else {})
+
     async def _named_project(self, text: str) -> int | None:
         """«Вся фабрика»: проект, названный в вопросе по названию или номером «проект 10» / «#10».
 
@@ -926,6 +939,12 @@ class QuestionContext:
             named = await self._named_project(text)
             project_id = named if named is not None else project_id
         facts = await self.gather(text, project_id, app, session_id)
+        if project_id is not None and "голос" in norm:
+            # «Какой голос в озвучке»: чат отвечал «в фактах не указано, назовите проект».
+            try:
+                facts = [Fact("audio.voice", "Голос озвучки", await self._voice(int(project_id))), *facts]
+            except Exception as exc:
+                logger.warning("orch question voice failed: {}", type(exc).__name__)
         if project_id is not None and _has(norm, _FINAL):
             try:
                 final = await asyncio.wait_for(final_video_text(int(project_id)), self.timeout_s)

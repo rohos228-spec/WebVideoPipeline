@@ -690,7 +690,10 @@ def _specs() -> list[ActionSpec]:
         "Картинка слота будет заменена загруженной; прежний файл уходит в old/, "
         "программного отката нет; видео кадра помечается устаревшим."
     )
+    from app.services.action_layer.builtin_voice import voice_specs
+
     return [
+        *voice_specs(_PID, _PRE_PROJECT, _PRE_IDLE),
         S(
             id="montage.upload_voice",
             title_ru="Загрузить озвучку",

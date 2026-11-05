@@ -421,6 +421,7 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("node.set_model", "medium", False, False, False),
     ("node.revert_model", "medium", False, False, False),
     ("node.set_params", "medium", False, False, False),
+    ("audio.set_voice", "medium", False, False, False),
     ("node.revert_params", "medium", False, False, False),
     ("node.revert_check_agent", "medium", False, False, False),
     ("prompt.edit_text", "medium", False, False, False),
