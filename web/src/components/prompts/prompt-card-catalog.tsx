@@ -576,7 +576,7 @@ export function NodeCatalogPanel({
               className="flex h-9 items-center gap-1.5 bg-[#141417] px-3 text-[13px] font-semibold text-emerald-400 hover:bg-[#1b1b1f] hover:text-emerald-300 transition-colors select-none cursor-pointer"
             >
               <Plus className="h-3.5 w-3.5 text-emerald-400" />
-              <span>+ Промпт</span>
+              <span>Промпт</span>
             </button>
           ) : null}
           {resolvedStepCode ? (
