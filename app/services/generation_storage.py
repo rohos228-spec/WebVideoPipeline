@@ -93,7 +93,7 @@ def resolve_item_elapsed(
             if not label:
                 label = format_elapsed_min_sec(sec_i)
             return sec_i, label, False
-    start = meta.get("started_at") or meta.get("created_at")
+    start = meta.get("created_at") or meta.get("started_at")
     end = meta.get("finished_at") or meta.get("updated_at")
     if terminal and not end and mtime is not None:
         end = _mtime_iso(mtime)

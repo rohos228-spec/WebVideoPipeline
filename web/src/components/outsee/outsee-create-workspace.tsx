@@ -56,7 +56,7 @@ import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
 import { isUnfilledAssistantPrompt } from "@/lib/gen-assistant-styles";
-import { cn } from "@/lib/utils";
+import { cn, parseUtcDate } from "@/lib/utils";
 import {
   OUTSEE_ACCENT,
   OUTSEE_CHIP_LABELS,
@@ -1055,11 +1055,14 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     return () => window.clearInterval(id);
   }, []);
 
+  const localJobStartRef = useRef<Map<string, number>>(new Map());
+
   const getLiveElapsed = (
     item?:
       | HistoryItem
       | {
           id?: string;
+          history_id?: string;
           job_id?: string | null;
           created_at?: string | null;
           started_at?: string | null;
@@ -1071,7 +1074,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
   ) => {
     if (!item) return "0 мин 00 сек";
     const isPending = item.status === "queued" || item.status === "processing";
+    const jobKey = item.id || (item as any).history_id || item.job_id;
     if (!isPending) {
+      if (jobKey) localJobStartRef.current.delete(jobKey);
       if (item.elapsed_label) return item.elapsed_label;
       if (item.elapsed_sec != null) return formatElapsedMinSec(item.elapsed_sec);
     }
@@ -1079,31 +1084,43 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
     const activeJob =
       runningJobs.find(
         (j) =>
-          (item.id && j.history_id === item.id) ||
-          (item.job_id && j.job_id === item.job_id),
+          (item.id && (j.history_id === item.id || j.job_id === item.id)) ||
+          ((item as any).history_id && (j.history_id === (item as any).history_id || j.job_id === (item as any).history_id)) ||
+          (item.job_id && (j.job_id === item.job_id || j.history_id === item.job_id)),
       ) ||
       waitingJobs.find(
         (j) =>
-          (item.id && j.history_id === item.id) ||
-          (item.job_id && j.job_id === item.job_id),
+          (item.id && (j.history_id === item.id || j.job_id === item.id)) ||
+          ((item as any).history_id && (j.history_id === (item as any).history_id || j.job_id === (item as any).history_id)) ||
+          (item.job_id && (j.job_id === item.job_id || j.history_id === item.job_id)),
       );
+
+    if (jobKey && localJobStartRef.current.has(jobKey)) {
+      const startMs = localJobStartRef.current.get(jobKey)!;
+      const diffSec = Math.max(0, Math.floor((nowTs - startMs) / 1000));
+      return formatElapsedMinSec(diffSec);
+    }
+
     const iso =
       activeJob?.created_at ||
-      activeJob?.started_at ||
       item.created_at ||
+      activeJob?.started_at ||
       item.started_at;
     if (!iso) {
       if (item.elapsed_sec != null && item.elapsed_sec > 0) {
         return formatElapsedMinSec(item.elapsed_sec);
       }
-      return "0 мин 01 сек";
+      if (jobKey) localJobStartRef.current.set(jobKey, nowTs);
+      return "0 мин 00 сек";
     }
     try {
-      const t0 = new Date(iso).getTime();
-      const diffSec = Math.max(1, Math.floor((nowTs - t0) / 1000));
+      const parsed = parseUtcDate(iso).getTime();
+      const startMs = !Number.isNaN(parsed) && parsed > 0 && parsed <= nowTs ? parsed : nowTs;
+      if (jobKey) localJobStartRef.current.set(jobKey, startMs);
+      const diffSec = Math.max(0, Math.floor((nowTs - startMs) / 1000));
       return formatElapsedMinSec(diffSec);
     } catch {
-      return item.elapsed_label || (item.elapsed_sec != null ? formatElapsedMinSec(item.elapsed_sec) : "0 мин 01 сек");
+      return item.elapsed_label || (item.elapsed_sec != null ? formatElapsedMinSec(item.elapsed_sec) : "0 мин 00 сек");
     }
   };
 
@@ -2213,30 +2230,67 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
 
   const historyItems: HistoryItem[] = useMemo(() => {
     const real = (historyQ.data as HistoryItem[] | undefined) ?? [];
-    const drafts =
-      feedKind === "all" || feedKind === "image"
-        ? draftJobs.map((d) => ({
-            id: d.history_id,
-            kind: "image",
-            preview_url: null,
-            label: d.prompt_preview || "генерация",
-            project_id: null,
-            project_slug: null,
-            prompt: null,
-            status: "processing",
-            job_id: d.job_id,
-            created_at: d.created_at,
-            started_at: d.started_at,
-          }))
-        : [];
-    return [...drafts, ...real];
-  }, [historyQ.data, draftJobs, feedKind]);
+    const activeFromQueue: HistoryItem[] = [];
+    const seenIds = new Set(real.map((r) => r.id));
+
+    const allActive = [...runningJobs, ...waitingJobs];
+    for (const j of allActive) {
+      const jId = j.history_id || j.job_id;
+      if (!jId || seenIds.has(jId)) continue;
+      const jobMedia = j.media || (feedKind === "video" ? "video" : feedKind === "audio" ? "audio" : "image");
+      if (feedKind !== "all" && feedKind !== jobMedia) continue;
+      seenIds.add(jId);
+      activeFromQueue.push({
+        id: jId,
+        kind: jobMedia as "image" | "video" | "audio",
+        preview_url: (j as any).preview_url || null,
+        label: j.prompt_preview || "генерация",
+        project_id: null,
+        project_slug: null,
+        prompt: j.prompt_preview || null,
+        status: (j.status as any) || "processing",
+        job_id: j.job_id,
+        created_at: j.created_at,
+        started_at: j.started_at,
+        elapsed_sec: (j as any).elapsed_sec,
+        elapsed_label: (j as any).elapsed_label,
+      });
+    }
+
+    return [...activeFromQueue, ...real];
+  }, [historyQ.data, runningJobs, waitingJobs, feedKind]);
 
   const selected = useMemo(() => {
     let item: HistoryItem | null = null;
-    if (!historyItems.length) return null;
+    if (!historyItems.length && !runningJobs.length && !waitingJobs.length) return null;
     if (selectedId) {
-      item = historyItems.find((h) => h.id === selectedId) ?? historyItems[0] ?? null;
+      item = historyItems.find((h) => h.id === selectedId) ?? null;
+      if (!item) {
+        const activeJob =
+          runningJobs.find((j) => j.history_id === selectedId || j.job_id === selectedId) ||
+          waitingJobs.find((j) => j.history_id === selectedId || j.job_id === selectedId);
+        if (activeJob) {
+          const jobMedia = activeJob.media || mediaType || "image";
+          item = {
+            id: activeJob.history_id || activeJob.job_id,
+            kind: jobMedia as "image" | "video" | "audio",
+            preview_url: (activeJob as any).preview_url || null,
+            label: activeJob.prompt_preview || "генерация",
+            project_id: null,
+            project_slug: null,
+            prompt: activeJob.prompt_preview || null,
+            status: (activeJob.status as any) || "processing",
+            job_id: activeJob.job_id,
+            created_at: activeJob.created_at,
+            started_at: activeJob.started_at,
+            elapsed_sec: (activeJob as any).elapsed_sec,
+            elapsed_label: (activeJob as any).elapsed_label,
+          };
+        }
+      }
+      if (!item) {
+        item = historyItems[0] ?? null;
+      }
     } else {
       item = historyItems[0] ?? null;
     }
@@ -2250,10 +2304,12 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
         status: activeJob.status || item.status,
         created_at: activeJob.created_at || item.created_at,
         started_at: activeJob.started_at || item.started_at,
+        elapsed_sec: (activeJob as any).elapsed_sec ?? item.elapsed_sec,
+        elapsed_label: (activeJob as any).elapsed_label ?? item.elapsed_label,
       };
     }
     return item;
-  }, [historyItems, selectedId, runningJobs, waitingJobs]);
+  }, [historyItems, selectedId, runningJobs, waitingJobs, mediaType]);
 
   // Фоновый предзагрузчик соседних кадров: когда открыто модальное окно и выбран кадр,
   // подгружаем i-1, i+1, i+2 в кэш браузера для мгновенного переключения (0 мс)
@@ -2655,7 +2711,9 @@ export function OutseeCreateWorkspace({ open, onOpenChange, projectId }: Props) 
             {selected && (
               <div className="flex flex-col text-[11px] font-medium text-white/50">
                 {selected.elapsed_label ||
-                (selected.elapsed_sec != null && selected.elapsed_sec >= 0) ? (
+                (selected.elapsed_sec != null && selected.elapsed_sec >= 0) ||
+                selected.status === "queued" ||
+                selected.status === "processing" ? (
                   <div>
                     Время генерации:{" "}
                     <span className="font-mono font-semibold text-[#22d3ee]">
