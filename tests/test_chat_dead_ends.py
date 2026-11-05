@@ -190,3 +190,13 @@ def test_human_error_hides_exception_names() -> None:
 
     raw = "ActionCallError: HTTP 404: {'code': 'node_not_found', 'message': 'Ноды «n_split» нет на холсте проекта.'}"
     assert human_error(raw) == "Ноды «n_split» нет на холсте проекта"
+
+
+def test_cyrillic_gpt_finds_gpt_node():
+    from app.orchestrator.agents.project_nodes import match_nodes
+
+    rows = [
+        {"key": "n_excel_gpt_1", "type": "excel_gpt", "type_ru": "Работа с GPT", "label": "Работа с GPT"},
+        {"key": "n_split", "type": "split", "type_ru": "Разбивка", "label": "Разбивка"},
+    ]
+    assert match_nodes(rows, "что делает нода работа с гпт") == ["n_excel_gpt_1"]

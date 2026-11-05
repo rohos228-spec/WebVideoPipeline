@@ -171,8 +171,12 @@ ALL_PROPOSALS_HEAD = (
 )
 
 
+# «Работа с гпт»: подпись ноды латиницей («GPT»), а люди пишут кириллицей — без этого нода не находилась.
+_TRANSLIT = re.compile(r"(?<![а-я])(?:чат)?[гж]пт(?![а-я])")
+
+
 def _norm(text: str) -> str:
-    return " ".join((text or "").lower().replace("ё", "е").split())
+    return _TRANSLIT.sub("gpt", " ".join((text or "").lower().replace("ё", "е").split()))
 
 
 def _stem(word: str) -> str:
