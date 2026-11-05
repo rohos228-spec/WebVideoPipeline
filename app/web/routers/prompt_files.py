@@ -302,19 +302,25 @@ async def resolve_prompt_for_project(
     # ветка просто не работала, а в интерфейсе стояло «промт не читается».
     overrides: dict = {}
     meta: dict = {}
+    project_tenant: str | None = None
     if project_id is not None:
         project = await session.get(Project, project_id)
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
         overrides = project.prompt_overrides if isinstance(project.prompt_overrides, dict) else {}
         meta = project.meta if isinstance(project.meta, dict) else {}
-    name, source = resolve_project_prompt_with_source(
-        overrides,
-        step_code,
-        meta=meta,
-        node_key=node_key,
-        slot_id=slot_id,
-    )
+        project_tenant = str(project.tenant_id) if getattr(project, "tenant_id", None) else None
+    from app.services.tenant import current_tenant, tenant_scope
+
+    effective_tenant = project_tenant or current_tenant()
+    with tenant_scope(effective_tenant):
+        name, source = resolve_project_prompt_with_source(
+            overrides,
+            step_code,
+            meta=meta,
+            node_key=node_key,
+            slot_id=slot_id,
+        )
     p = prompt_path(step_code, name)
     return PromptResolveInfo(
         name=name,

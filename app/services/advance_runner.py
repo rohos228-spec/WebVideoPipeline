@@ -72,8 +72,12 @@ async def advance_project_job(project_id: int, bot: Any = None) -> AdvanceJobRes
                     # потолок. Управляемый запуск считает траты по своему run_id — его не трогаем.
                     run_id = request_context.get_run_id()
                     chain_meta = project.meta if not run_id or run_id.startswith("native:") else None
-                    with spend_guard.chain_budget_scope(chain_meta):
-                        await advance_project(session, project, bot)
+                    from app.services.tenant import tenant_scope
+
+                    project_tenant = str(project.tenant_id) if getattr(project, "tenant_id", None) else None
+                    with tenant_scope(project_tenant):
+                        with spend_guard.chain_budget_scope(chain_meta):
+                            await advance_project(session, project, bot)
                     new = project.status.value
                     if new != prev:
                         _NO_CREDITS_FIRST_SEEN.pop(project_id, None)
