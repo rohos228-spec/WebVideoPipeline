@@ -281,8 +281,11 @@ def _failure_cause_of(step: PlanStep, result: Any) -> str:
     body = envelope_body(result)
     if not isinstance(body, dict):
         return ""
-    errors = body.get("errors") if isinstance(body.get("errors"), dict) else {}
-    error = errors.get("error") or body.get("error") or errors.get("batch_error") or ""
+    errors = body.get("errors")
+    if isinstance(errors, dict):
+        errors = [errors.get("error") or errors.get("batch_error") or ""]
+    error = next((str(e) for e in (errors or []) if e), "") if isinstance(errors, list) else ""
+    error = error or str(body.get("error") or "")
     node = body.get("title") or body.get("node_key") or ""
     return f"Нода «{node}». Ошибка: {error}" if error else ""
 

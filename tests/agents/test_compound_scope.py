@@ -184,3 +184,12 @@ def test_critic_context_keeps_only_current_ask():
     )
     out = _critic_context(context, "музыку тише и голос мужской")
     assert "женский" not in out and "Другая строка" in out and "голос мужской" in out
+
+
+def test_failure_cause_reads_error_list():
+    from app.orchestrator.agents.supervisor import _failure_cause_of
+    from app.orchestrator.contracts import PlanStep
+
+    step = PlanStep(action="diag.node_failure", params={"project_id": 11}, expected="x")
+    result = {"status": "ok", "result": {"title": "Работа с GPT 1", "errors": ["project_file: модель не вернула apply-ops JSON"]}}
+    assert _failure_cause_of(step, result) == "Нода «Работа с GPT 1». Ошибка: project_file: модель не вернула apply-ops JSON"
