@@ -82,7 +82,7 @@ def test_build_payload_seedance_fast_overseas() -> None:
     }
 
     payload = build_pay52_video_payload(spec, values)
-    assert payload["model"] == "Seedance 2.0 Fast 海外"
+    assert payload["model"] == "seedance-2.0-fast"
     assert payload["prompt"] == "Portrait of a smiling woman walking in Tokyo"
     assert payload["duration"] == 6
     assert payload["ratio"] == "9:16"
@@ -104,6 +104,6 @@ def test_build_payload_seedance_overseas_1080p() -> None:
         "resolution": "1080p",
     }
     payload = build_pay52_video_payload(spec, values)
-    assert payload["model"] == "Seedance 2.0 海外"
+    assert payload["model"] == "seedance-2.0-fast"
     assert payload["duration"] == 10
     assert payload["resolution"] == "1080p"

@@ -42,7 +42,13 @@ TEXT_MODEL_ALIASES = {
     "gemini-3.1-pro": "gemini-3.8-flash",
     "gemini-3-flash": "gemini-3.8-flash",
     "gemini-3.8-flash": "gemini-3.8-flash",
-    "claude-sonnet-5": "claude-sonnet-5-5",
+    "claude-sonnet-5": "claude-sonnet-5",
+    "claude-haiku-5-5": "claude-haiku-5-5",
+    "deepseek-v4.1-flash": "deepseek-v4.1-flash",
+    "kimi-k3.1-pro": "kimi-k3.1-pro",
+    "gemini-4-argon": "gemini-4-argon",
+    "glm-5.3": "glm-5.3",
+    "gpt-6.1-terra": "gpt-6.1-terra",
     "claude-sonnet-5-5": "claude-sonnet-5-5",
     "claude-opus-5": "claude-opus-5-5",
     "claude-opus-5-5": "claude-opus-5-5",
@@ -78,12 +84,14 @@ VIDEO_MODEL_TO_GENERATOR: dict[str, str] = {
     "wan-2-7-i2v": "wan_2_7_i2v",
 }
 
-VENDOR_ORDER = ("anthropic", "openai", "glm", "gemini", "xai", "moonshot", "images", "video")
+VENDOR_ORDER = ("anthropic", "openai", "glm", "gemini", "deepseek", "kimi", "xai", "moonshot", "images", "video")
 VENDOR_META: dict[str, dict[str, str]] = {
     "anthropic": {"id": "anthropic", "label": "Anthropic", "icon": "A"},
     "openai": {"id": "openai", "label": "OpenAI", "icon": "hex"},
     "glm": {"id": "glm", "label": "GLM", "icon": "Z"},
     "gemini": {"id": "gemini", "label": "Gemini", "icon": "spark"},
+    "deepseek": {"id": "deepseek", "label": "DeepSeek", "icon": "D"},
+    "kimi": {"id": "kimi", "label": "Kimi", "icon": "K"},
     "xai": {"id": "xai", "label": "xAI", "icon": "X"},
     "moonshot": {"id": "moonshot", "label": "Moonshot", "icon": "moon"},
     "images": {"id": "images", "label": "Изображения", "icon": "image"},
@@ -231,10 +239,12 @@ def _vendor_of(model_id: str, is_image: bool, is_video: bool = False) -> str:
         return "glm"
     if mid.startswith("gemini"):
         return "gemini"
+    if mid.startswith("deepseek"):
+        return "deepseek"
+    if mid.startswith("kimi"):
+        return "kimi"
     if mid.startswith("grok"):
         return "xai"
-    if mid.startswith("kimi"):
-        return "moonshot"
     return "openai"
 
 
@@ -314,7 +324,6 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
     pricing = apply_markup(
         raw.get("pricing") if isinstance(raw.get("pricing"), dict) else {}, channel=channel
     )
-    provider = "vibecode"
     if is_video:
         from app.services.media_route import video_provider_for
 
@@ -323,6 +332,8 @@ def normalize_model(raw: dict[str, Any], *, channel: str | None = None) -> dict[
         from app.services.media_route import image_provider_for
 
         provider = image_provider_for(mid)
+    else:
+        provider = "52pay"
     return {
         "id": mid,
         "label": display,

@@ -1,100 +1,16 @@
 [
   {
-    "display_name": "Claude Sonnet 5.5",
-    "id": "claude-sonnet-5-5",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.02,
-      "currency": "usd",
-      "input_usd_per_m": 0.2,
-      "output_usd_per_m": 0.98
-    }
-  },
-  {
-    "display_name": "Claude Opus 5.5",
-    "id": "claude-opus-5-5",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.039,
-      "currency": "usd",
-      "input_usd_per_m": 0.39,
-      "output_usd_per_m": 1.97
-    }
-  },
-  {
-    "display_name": "Claude Haiku 4.5",
-    "id": "claude-haiku-4-5",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.02,
-      "currency": "usd",
-      "input_usd_per_m": 0.2,
-      "output_usd_per_m": 0.98
-    }
-  },
-  {
-    "display_name": "Claude Fable 5.1",
-    "id": "claude-fable-5-1",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.47,
-      "currency": "usd",
-      "input_usd_per_m": 4.71,
-      "output_usd_per_m": 23.53
-    }
-  },
-  {
-    "display_name": "Claude Fable 5",
-    "id": "claude-fable-5",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.47,
-      "currency": "usd",
-      "input_usd_per_m": 4.71,
-      "output_usd_per_m": 23.53
-    }
-  },
-  {
-    "display_name": "GPT 6 Sol",
-    "id": "gpt-6-sol",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.017,
-      "currency": "usd",
-      "input_usd_per_m": 0.17,
-      "output_usd_per_m": 0.85
-    }
-  },
-  {
     "display_name": "GPT 6.1 Sol",
     "id": "gpt-6.1-sol",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.017,
+      "cache_read_usd_per_m": 0.111,
       "currency": "usd",
-      "input_usd_per_m": 0.17,
-      "output_usd_per_m": 0.85
+      "input_usd_per_m": 1.1101,
+      "output_usd_per_m": 5.52
     }
   },
   {
@@ -102,27 +18,13 @@
     "id": "gpt-6-astra",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.085,
+      "cache_read_usd_per_m": 0.552,
       "currency": "usd",
-      "input_usd_per_m": 0.85,
-      "output_usd_per_m": 4.26
-    }
-  },
-  {
-    "display_name": "GPT 5.6 Sol",
-    "id": "gpt-5.6-sol",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.043,
-      "currency": "usd",
-      "input_usd_per_m": 0.43,
-      "output_usd_per_m": 2.56
+      "input_usd_per_m": 5.52,
+      "output_usd_per_m": 27.6
     }
   },
   {
@@ -130,13 +32,167 @@
     "id": "gpt-6-luna",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.0013,
+      "cache_read_usd_per_m": 0.056,
       "currency": "usd",
-      "input_usd_per_m": 0.013,
-      "output_usd_per_m": 0.066
+      "input_usd_per_m": 0.56,
+      "output_usd_per_m": 3.32
+    }
+  },
+  {
+    "display_name": "GPT 6.1 Terra",
+    "id": "gpt-6.1-terra",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.056,
+      "currency": "usd",
+      "input_usd_per_m": 0.56,
+      "output_usd_per_m": 2.76
+    }
+  },
+  {
+    "display_name": "GPT 6 Sol",
+    "id": "gpt-6-sol",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.111,
+      "currency": "usd",
+      "input_usd_per_m": 1.1101,
+      "output_usd_per_m": 5.52
+    }
+  },
+  {
+    "display_name": "GPT 5.6 Sol",
+    "id": "gpt-5.6-sol",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.111,
+      "currency": "usd",
+      "input_usd_per_m": 1.1101,
+      "output_usd_per_m": 5.52
+    }
+  },
+  {
+    "display_name": "Claude Haiku 5.5",
+    "id": "claude-haiku-5-5",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.008,
+      "currency": "usd",
+      "input_usd_per_m": 0.08,
+      "output_usd_per_m": 0.3501
+    }
+  },
+  {
+    "display_name": "Claude Sonnet 5",
+    "id": "claude-sonnet-5",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.138,
+      "currency": "usd",
+      "input_usd_per_m": 1.3802,
+      "output_usd_per_m": 6.9002
+    }
+  },
+  {
+    "display_name": "Claude Opus 5.5",
+    "id": "claude-opus-5-5",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.276,
+      "currency": "usd",
+      "input_usd_per_m": 2.76,
+      "output_usd_per_m": 13.8
+    }
+  },
+  {
+    "display_name": "Claude Fable 5.1",
+    "id": "claude-fable-5-1",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.69,
+      "currency": "usd",
+      "input_usd_per_m": 6.9002,
+      "output_usd_per_m": 34.5002
+    }
+  },
+  {
+    "display_name": "Claude Fable 5",
+    "id": "claude-fable-5",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.414,
+      "currency": "usd",
+      "input_usd_per_m": 4.14,
+      "output_usd_per_m": 20.7
+    }
+  },
+  {
+    "display_name": "DeepSeek v4.1 Flash",
+    "id": "deepseek-v4.1-flash",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.09,
+      "currency": "usd",
+      "input_usd_per_m": 0.9,
+      "output_usd_per_m": 3.6
+    }
+  },
+  {
+    "display_name": "Kimi k3.1 Pro",
+    "id": "kimi-k3.1-pro",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.78,
+      "currency": "usd",
+      "input_usd_per_m": 7.8,
+      "output_usd_per_m": 40.8
+    }
+  },
+  {
+    "display_name": "Gemini 4 Argon",
+    "id": "gemini-4-argon",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.249,
+      "currency": "usd",
+      "input_usd_per_m": 2.4899,
+      "output_usd_per_m": 12.4202
     }
   },
   {
@@ -144,41 +200,27 @@
     "id": "gemini-3.8-flash",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.015,
+      "cache_read_usd_per_m": 0.094,
       "currency": "usd",
-      "input_usd_per_m": 0.15,
-      "output_usd_per_m": 0.74
+      "input_usd_per_m": 0.9402,
+      "output_usd_per_m": 4.6602
     }
   },
   {
-    "display_name": "Gemini 3 Flash",
-    "id": "gemini-3-flash-preview",
+    "display_name": "Gemini Flash Lite",
+    "id": "gemini-flash-lite-latest",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.0098,
+      "cache_read_usd_per_m": 0.032,
       "currency": "usd",
-      "input_usd_per_m": 0.098,
-      "output_usd_per_m": 0.59
-    }
-  },
-  {
-    "display_name": "Grok 4.7",
-    "id": "grok-4-7",
-    "is_image": false,
-    "object": "model",
-    "owned_by": "vibecode",
-    "pricing": {
-      "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.0098,
-      "currency": "usd",
-      "input_usd_per_m": 0.098,
-      "output_usd_per_m": 0.3
+      "input_usd_per_m": 0.32,
+      "output_usd_per_m": 1.8701
     }
   },
   {
@@ -186,27 +228,41 @@
     "id": "glm-5.3-flash",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
-      "cache_read_usd_per_m": 0.0039,
+      "cache_read_usd_per_m": 0.048,
       "currency": "usd",
-      "input_usd_per_m": 0.039,
-      "output_usd_per_m": 0.14
+      "input_usd_per_m": 0.48,
+      "output_usd_per_m": 1.6602
     }
   },
   {
-    "display_name": "GLM 5.3 FlashX",
-    "id": "glm-5.3-flashx",
+    "display_name": "GLM 5.3",
+    "id": "glm-5.3",
     "is_image": false,
     "object": "model",
-    "owned_by": "vibecode",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.48,
+      "currency": "usd",
+      "input_usd_per_m": 4.8,
+      "output_usd_per_m": 16.8
+    }
+  },
+  {
+    "display_name": "Grok 4.7",
+    "id": "grok-4-7",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
     "pricing": {
       "cache_create_usd_per_m": 0.0,
       "cache_read_usd_per_m": 0.0098,
       "currency": "usd",
       "input_usd_per_m": 0.098,
-      "output_usd_per_m": 0.34
+      "output_usd_per_m": 0.3
     }
   },
   {
@@ -262,6 +318,62 @@
     "pricing": {
       "currency": "usd",
       "usd_per_image": 0.016402
+    }
+  },
+  {
+    "display_name": "Claude Sonnet 5.5",
+    "id": "claude-sonnet-5-5",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.138,
+      "currency": "usd",
+      "input_usd_per_m": 1.3802,
+      "output_usd_per_m": 6.9002
+    }
+  },
+  {
+    "display_name": "Claude Haiku 4.5",
+    "id": "claude-haiku-4-5",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.008,
+      "currency": "usd",
+      "input_usd_per_m": 0.08,
+      "output_usd_per_m": 0.3501
+    }
+  },
+  {
+    "display_name": "Gemini 3 Flash",
+    "id": "gemini-3-flash-preview",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.032,
+      "currency": "usd",
+      "input_usd_per_m": 0.32,
+      "output_usd_per_m": 1.8701
+    }
+  },
+  {
+    "display_name": "GLM 5.3 FlashX",
+    "id": "glm-5.3-flashx",
+    "is_image": false,
+    "object": "model",
+    "owned_by": "52pay",
+    "pricing": {
+      "cache_create_usd_per_m": 0.0,
+      "cache_read_usd_per_m": 0.048,
+      "currency": "usd",
+      "input_usd_per_m": 0.48,
+      "output_usd_per_m": 1.6602
     }
   }
 ]

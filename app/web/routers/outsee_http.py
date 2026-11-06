@@ -199,8 +199,11 @@ async def outsee_generate(body: OutseeGenerateBody) -> dict[str, Any]:
                     res = await actual_run(out_path)
             except BaseException:
                 if hold_id:
-                    async with session_scope() as session:
-                        await cl.release_hold(session, hold_id, memo=f"Сбой/отмена генерации {media_type}")
+                    try:
+                        async with session_scope() as session:
+                            await cl.release_hold(session, hold_id, memo=f"Сбой/отмена генерации {media_type}")
+                    except Exception as e_hold:
+                        logger.warning("_wrap_with_billing: ошибка release_hold {}: {}", hold_id, e_hold)
                 raise
             if hold_id:
                 async with session_scope() as session:
