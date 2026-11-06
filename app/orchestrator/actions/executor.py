@@ -902,6 +902,15 @@ _BASIS_FIELDS = {
 }
 
 
+def pending_board_ops(meta: Any) -> list[dict]:
+    """Очередь правок доски монтажа: ``meta["montage_board"]["pending_ops"]`` (старые проекты — ``meta["pending_ops"]``)."""
+    if not isinstance(meta, dict):
+        return []
+    board = meta.get("montage_board") if isinstance(meta.get("montage_board"), dict) else {}
+    raw = board.get("pending_ops") or meta.get("pending_ops") or []
+    return [o for o in raw if isinstance(o, dict) and str(o.get("type") or "").startswith(("image_", "video_"))]
+
+
 def _queued_counts(params: dict, meta: Any) -> dict:
     """Заявленные max_*_ops не ниже того, что уже лежит в очереди выбранных кадров.
 
@@ -910,7 +919,7 @@ def _queued_counts(params: dict, meta: Any) -> dict:
     """
     from app.services.action_layer.builtin_montage_more import _counts, _select
 
-    ops = [o for o in ((meta or {}).get("pending_ops") or []) if isinstance(o, dict)] if isinstance(meta, dict) else []
+    ops = pending_board_ops(meta)
     ops = [o for o in ops if str(o.get("type") or "").startswith(("image_", "video_"))]
     wanted = [n for n in params.get("frame_numbers") or [] if isinstance(n, int)]
     img, vid = _counts(_select(ops, wanted))

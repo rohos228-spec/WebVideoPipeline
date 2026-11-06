@@ -198,7 +198,7 @@ def test_failure_cause_reads_error_list():
 def test_apply_queue_counts_stray_ops_of_selected_frames():
     from app.orchestrator.actions.executor import _queued_counts
 
-    meta = {"pending_ops": [{"type": "video_regen", "frame_number": 1}, {"type": "image_regen", "frame_number": 9}]}
+    meta = {"montage_board": {"pending_ops": [{"type": "video_regen", "frame_number": 1}, {"type": "image_regen", "frame_number": 9}]}}
     out = _queued_counts({"frame_numbers": [1, 2], "max_image_ops": 2, "max_video_ops": 0}, meta)
     assert (out["max_image_ops"], out["max_video_ops"]) == (2, 1)
     assert _queued_counts({"max_image_ops": 1, "max_video_ops": 0}, None)["max_video_ops"] == 0
@@ -215,7 +215,7 @@ async def test_apply_queue_phrase_reads_the_board(monkeypatch):
             return False
 
         async def scalar(self, _q):
-            return {"pending_ops": [{"type": "image_regen", "frame_number": 2}, {"type": "video_regen", "frame_number": 2}]}
+            return {"montage_board": {"pending_ops": [{"type": "image_regen", "frame_number": 2}, {"type": "video_regen", "frame_number": 2}]}}
 
     from app.services.action_layer import store
 

@@ -380,8 +380,9 @@ async def apply_queue_plan(goal: str, project_id: int | None) -> list[PlanStep] 
             meta = await session.scalar(select(Project.meta).where(Project.id == int(project_id)))
     except Exception:
         return None
-    ops = [o for o in ((meta or {}).get("pending_ops") or []) if isinstance(o, dict)] if isinstance(meta, dict) else []
-    ops = [o for o in ops if str(o.get("type") or "").startswith(("image_", "video_"))]
+    from app.orchestrator.actions.executor import pending_board_ops
+
+    ops = pending_board_ops(meta)
     img, vid = _counts(ops)
     if img + vid == 0:
         return None  # очереди нет: пусть ответит планировщик честно
