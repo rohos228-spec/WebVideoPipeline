@@ -90,6 +90,7 @@ async def client(tmp_path, monkeypatch):
     app = create_app()
     app.dependency_overrides[get_session] = _gen
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        c._session_factory = factory  # type: ignore[attr-defined]
         yield c
     await engine.dispose()
 
@@ -119,3 +120,46 @@ async def test_files_thumb_guards_stand(client) -> None:
     assert res.status_code == 404
     res = await client.get("/api/files", params={"path": "/etc/passwd", "thumb": 1})
     assert res.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_artifact_thumb_serves_webp(client) -> None:
+    import uuid
+
+    from app.models import Artifact, ArtifactKind, Project
+
+    factory = client._session_factory
+    pic = settings.data_dir / "hero.png"
+    _png(pic, size=(600, 600))
+    art_uuid = uuid.uuid4().hex
+
+    async with factory() as session:
+        proj = Project(slug="test-proj", topic="test")
+        session.add(proj)
+        await session.flush()
+        art = Artifact(
+            project_id=proj.id,
+            uuid=art_uuid,
+            kind=ArtifactKind.hero_reference,
+            path=str(pic),
+        )
+        session.add(art)
+        await session.commit()
+        pid = proj.id
+
+    # 1. Without thumb=1 -> original PNG
+    res_orig = await client.get(f"/api/artifacts/{art_uuid}/file")
+    assert res_orig.status_code == 200
+    assert res_orig.headers["content-type"] == "image/png"
+
+    # 2. With thumb=1 -> converted WebP
+    res_thumb = await client.get(f"/api/artifacts/{art_uuid}/file", params={"thumb": 1})
+    assert res_thumb.status_code == 200
+    assert res_thumb.headers["content-type"] == "image/webp"
+    assert len(res_thumb.content) < len(res_orig.content)
+
+    # 3. Project cover with thumb=1 -> converted WebP
+    res_cover_thumb = await client.get(f"/api/artifacts/project-cover/{pid}", params={"thumb": 1})
+    assert res_cover_thumb.status_code == 200
+    assert res_cover_thumb.headers["content-type"] == "image/webp"
+

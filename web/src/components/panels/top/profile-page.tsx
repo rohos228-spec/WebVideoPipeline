@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { UserPrefsApplier, applyUserPrefs } from "@/components/panels/top/user-panel";
 import { logout as authLogout, useAuthUser } from "@/components/auth/auth-pages";
+import { toThumbnailUrl } from "@/lib/thumbnail-url";
 
 const A = "#2dd4bf";
 const FONT = { fontFamily: "Rubik, sans-serif" } as const;
@@ -237,7 +238,7 @@ function Cover({ id, className = "" }: { id: number; className?: string }) {
     <div className={"relative shrink-0 overflow-hidden bg-[radial-gradient(circle_at_30%_20%,rgba(45,212,191,0.25),transparent_60%),#121316] " + className}>
       {ok ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/api/artifacts/project-cover/${id}`} alt="" loading="lazy" onError={() => setOk(false)} className="absolute inset-0 h-full w-full object-cover" />
+        <img src={toThumbnailUrl(`/api/artifacts/project-cover/${id}`)} alt="" loading="lazy" onError={() => setOk(false)} className="absolute inset-0 h-full w-full object-cover" />
       ) : <Film className="absolute left-1/2 top-1/2 h-5 w-5 -translate-x-1/2 -translate-y-1/2 text-zinc-700" />}
     </div>
   );

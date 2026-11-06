@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { api } from "@/lib/api";
 import type { GenQueueIdleInfo, ProjectStatus, ProjectSummary, SidebarFolder } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -925,7 +926,7 @@ function FolderCover({ ids }: { ids: number[] }) {
     // eslint-disable-next-line @next/next/no-img-element
     <img
       key={ids[idx]}
-      src={`/api/artifacts/project-cover/${ids[idx]}`}
+      src={toThumbnailUrl(`/api/artifacts/project-cover/${ids[idx]}`)}
       alt=""
       loading="lazy"
       onError={() => setIdx((i) => i + 1)}
@@ -1037,7 +1038,7 @@ function ProjectRow({
   };
 
   const [coverOk, setCoverOk] = useState(true);
-  const coverSrc = `/api/artifacts/project-cover/${project.id}?v=${encodeURIComponent(String(project.updated_at))}`;
+  const coverSrc = toThumbnailUrl(`/api/artifacts/project-cover/${project.id}?v=${encodeURIComponent(String(project.updated_at))}`);
   const showCover = !compact && coverOk;
 
   const titleNode = editing ? (

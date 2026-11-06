@@ -146,9 +146,28 @@ async def list_artifacts(
 @router.get("/project-cover/{project_id}")
 async def get_project_cover(
     project_id: int,
+    thumb: int = Query(0, description="1 = уменьшенная WebP-копия"),
     session: AsyncSession = Depends(get_session),
 ) -> Response:
     """Отдаёт изображение-обложку проекта для карточек в сайдбаре / профиле."""
+
+    def _cover_response(file_path: Path) -> Response:
+        if thumb and file_path.is_file():
+            from app.services.thumbnails import thumbnail_path
+
+            small = thumbnail_path(file_path)
+            if small is not None:
+                return FileResponse(
+                    small,
+                    media_type="image/webp",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"},
+                )
+        mime, _ = mimetypes.guess_type(str(file_path))
+        return FileResponse(
+            file_path,
+            media_type=mime or "image/png",
+            headers={"Cache-Control": "private, max-age=60, must-revalidate"},
+        )
 
     project = (await session.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
 
@@ -167,15 +186,7 @@ async def get_project_cover(
         if c_path.is_file():
             try:
                 await assert_readable(session, c_path)
-
-                mime, _ = mimetypes.guess_type(str(c_path))
-
-                return FileResponse(
-                    c_path,
-                    media_type=mime or "image/png",
-                    headers={"Cache-Control": "private, max-age=60, must-revalidate"},
-                )
-
+                return _cover_response(c_path)
             except Exception:
                 pass
 
@@ -204,17 +215,10 @@ async def get_project_cover(
             if p.is_file() and p.stat().st_size > 0:
                 try:
                     await assert_readable(session, p)
-
                 except Exception:
                     continue
 
-                mime, _ = mimetypes.guess_type(str(p))
-
-                return FileResponse(
-                    p,
-                    media_type=mime or "image/png",
-                    headers={"Cache-Control": "private, max-age=60, must-revalidate"},
-                )
+                return _cover_response(p)
 
     # 3. Ищем другие графические артефакты (hero_reference, item_reference, image)
 
@@ -247,17 +251,10 @@ async def get_project_cover(
             if p.is_file() and p.stat().st_size > 0:
                 try:
                     await assert_readable(session, p)
-
                 except Exception:
                     continue
 
-                mime, _ = mimetypes.guess_type(str(p))
-
-                return FileResponse(
-                    p,
-                    media_type=mime or "image/png",
-                    headers={"Cache-Control": "private, max-age=60, must-revalidate"},
-                )
+                return _cover_response(p)
 
     # 4. Фоллбэк: файлы на диске проекта (data_dir / images или frames)
 
@@ -273,17 +270,10 @@ async def get_project_cover(
                         if candidate.is_file() and candidate.stat().st_size > 0:
                             try:
                                 await assert_readable(session, candidate)
-
                             except Exception:
                                 continue
 
-                            mime, _ = mimetypes.guess_type(str(candidate))
-
-                            return FileResponse(
-                                candidate,
-                                media_type=mime or "image/png",
-                                headers={"Cache-Control": "private, max-age=60, must-revalidate"},
-                            )
+                            return _cover_response(candidate)
 
     # Обложки нет — это не ошибка: 404 на каждую карточку без картинок сыпал красным в консоль.
     # 204 без тела: <img> так же уходит в onError, карточка прячет обложку.
@@ -299,7 +289,11 @@ async def get_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_s
 
 
 @router.get("/{artifact_uuid}/file")
-async def download_artifact(artifact_uuid: str, session: AsyncSession = Depends(get_session)):
+async def download_artifact(
+    artifact_uuid: str,
+    thumb: int = Query(0, description="1 = уменьшенная WebP-копия"),
+    session: AsyncSession = Depends(get_session),
+):
     """Отдать артефакт. Опубликованный — подписанной ссылкой, мимо приложения.
 
     Ролик это десятки мегабайт, и каждый просмотр через FastAPI занимает
@@ -313,6 +307,19 @@ async def download_artifact(artifact_uuid: str, session: AsyncSession = Depends(
     if a is None:
         raise HTTPException(status_code=404, detail="artifact not found")
 
+    path = Path(a.path) if a.path else None
+
+    if thumb and path and path.is_file():
+        from app.services.thumbnails import thumbnail_path
+
+        small = thumbnail_path(path)
+        if small is not None:
+            return FileResponse(
+                small,
+                media_type="image/webp",
+                headers={"Cache-Control": "public, max-age=31536000, immutable"},
+            )
+
     if getattr(a, "storage_key", ""):
         from fastapi.responses import RedirectResponse
 
@@ -322,8 +329,7 @@ async def download_artifact(artifact_uuid: str, session: AsyncSession = Depends(
         # сроку — кэшировать перенаправление на неё нельзя.
         return RedirectResponse(await artifact_url(a), status_code=307)
 
-    path = Path(a.path)
-    if not path.is_file():
+    if not path or not path.is_file():
         raise HTTPException(status_code=410, detail="file gone from disk")
     mime, _ = mimetypes.guess_type(str(path))
     return FileResponse(path, media_type=mime or "application/octet-stream")
