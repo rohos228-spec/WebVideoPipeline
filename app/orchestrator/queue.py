@@ -564,6 +564,20 @@ def cancel_or_undo(text: str) -> bool:
     return any(token.startswith("отмен") for token in tokens) and _undo_request(norm)
 
 
+# «Нужно 5 видео про кошек», «надо озвучку», «хочу голос Джорджа»: желание без вопроса — просьба.
+# Классификатор такие фразы иногда брал вопросом и отвечал «в каком проекте…».
+_WISH_TASK_RE = re.compile(
+    r"^(?:ну\s+|а\s+|мне\s+|слушай,?\s+)*(?:нужн[оаыe]?|нужен|надо|хочу|хотелось\s+бы|хотим)\s+"
+    r"(?!(?:ли\b|узнать|понять|спросить|посмотреть|уточнить|знать|чтобы\s+ты\s+(?:рассказал|объяснил)))"
+)
+
+
+def wish_task(norm: str) -> bool:
+    """Просьба в форме желания («нужно …», «хочу …») без вопросительного знака."""
+    text = " ".join((norm or "").lower().replace("ё", "е").split())
+    return bool(_WISH_TASK_RE.search(text)) and not text.rstrip().endswith("?") and len(text.split()) >= 2
+
+
 def classify_deterministic(text: str) -> ClassifyResult | None:
     """Правила до LLM. None — спорный случай, нужен fast-классификатор."""
     norm = " ".join((text or "").lower().split())
@@ -646,6 +660,7 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     if (
         has_imperative(norm)
         or sets_field
+        or wish_task(norm)
         or (_SPEND_LIMIT_RE.search(norm) and not norm.rstrip().endswith("?"))
     ):
         return ClassifyResult(

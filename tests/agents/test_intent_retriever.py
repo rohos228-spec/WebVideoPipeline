@@ -186,3 +186,23 @@ def test_wide_edit_rule_still_catches_style():
 
     assert wide_edit_target("хочу все картинки в стиле аниме") == "images"
     assert wide_edit_target("сделай сценарий короче") == "script"
+
+
+@pytest.mark.parametrize("goal", ["нужно 5 видео про кошек", "надо озвучку", "хочу голос Джорджа"])
+def test_wish_is_task(goal):
+    from app.orchestrator.queue import classify_deterministic
+
+    assert classify_deterministic(goal).mode.value == "task"
+
+
+@pytest.mark.parametrize("goal", ["хочу узнать сколько стоит", "нужно ли перезапускать"])
+def test_wish_question_is_not_forced_task(goal):
+    from app.orchestrator.queue import wish_task
+
+    assert not wish_task(goal)
+
+
+def test_ordinal_frame_is_one_frame_not_all():
+    from app.orchestrator.agents.style_scope import wide_edit_target
+
+    assert wide_edit_target("в шестом кадре добавь луну на небо") is None
