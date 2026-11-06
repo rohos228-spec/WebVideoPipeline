@@ -494,6 +494,8 @@ async def decide(request: Any, project_id: int | None, token: str, approve: bool
             await orch_bridge.revoke(plan_id, decided, orch_bridge.actor_of(dict(request.scope)))
         return {"ok": True, "reply": "Отменено — ничего не менял.", "notes": []}
 
+    from app.services.action_layer import approval as al_approval
+    from app.services.action_layer import planner as al_planner
     from app.web.routers.orchestrator_chat import DECISION_ERRORS, human_decision
 
     async with runtime.bus.subscription(session_id) as queue:
@@ -503,8 +505,12 @@ async def decide(request: Any, project_id: int | None, token: str, approve: bool
             detail = getattr(exc, "detail", None) or str(exc)
             if getattr(exc, "status", None) == 403 or "operator" in str(detail):
                 reply = "Подтвердить может только оператор студии: войдите в студию и нажмите ещё раз."
+            elif isinstance(exc, (al_approval.ApprovalError, al_planner.StalePlan)):
+                # «Шаг не прошёл проверку: в очереди видео 1, заявлено 0» — причина, а не «устарела».
+                reply = "Не получилось: " + plain_errors(str(detail))
             else:
                 reply = "Эта карточка устарела — повторите просьбу в чате."
+            logger.info("ai-agent bridge approve {}: {!r}", change_id, exc)
             return {"ok": False, "reply": reply, "notes": [], "error": str(detail)[:200]}
         # Подписка живая: всё, что пришло после неё, — итог этого решения.
         result = await _collect(queue, 0, DECIDE_TIMEOUT_S)

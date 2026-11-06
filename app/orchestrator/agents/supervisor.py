@@ -2972,6 +2972,11 @@ class Supervisor:
 
             fixed = image_frame_plan(goal, self._task_project_id(task_id))
         if not fixed:
+            # «Примени очередь»: применение очереди правок доски, а не предложений промтов.
+            from app.orchestrator.agents.frame_scope import apply_queue_plan
+
+            fixed = await apply_queue_plan(goal, self._task_project_id(task_id))
+        if not fixed:
             # «Поменяй местами кадры 1 и 2»: обмен картинками, без «картинки или видео?».
             from app.orchestrator.agents.frame_scope import swap_frames_plan
 

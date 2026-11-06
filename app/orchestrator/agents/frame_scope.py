@@ -350,3 +350,53 @@ def swap_frames_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
             f"кадров {a} и {b}».",
         )
     return steps
+
+
+# «Примени очередь», «примени правки монтажа», «запусти очередь правок»: применение очереди доски.
+_APPLY_QUEUE = re.compile(
+    r"^(?:давай\s+|ну\s+)?(?:примени|применить|запусти|выполни|прогони|накати)\s+(?:всю\s+|все\s+)?"
+    r"(?:очередь(?:\s+правок)?(?:\s+монтажа)?|правки\s+(?:очереди|монтажа|доски)|очередь\s+доски)"
+    r"(?:\s+(?:в\s+)?проект\w*\s*#?\d{1,5})?\s*[.!]*$"
+)
+
+
+async def apply_queue_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
+    text = _norm(goal)
+    if not _APPLY_QUEUE.match(text):
+        return None
+    named = _PROJECT.search(text)
+    if named:
+        project_id = int(named.group(1))
+    if project_id is None:
+        return None
+    from sqlalchemy import select
+
+    from app.models import Project
+    from app.services.action_layer import store
+    from app.services.action_layer.builtin_montage_more import _counts
+
+    try:
+        async with store.sessions()() as session:
+            meta = await session.scalar(select(Project.meta).where(Project.id == int(project_id)))
+    except Exception:
+        return None
+    ops = [o for o in ((meta or {}).get("pending_ops") or []) if isinstance(o, dict)] if isinstance(meta, dict) else []
+    ops = [o for o in ops if str(o.get("type") or "").startswith(("image_", "video_"))]
+    img, vid = _counts(ops)
+    if img + vid == 0:
+        return None  # очереди нет: пусть ответит планировщик честно
+    frames = sorted({int(o["frame_number"]) for o in ops if o.get("frame_number")})
+    return [
+        PlanStep(
+            action="montage.apply_queue",
+            params={
+                "project_id": int(project_id),
+                "frame_numbers": frames,
+                "max_image_ops": img,
+                "max_video_ops": vid,
+            },
+            mutating=True,
+            risk="high",
+            expected=f"Очередь правок применена: картинок {img}, видео {vid}. Новые файлы появятся в кадрах.",
+        )
+    ]

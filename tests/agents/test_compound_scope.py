@@ -193,3 +193,34 @@ def test_failure_cause_reads_error_list():
     step = PlanStep(action="diag.node_failure", params={"project_id": 11}, expected="x")
     result = {"status": "ok", "result": {"title": "Работа с GPT 1", "errors": ["project_file: модель не вернула apply-ops JSON"]}}
     assert _failure_cause_of(step, result) == "Нода «Работа с GPT 1». Ошибка: project_file: модель не вернула apply-ops JSON"
+
+
+def test_apply_queue_counts_stray_ops_of_selected_frames():
+    from app.orchestrator.actions.executor import _queued_counts
+
+    meta = {"pending_ops": [{"type": "video_regen", "frame_number": 1}, {"type": "image_regen", "frame_number": 9}]}
+    out = _queued_counts({"frame_numbers": [1, 2], "max_image_ops": 2, "max_video_ops": 0}, meta)
+    assert (out["max_image_ops"], out["max_video_ops"]) == (2, 1)
+    assert _queued_counts({"max_image_ops": 1, "max_video_ops": 0}, None)["max_video_ops"] == 0
+
+
+async def test_apply_queue_phrase_reads_the_board(monkeypatch):
+    from app.orchestrator.agents import frame_scope as fs
+
+    class _S:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def scalar(self, _q):
+            return {"pending_ops": [{"type": "image_regen", "frame_number": 2}, {"type": "video_regen", "frame_number": 2}]}
+
+    from app.services.action_layer import store
+
+    monkeypatch.setattr(store, "sessions", lambda: (lambda: _S()))
+    plan = await fs.apply_queue_plan("примени очередь", 5)
+    assert plan[0].action == "montage.apply_queue"
+    assert plan[0].params == {"project_id": 5, "frame_numbers": [2], "max_image_ops": 1, "max_video_ops": 1}
+    assert await fs.apply_queue_plan("примени правку промта", 5) is None

@@ -902,6 +902,24 @@ _BASIS_FIELDS = {
 }
 
 
+def _queued_counts(params: dict, meta: Any) -> dict:
+    """Заявленные max_*_ops не ниже того, что уже лежит в очереди выбранных кадров.
+
+    В очереди осталась правка видео с прошлой просьбы, план заявил «видео 0», и применение
+    отказало («в очереди видео 1, заявлено 0»). Человек на карточке видит настоящий объём.
+    """
+    from app.services.action_layer.builtin_montage_more import _counts, _select
+
+    ops = [o for o in ((meta or {}).get("pending_ops") or []) if isinstance(o, dict)] if isinstance(meta, dict) else []
+    ops = [o for o in ops if str(o.get("type") or "").startswith(("image_", "video_"))]
+    wanted = [n for n in params.get("frame_numbers") or [] if isinstance(n, int)]
+    img, vid = _counts(_select(ops, wanted))
+    out = dict(params)
+    out["max_image_ops"] = max(int(out.get("max_image_ops") or 0), img)
+    out["max_video_ops"] = max(int(out.get("max_video_ops") or 0), vid)
+    return out
+
+
 async def _fill_media_basis(name: str, params: dict) -> dict:
     pid = params.get("project_id")
     if not isinstance(pid, int) or isinstance(pid, bool):
@@ -927,6 +945,8 @@ async def _fill_media_basis(name: str, params: dict) -> dict:
         await session.rollback()
     eff = _effective_settings(detail)
     out = dict(params)
+    if name == "montage.apply_queue":
+        out = _queued_counts(out, detail.get("meta"))
     for kind in _BASIS_FIELDS[name]:
         if kind == "video" and not out.get("max_video_ops"):
             continue
