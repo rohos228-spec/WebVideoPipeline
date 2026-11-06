@@ -67,18 +67,18 @@ _TEXT: dict[str, tuple[str, str]] = {
 
 # Видео этих ключей не совпадает с kie/outsee id в пикере. Карта для явного вызова.
 _VIDEO: dict[str, str] = {
-    "seedance-2.0-mini": "seedance_mini_key",
-    "seedance-2.0-mini-ref": "seedance_mini_key",
-    "seedance-2-0-mini": "seedance_mini_key",
+    "seedance-2.0-mini": "seedance_fast_key",
+    "seedance-2.0-mini-ref": "seedance_fast_key",
+    "seedance-2-0-mini": "seedance_fast_key",
     "seedance 2.0 fast 海外": "seedance_fast_key",
     "seedance-2.0-fast": "seedance_fast_key",
     "seedance-2-0-fast": "seedance_fast_key",
     "seedance-2-0-fast-overseas": "seedance_fast_key",
-    "seedance-2.5": "seedance_overseas_key",
-    "seedance-2-5": "seedance_overseas_key",
-    "seedance 2.5 海外": "seedance_overseas_key",
-    "kling-4.0-k1": "seedance_mini_key",
-    "veo-3.1-fast-generate-preview": "seedance_mini_key",
+    "seedance-2.5": "seedance_fast_key",
+    "seedance-2-5": "seedance_fast_key",
+    "seedance 2.5 海外": "seedance_fast_key",
+    "kling-4.0-k1": "seedance_fast_key",
+    "veo-3.1-fast-generate-preview": "seedance_fast_key",
 }
 
 
@@ -91,6 +91,8 @@ def _key(settings, field: str) -> str:
     if "claude" in field:
         # Fallback на любой настроенный ключ Клода
         return str(getattr(settings, "pay52_claude_low_key", "") or getattr(settings, "pay52_claude_high_key", "") or "").strip()
+    if "seedance" in field:
+        return str(getattr(settings, "seedance_fast_key", "") or getattr(settings, "seedance_mini_key", "") or getattr(settings, "seedance_overseas_key", "") or "").strip()
     return ""
 
 
