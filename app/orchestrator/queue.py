@@ -269,14 +269,6 @@ _MUTATING_HINT_RE = re.compile(
 )
 
 
-def is_investigation(text: str) -> bool:
-    """Просьба найти причину без правок: отвечается по данным, не планом."""
-    norm = " ".join((text or "").lower().replace("ё", "е").split())
-    if not norm or _MUTATING_HINT_RE.search(norm) or _RUN_VERBS_RE.search(norm):
-        return False
-    return bool(_INVESTIGATE_RE.search(norm) and _INVESTIGATE_OBJECT_RE.search(norm))
-
-
 # «Найди, где теряется стиль», «ищи, что случилось», «разберись, почему 3 секунды»: просьба
 # разобраться без слов о правке — вопрос с чтениями данных (быстрый путь), а не план модели:
 # планировщик думал минутами и ставил карточки запуска вместо разбора.
@@ -294,6 +286,16 @@ _MUTATING_HINT_RE = re.compile(
     r"поставь|ставь|смени|поменяй|замени|удали|убери|верни|откати|перепиши|допиши|добавь|создай|"
     r"подними|сними)(?:те)?(?![а-я])"
 )
+
+
+def is_chat_export(norm: str) -> bool:
+    """«Выгрузи переписку за неделю»: чтение одним действием, не задача планировщика.
+
+    Планировщик делал из выгрузки платный «удаляющий» шаг и упирался в экран.
+    """
+    from app.services.action_layer.chat_export import export_params
+
+    return export_params(norm) is not None
 
 
 def is_investigation(text: str) -> bool:
@@ -840,7 +842,7 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     sets_field = bool(
         _FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value or media_file
     ) and not (norm.rstrip().endswith("?"))
-    if is_investigation(norm) and not sets_field:
+    if (is_investigation(norm) or is_chat_export(norm)) and not sets_field:
         return ClassifyResult(
             tier="fast",
             mode=MessageMode.append,
@@ -1448,6 +1450,13 @@ class MessageQueue:
             deltas.append(str(piece))
 
         messages = await self._question_messages(session_id, text, project_id)
+        from app.orchestrator.agents.question_context import take_verbatim
+
+        verbatim = take_verbatim(session_id)
+        if verbatim:
+            # Выгрузка переписки: готовый текст со ссылками на файлы, модель тут только теряла ссылки.
+            await self._reply(session_id, verbatim, "verbatim")
+            return
         try:
             response = await self.router.call(
                 orch_call_tier(tier),

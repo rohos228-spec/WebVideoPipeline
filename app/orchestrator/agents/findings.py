@@ -30,6 +30,10 @@ def unbind(token) -> None:
     _SESSION.reset(token)
 
 
+def current_session() -> str | None:
+    return _SESSION.get()
+
+
 def remember(action: str, params: dict[str, Any], result: Any, session_id: str | None = None) -> None:
     sid = session_id or _SESSION.get()
     if not sid or action not in DIAG_ACTIONS or not isinstance(result, dict):

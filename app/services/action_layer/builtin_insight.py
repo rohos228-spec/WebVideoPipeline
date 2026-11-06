@@ -2178,7 +2178,10 @@ def _gpt_data_spec() -> ActionSpec:
 
 
 def register_insight(registry: ActionRegistry) -> None:
+    from app.services.action_layer.chat_export import chat_export_spec
     from app.services.action_layer.content_checks_diag import content_checks_spec
     from app.services.action_layer.node_failure import node_failure_spec
 
-    registry.register_many([*_specs(), _gpt_data_spec(), node_failure_spec(), content_checks_spec()])
+    registry.register_many(
+        [*_specs(), _gpt_data_spec(), node_failure_spec(), content_checks_spec(), chat_export_spec()]
+    )

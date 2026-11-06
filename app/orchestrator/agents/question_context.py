@@ -625,6 +625,16 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     norm = _norm(text)
     named = _PROJECT_NO.search(norm)
     pid = project_id if project_id is not None else (int(named.group(1)) if named else None)
+    from app.services.action_layer.chat_export import export_params
+
+    export = export_params(norm)
+    if export is not None:
+        # «Выгрузи переписку за неделю»: вся переписка чата одним файлом (руководителю вместо
+        # скриншотов). По умолчанию все проекты; «этого проекта» / «проекта N» — один.
+        if named or _has(norm, ("этого проекта", "по проекту", "этому проекту", "текущ")):
+            if pid is not None:
+                export["project_id"] = int(pid)
+        return _allowed([("chat.export", export)])
     if pid is not None and _has(norm, ("реф",)) and _has(norm, _REF_TO_FRAME):
         # «Какие рефы можно привязать к кадру»: без списка ref-assets модель отвечала «в данных не указано».
         return _allowed([("montage.list_ref_assets", {"project_id": int(pid)})])
@@ -913,6 +923,30 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+# Чтения, чей ответ идёт в чат дословно, без модели: ссылки на файлы модель теряла
+# («ссылка не передана»), а переписывать готовый текст ей нечего.
+VERBATIM_READS = frozenset({"chat.export"})
+_VERBATIM: dict[str, str] = {}
+
+
+def keep_verbatim(session_id: str | None, text: str) -> None:
+    if session_id and text:
+        _VERBATIM[session_id] = text
+
+
+def take_verbatim(session_id: str | None) -> str | None:
+    return _VERBATIM.pop(session_id or "", None)
+
+
+def verbatim_reply(action: str, result: Any) -> str:
+    if not isinstance(result, dict):
+        return ""
+    from app.orchestrator.agents.summarizer import download_links
+
+    parts = [str(result.get("text_ru") or "").strip(), *download_links(result)]
+    return "\n".join(p for p in parts if p)
+
+
 def fact_limit(action: str) -> int:
     return _FACT_LIMITS.get(action, _FACT_LIMIT)
 
@@ -1015,6 +1049,8 @@ class QuestionContext:
             from app.orchestrator.agents import findings
 
             findings.remember(action, params, result)
+            if action in VERBATIM_READS:
+                keep_verbatim(findings.current_session(), verbatim_reply(action, result))
         except Exception as exc:
             logger.warning("orch question read {} failed: {}", action, type(exc).__name__)
             return Fact(action, title, "", ok=False)

@@ -919,6 +919,7 @@ _KNOWN_TEXT = {
     "report.nodes": _own_text,
     "report.projects": _own_text,
     "report.gpt_data": _own_text,
+    "chat.export": _own_text,
     "projects.overview": _overview_text,
     "project.status": _own_text,
     "diag.node_failure": _own_text,
@@ -968,7 +969,7 @@ def known_text(action: str, body: dict[str, Any]) -> str:
 
 
 # Ответ — текст шага как есть, без пересказа моделью (таблица, ссылки на файлы).
-VERBATIM_ACTIONS = frozenset({"report.gpt_data"})
+VERBATIM_ACTIONS = frozenset({"report.gpt_data", "chat.export"})
 
 
 def _simple_read(goal: str, action: str) -> bool:

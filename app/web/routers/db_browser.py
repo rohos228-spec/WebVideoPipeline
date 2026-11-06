@@ -3186,6 +3186,18 @@ async def _execute_orchestrator_reply(
         if note:
             entry["note"] = note
     error = "; ".join(dict.fromkeys(errors)) or None
+    # Выгрузка переписки чата (chat.export) читает orch_messages: ответ старого пути — туда же.
+    try:
+        from app.orchestrator.ai_agent_bridge import session_for
+        from app.orchestrator.queue import _insert_message
+
+        legacy_reply = (reply or "").strip()
+        if error:
+            legacy_reply = f"{legacy_reply}\nОшибка: {error}".strip()
+        if legacy_reply:
+            _insert_message(session_for(project.id), "assistant", legacy_reply[:4000], task_id=None, mode="legacy")
+    except Exception:  # noqa: BLE001
+        pass
     # Контур самообучения: каждый диалог — в ops-журнал проекта.
     try:
         from app.services.agent_harness import append_ops_event
