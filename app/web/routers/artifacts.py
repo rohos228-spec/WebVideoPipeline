@@ -228,9 +228,7 @@ async def get_project_cover(
                         [
                             ArtifactKind.hero_reference,
                             ArtifactKind.item_reference,
-                            "image",
-                            "hero",
-                            "item",
+                            ArtifactKind.scene_image,
                         ]
                     ),
                 )
