@@ -47,6 +47,50 @@ def frame_number(text: str) -> int | None:
     return next((n for stem, n in _ORDINALS.items() if raw.startswith(stem)), None)
 
 
+_ONE = r"(?:\d{1,4}|перв\w*|втор\w*|трет\w*|четверт\w*|пят\w*|шест\w*|седьм\w*|восьм\w*|девят\w*|десят\w*)"
+_MANY = rf"{_ONE}(?:\s*(?:,|и)\s*(?:кадр\w*\s+)?{_ONE})+"
+_FRAME_LIST = re.compile(
+    rf"(?:(?:в|на|у|для)\s+)?(?:кадр\w*\s+(?:(?:№|номер)\s*)?{_MANY}|{_MANY}(?:-?(?:й|го|ом|м))?\s+кадр\w*)",
+    re.IGNORECASE,
+)
+_FRAME_RANGE = re.compile(
+    r"(?:(?:в|на|у|для)\s+)?(?:кадр\w*\s+(?:со?\s+)?(\d{1,4})\s*(?:-|–|—|по|до)\s*(\d{1,4})(?!\s*(?:сек|мин))"
+    r"|со?\s+(\d{1,4})\s+(?:по|до)\s+(\d{1,4})\s+кадр\w*)",
+    re.IGNORECASE,
+)
+_RANGE_LIMIT = 40
+
+
+def _one_number(raw: str) -> int | None:
+    if raw.isdigit():
+        return int(raw)
+    return next((n for stem, n in _ORDINALS.items() if raw.startswith(stem)), None)
+
+
+def frame_numbers(text: str) -> list[int]:
+    """Все названные кадры: «кадры 2, 5 и 7», «кадры со 2 по 4», «второй и третий кадр»."""
+    span = _FRAME_RANGE.search(text)
+    if span:
+        low = int(span.group(1) or span.group(3))
+        high = int(span.group(2) or span.group(4))
+        if low < high <= low + _RANGE_LIMIT:
+            return list(range(low, high + 1))
+    many = _FRAME_LIST.search(text)
+    if many:
+        raw = re.findall(_ONE, re.sub(r"кадр\w*", " ", many.group(0), flags=re.IGNORECASE), flags=re.IGNORECASE)
+        found = [n for n in (_one_number(item.lower()) for item in raw) if n is not None]
+        if found:
+            return list(dict.fromkeys(found))
+    one = frame_number(text)
+    return [one] if one is not None else []
+
+
+def _frames_word(numbers: list[int]) -> str:
+    if len(numbers) == 1:
+        return f"кадра {numbers[0]}"
+    return "кадров " + ", ".join(str(n) for n in numbers)
+
+
 _REPORT_WORDS = re.compile(r"отчет|выгруз|экспорт|таблиц|сводк|xlsx|excel|эксел|html|скачать|файл")
 _GPT_DATA = re.compile(r"сцен|персонаж|геро[йеия]|гпт|gpt")
 
@@ -134,19 +178,22 @@ def video_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
     text = _norm(goal)
     if not _VIDEO_WORD.search(text) or not _VIDEO_REDO.search(text) or _PROMPT.search(text):
         return None
-    number = frame_number(text)
+    numbers = frame_numbers(text)
     named = _PROJECT.search(text)
     if named:
         project_id = int(named.group(1))
-    if number is None or project_id is None:
+    if not numbers or project_id is None:
         return None
     return [
         PlanStep(
             action="montage.queue_ops",
-            params={"project_id": int(project_id), "ops": [{"type": "video_regen", "frame_number": number}]},
+            params={
+                "project_id": int(project_id),
+                "ops": [{"type": "video_regen", "frame_number": n} for n in numbers],
+            },
             mutating=True,
             risk="medium",
-            expected=f"Видео кадра {number} поставлено в очередь на перегенерацию. "
+            expected=f"Видео {_frames_word(numbers)} поставлено в очередь на перегенерацию. "
             "Новое видео появится после применения очереди.",
         )
     ]
@@ -179,8 +226,8 @@ def frame_fix_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
     text = _norm(goal)
     if _VIDEO_WORD.search(text) or _PROMPT.search(text) or "?" in text:
         return None
-    number = frame_number(text)
-    if number is None or not _WISH_START.search(text):
+    numbers = frame_numbers(text)
+    if not numbers or not _WISH_START.search(text):
         return None
     if re.search(r"(?<![а-я])(?:кадр\w*\s+(?:по|на)\s+\d|секунд|длительн|местами|удали|склей|раздел|объедин)", text):
         return None
@@ -190,7 +237,13 @@ def frame_fix_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
     if project_id is None:
         return None
     original = " ".join(str(goal).split())
-    wish = _FRAME_PHRASE.sub(" ", original, count=1)
+    wish = original
+    for frames in (_FRAME_RANGE, _FRAME_LIST):
+        if len(numbers) > 1:
+            wish = frames.sub(" ", wish, count=1)
+    if len(numbers) == 1:
+        wish = _FRAME_PHRASE.sub(" ", wish, count=1)
+    wish = re.sub(r"(?<![а-яёА-ЯЁ])(?:их|им|них)\s+", "", wish)
     wish = re.sub(r"(?:(?:в|для|у)\s+)?(?:проект\w*|#)\s*#?\d{1,5}", " ", wish, flags=re.IGNORECASE)
     wish = re.sub(r"\s+([,.;:])", r"\1", " ".join(wish.split())).strip(" ,.:;—-")
     wish = re.sub(r"^(?:переделай|перегенери\w*|перерисуй)[,\s]+", "", wish, flags=re.IGNORECASE)
@@ -201,12 +254,13 @@ def frame_fix_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
             action="montage.queue_ops",
             params={
                 "project_id": int(project_id),
-                "ops": [{"type": "image_regen_correction", "frame_number": number, "prompt": wish}],
+                "ops": [{"type": "image_regen_correction", "frame_number": n, "prompt": wish} for n in numbers],
             },
             mutating=True,
             risk="medium",
-            expected=f"Исправление картинки кадра {number} поставлено в очередь: «{wish}». "
-            "Новая картинка появится после применения очереди.",
+            expected=f"Исправление {'картинки' if len(numbers) == 1 else 'картинок'} {_frames_word(numbers)} "
+            f"поставлено в очередь: «{wish}». "
+            f"{'Новая картинка появится' if len(numbers) == 1 else 'Новые картинки появятся'} после применения очереди.",
         )
     ]
 
@@ -221,20 +275,28 @@ def image_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
     rest = _IMAGE_REDO.sub(" ", text)
     if _IMAGE_WISH.search(rest):
         return frame_fix_plan(goal, project_id)
-    number = frame_number(text)
+    numbers = frame_numbers(text)
     named = _PROJECT.search(text)
     if named:
         project_id = int(named.group(1))
-    if number is None or project_id is None:
+    if not numbers or project_id is None:
         return None
     return [
         PlanStep(
             action="montage.queue_ops",
-            params={"project_id": int(project_id), "ops": [{"type": "image_regen", "frame_number": number}]},
+            params={
+                "project_id": int(project_id),
+                "ops": [{"type": "image_regen", "frame_number": n} for n in numbers],
+            },
             mutating=True,
             risk="medium",
-            expected=f"Картинка кадра {number} поставлена в очередь на перегенерацию. "
-            "Новая картинка появится после применения очереди.",
+            expected=(
+                f"Картинка {_frames_word(numbers)} поставлена в очередь на перегенерацию. "
+                "Новая картинка появится после применения очереди."
+                if len(numbers) == 1
+                else f"Картинки {_frames_word(numbers)} поставлены в очередь на перегенерацию. "
+                "Новые картинки появятся после применения очереди."
+            ),
         )
     ]
 

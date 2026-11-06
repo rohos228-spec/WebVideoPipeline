@@ -185,3 +185,14 @@ def test_next_free_step_of_approved_plan_needs_no_second_button():
     paid = [steps[0], {**steps[1], "paid": True}]
     assert not bridge.same_plan_free_step({**first, "steps": paid}, {**second, "steps": paid})
     assert not bridge.same_plan_free_step(None, second)
+
+
+def test_card_warning_reaches_the_window():
+    card = {
+        "change_id": "c1",
+        "title": "Очередь",
+        "steps": [{"action": "queue.enqueue_many", "text": "Поставить проекты 5, 7 в очередь", "risk": "medium"}],
+        "warnings": ["Не поставлен в очередь: #6 — кадры без данных сцены."],
+    }
+    reply = bridge.done_payload({"card": card})["reply"]
+    assert "кнопка ниже" in reply and "#6" in reply

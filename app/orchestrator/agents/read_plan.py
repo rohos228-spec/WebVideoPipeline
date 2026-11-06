@@ -65,6 +65,16 @@ _STATUS_RE = re.compile(
 )
 
 
+# «Где сейчас ошибки по проектам», «какие проекты упали»: окно всегда в одном проекте, и ответ шёл
+# только про него. Действие в такой фразе («почини», «перезапусти») — уже не чтение.
+_MANY_PROJECTS_RE = re.compile(r"(?<![а-я])(?:проекты|проектов|проектам|проектах)(?![а-я])")
+_TROUBLE_RE = re.compile(r"ошибк|ошибок|проблем|упал|сломал|завис|пауз|сбо[йи]")
+_ACT_RE = re.compile(
+    r"(?<![а-я])(?:почини|исправь|перезапусти|запусти|удали|останови|продолжи|сбрось|поставь|собери|"
+    r"сделай|почему|как\s+)(?![а-я])"
+)
+
+
 def _norm(text: str) -> str:
     low = (text or "").lower().replace("ё", "е")
     low = re.sub(r"[?!.…]+", " ", low)
@@ -80,6 +90,9 @@ def read_step(text: str) -> dict[str, Any] | None:
         return _step(OVERVIEW, {"status": "running"}, "список идущих проектов")
     if _LIST_RE.match(low):
         return _step(OVERVIEW, {"limit": 200}, "список проектов со статусами")
+    if _MANY_PROJECTS_RE.search(low) and _TROUBLE_RE.search(low) and not _ACT_RE.search(low):
+        if not re.search(r"\d", low):
+            return _step(OVERVIEW, {"status": "attention", "limit": 200}, "проекты с ошибкой или на паузе")
     m = _STATUS_RE.match(low)
     if m:
         pid = next(g for g in m.groups() if g)

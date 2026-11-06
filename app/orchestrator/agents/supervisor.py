@@ -2848,6 +2848,36 @@ class Supervisor:
         return None
 
     async def _shortcut_plan(self, task_id: int, goal: str) -> list[PlanStep] | None:
+        """Правила для просьбы целиком: составная идёт по частям, план только если поняты все."""
+        from app.orchestrator.agents import compound_scope as cs
+        from app.orchestrator.agents.number_words import words_to_digits
+
+        from app.orchestrator.queue import strip_continuation
+
+        said = cs.resolve_changed_mind(words_to_digits(strip_continuation(goal)))
+        if cs.has_open_change_of_mind(said):
+            return None
+        clauses = cs.split_clauses(said)
+        if len(clauses) < 2 or _NEW_VIDEO_RE.search(said):
+            fixed = await self._one_shortcut(task_id, said)
+            return cs.order_steps(fixed) if fixed else fixed
+        from app.orchestrator.agents.run_scope import create_run_plan
+
+        together = create_run_plan(said)
+        if together:
+            return together
+        steps: list[PlanStep] = []
+        project_id = self._task_project_id(task_id)
+        for clause in clauses:
+            one = cs.with_project(clause, said)
+            part = await self._one_shortcut(task_id, one) or cs.step_clause_plan(one, project_id)
+            if not part:
+                logger.info("orch task {} compound: no rule for part {!r}", task_id, clause[:80])
+                return None
+            steps.extend(part)
+        return cs.order_steps(steps)
+
+    async def _one_shortcut(self, task_id: int, goal: str) -> list[PlanStep] | None:
         """Точные правила по словам просьбы — без модели; ``None`` — ни одно не подошло."""
         from app.orchestrator.agents.number_words import words_to_digits
 
@@ -2864,11 +2894,11 @@ class Supervisor:
             from app.orchestrator.agents.music_scope import music_volume_plan
 
             fixed = await music_volume_plan(goal, self._task_project_id(task_id))
-            if fixed and " и " in f" {goal.lower()} ":
+            if fixed and (" и " in f" {goal.lower()} " or "," in goal):
                 # «Музыку тише и голос мужской»: вторая просьба терялась — добавить смену голоса.
                 from app.orchestrator.agents.style_scope import voice_plan as _voice_also
 
-                fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id)) or [])]
+                fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id), second_part=True) or [])]
         if not fixed and not new_video:
             # «Сделай, чтобы во всех картинках был пластилин»: правка промта «Промты картинок».
             from app.orchestrator.agents.style_scope import style_plan
@@ -3005,7 +3035,8 @@ class Supervisor:
         from app.orchestrator.agents.action_catalog import boost_task
 
         reason = self._planner_reason(task_id)
-        canonical = await self._canonical_goal(task_id, goal)
+        # Команда одна, а частей несколько: «запусти картинки» вместо бюджета и сценария (задача 2491).
+        canonical = None if _is_compound(goal) else await self._canonical_goal(task_id, goal)
         if canonical:
             again = await self._shortcut_plan(task_id, canonical)
             if again:
@@ -3093,6 +3124,11 @@ class Supervisor:
                     from app.orchestrator.agents.intent_retriever import context_note
 
                     context = (context + "\n" + context_note(intent)).strip()
+            if not fixed and _is_compound(goal):
+                from app.orchestrator.agents.compound_scope import compound_note, split_clauses
+                from app.orchestrator.queue import strip_continuation
+
+                context = (context + "\n" + compound_note(split_clauses(strip_continuation(goal)))).strip()
             if not fixed and _NODE_WORD_RE.search(goal or ""):
                 context = (context + "\n" + _node_name_note()).strip()
             if not fixed and _NEW_VIDEO_RE.search(goal or ""):
@@ -4379,7 +4415,7 @@ class Supervisor:
         """
         if task_id in self._read_replanned or not _LAUNCH_ASK_RE.search(goal or ""):
             return []
-        if _QUESTION_ASK_RE.search(goal or ""):
+        if _QUESTION_ASK_RE.search(goal or "") and not _ACT_NOW_RE.search(goal or ""):
             return []
         if any(not step_is_readonly(step, self.actions) for step in plan):
             return []
@@ -6542,6 +6578,16 @@ _NEW_VIDEO_RE = re.compile(
     r"(?:ролик|видео|клип|видос|мультик)\w*\s+(?:про|о|об|на\s+тему)\s",
     re.IGNORECASE,
 )
+
+
+def _is_compound(goal: str) -> bool:
+    from app.orchestrator.agents.compound_scope import resolve_changed_mind, split_clauses
+    from app.orchestrator.queue import strip_continuation
+
+    said = resolve_changed_mind(strip_continuation(goal or ""))
+    return len(split_clauses(said)) > 1 and not _NEW_VIDEO_RE.search(said)
+
+
 _NEW_VIDEO_NOTE = (
     "Это просьба сделать НОВЫЙ ролик: создай новый проект (project.create) с этой темой. "
     "Открытый в окне проект не меняй. Стиль, голос и длительность — для нового проекта: "
@@ -6554,6 +6600,11 @@ _LAUNCH_ASK_RE = re.compile(
     re.IGNORECASE,
 )
 _QUESTION_ASK_RE = re.compile(r"(?<!\w)(как|можно ли|почему|зачем|что будет)(?!\w)|\?\s*$", re.IGNORECASE)
+# Повелительная форма: «почему упал, почини» просит действия, «как починить» — ответа.
+_ACT_NOW_RE = re.compile(
+    r"(?<!\w)(запусти|перезапусти|прогони|исправь|почини|перегенерируй|сгенерируй|перерисуй|переделай)(?!\w)",
+    re.IGNORECASE,
+)
 _AFTER_READS_NOTE = (
     "Чтения по этой просьбе уже выполнены, их результаты ниже. Не повторяй их. "
     "Поставь действие, о котором просит человек (запуск, перезапуск, исправление), "

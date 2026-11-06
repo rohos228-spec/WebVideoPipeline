@@ -315,6 +315,9 @@ def plain_errors(text: str) -> str:
     return _NO_ADVICE_RE.sub("", out).strip()
 
 
+_CARD_WARNINGS = 3
+
+
 def done_payload(result: dict[str, Any]) -> dict[str, Any]:
     """Ответ в формате окна «ИИ-агент» (``DbOrchestratorChatResult``)."""
     card = result.get("card")
@@ -327,6 +330,11 @@ def done_payload(result: dict[str, Any]) -> dict[str, Any]:
             what += f" ({project})"
         reply = (f"Сделаю: {what}." if what else "") + " Это нужно подтвердить — кнопка ниже."
         reply = reply.strip()
+    if card:
+        # «Не поставлен в очередь: #6 — …»: без этой строки проект пропадал из ответа молча.
+        warned = [plain_errors(str(w)) for w in card.get("warnings") or [] if str(w).strip() and str(w) not in reply]
+        if warned:
+            reply = "\n\n".join([reply, *warned[:_CARD_WARNINGS]]).strip()
     return {
         "reply": reply,
         "applied": None,

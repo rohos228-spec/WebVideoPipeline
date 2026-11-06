@@ -422,9 +422,11 @@ def model_options_text(meta: Any, key: str) -> str:
     for option in sorted(options, key=_order)[:_MAX_OPTIONS]:
         cost = str(option.get("cost_vs_current") or "unknown")
         if option["id"] == current.get("model_id"):
-            lines.append(f"- {option['id']} ({option['label']}): текущая, {option['price_ru']}")
+            best = ", самая дешёвая" if option["id"] in cheapest else ""
+            lines.append(f"- {option['id']} ({option['label']}): текущая{best}, {option['price_ru']}")
             continue
-        mark = _COST_RU.get(cost, cost) + (", самая дешёвая" if option["id"] in cheapest else "")
+        # Та же цена, что у текущей, — не экономия: «поставь подешевле» меняло модель без выгоды.
+        mark = _COST_RU.get(cost, cost) + (", самая дешёвая" if option["id"] in cheapest and cost == "cheaper" else "")
         action = _SET_ACTION.get(cost, "node.set_model_costly")
         if previous is not None and ne.canonical_model_id(option["id"]) == previous:
             # Вернуть то, что стояло до правки, — откат, но только если цена не растёт:
@@ -433,6 +435,8 @@ def model_options_text(meta: Any, key: str) -> str:
                 action = f"вернуть прежнюю по просьбе человека — node.revert_model, иначе {action}"
             mark = "прежняя модель этой ноды, " + mark
         lines.append(f"- {option['id']} ({option['label']}): {mark}, {option['price_ru']}; {action}")
+    if current.get("model_id") in cheapest and not any(o.get("cost_vs_current") == "cheaper" for o in options):
+        lines.append("Дешевле текущей здесь нет: на «поставь подешевле» менять модель незачем, так и скажи.")
     return "\n".join(lines)
 
 

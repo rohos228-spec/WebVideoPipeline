@@ -1,0 +1,175 @@
+"""Составные просьбы: каждая часть доходит до плана, порядок задаёт работа, а не слова."""
+
+from __future__ import annotations
+
+import pytest
+
+from app.orchestrator.agents import action_catalog, compound_scope as cs, music_scope, style_scope
+from app.orchestrator.agents.frame_scope import frame_numbers, image_frame_plan
+from app.orchestrator.agents.read_plan import read_step
+from app.orchestrator.agents.supervisor import Supervisor, _ACT_NOW_RE, _QUESTION_ASK_RE, _is_compound
+
+
+class _Rules:
+    _shortcut_plan = Supervisor._shortcut_plan
+    _one_shortcut = Supervisor._one_shortcut
+
+    def _task_project_id(self, _task):
+        return 10
+
+    def _launch_allowed(self, _action):
+        return True
+
+
+@pytest.fixture
+def rules(monkeypatch):
+    async def node(_pid, typ):
+        return {"image_prompts": "img_prompts_1", "script": "script_1", "music": "music_1"}.get(typ)
+
+    async def image_node(_pid):
+        return "img_prompts_1"
+
+    async def level(_pid):
+        return 30
+
+    monkeypatch.setattr(style_scope, "_node_of_type", node)
+    monkeypatch.setattr(style_scope, "_image_prompts_node", image_node)
+    monkeypatch.setattr(music_scope, "_current_level", level)
+    monkeypatch.setattr(action_catalog, "_studio_projects", lambda _task: [(i, "") for i in range(1, 40)])
+    return _Rules()
+
+
+def _actions(plan):
+    return [step.action for step in plan or []]
+
+
+def _ops(step):
+    return [(op["type"], op["frame_number"]) for op in step.params["ops"]]
+
+
+async def test_several_frames_wish_and_rebuild(rules):
+    plan = await rules._shortcut_plan(1, "перерисуй кадры 2, 5 и 7, сделай их ночными и потом пересобери ролик")
+    assert _actions(plan) == ["montage.queue_ops", "montage.apply_queue", "montage.run_montage"]
+    assert _ops(plan[0]) == [("image_regen_correction", n) for n in (2, 5, 7)]
+    assert plan[0].params["ops"][0]["prompt"] == "сделай ночными"
+    assert plan[1].params["frame_numbers"] == [2, 5, 7]
+    assert (plan[1].params["max_image_ops"], plan[1].params["max_video_ops"]) == (3, 0)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "перерисуй кадр 2, а нет, лучше кадр 3",
+        "перерисуй кадр 2, нет, кадр 3",
+        "перерисуй кадр 3, а не кадр 2",
+        "перерисуй не кадр 2, а кадр 3",
+    ],
+)
+async def test_changed_mind_takes_the_last_frame(rules, phrase):
+    plan = await rules._shortcut_plan(1, phrase)
+    assert _ops(plan[0]) == [("image_regen", 3)]
+
+
+async def test_changed_mind_without_number_goes_to_planner(rules):
+    assert await rules._shortcut_plan(1, "сделай музыку тише, а нет, громче") is None
+
+
+async def test_swap_and_redraw_keep_both_parts(rules):
+    plan = await rules._shortcut_plan(1, "поменяй местами кадры 3 и 4, а кадр 6 перерисуй")
+    assert _actions(plan) == ["montage.swap_slots", "montage.queue_ops"]
+    assert _ops(plan[1]) == [("image_regen", 6)]
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["поменяй голос на женский, музыку сделай потише и собери заново", "собери заново, поменяй голос на женский"],
+)
+async def test_new_voice_is_recorded_before_montage(rules, phrase):
+    plan = await rules._shortcut_plan(1, phrase)
+    actions = _actions(plan)
+    assert actions[-1] == "montage.run_montage"
+    assert actions.index("audio.set_voice") < actions.index("step.run_step") < actions.index("montage.run_montage")
+    audio = next(step for step in plan if step.action == "step.run_step")
+    assert audio.params["step_code"] == "audio"
+
+
+async def test_style_then_images_runs_prompts_first(rules):
+    plan = await rules._shortcut_plan(1, "сделай стиль аниме для всех кадров и перезапусти картинки")
+    assert _actions(plan) == ["prompt.edit_text", "step.run_step", "step.run_step"]
+    assert [step.params["step_code"] for step in plan[1:]] == ["img_pr", "img"]
+
+
+async def test_part_without_rule_sends_whole_ask_to_planner(rules):
+    goal = "подними бюджет текстов, перезапусти сценарий и потом всё до картинок"
+    assert await rules._shortcut_plan(1, goal) is None
+    assert _is_compound(goal)
+    assert "подними бюджет текстов" in cs.compound_note(cs.split_clauses(goal))
+
+
+async def test_named_project_applies_to_every_part(rules):
+    plan = await rules._shortcut_plan(1, "в проекте 5 поменяй голос на женский и собери заново")
+    assert {step.params["project_id"] for step in plan} == {5}
+
+
+async def test_second_part_without_verb_is_kept(rules):
+    plan = await rules._shortcut_plan(1, "музыку тише и голос мужской")
+    assert _actions(plan) == ["montage.set_assemble_params", "audio.set_voice"]
+
+
+@pytest.mark.parametrize(
+    ("phrase", "parts"),
+    [
+        ("кит на 2 кадре кривой, перегенери", 1),
+        ("сделай, чтобы во всех картинках был пластилин", 1),
+        ("запусти проекты 5, 6 и 7 до видео, но не больше двух одновременно", 1),
+        ("поменяй промт кадра 3 на «кот, и собери ролик»", 1),
+        ("почему упал кадр 2 и что делать?", 1),
+        ("как поменять голос и собрать заново", 1),
+        ("подними бюджет до 1,5 доллара", 1),
+        ("переделай кадр 2, убери кровь", 1),
+        ("поставь голос Сара, потом перемонтируй", 2),
+        ("разберись почему упало, почини и перезапусти", 3),
+    ],
+)
+def test_split_keeps_one_ask_whole(phrase, parts):
+    assert len(cs.split_clauses(phrase)) == parts
+
+
+@pytest.mark.parametrize(
+    ("text", "numbers"),
+    [
+        ("кадры 2, 5 и 7", [2, 5, 7]),
+        ("кадры со 2 по 4", [2, 3, 4]),
+        ("кадры 2-4", [2, 3, 4]),
+        ("второй и третий кадр", [2, 3]),
+        ("кадр 2 и кадр 5", [2, 5]),
+        ("кадр 4", [4]),
+    ],
+)
+def test_frame_numbers(text, numbers):
+    assert frame_numbers(text) == numbers
+
+
+def test_plural_card_text():
+    plan = image_frame_plan("перерисуй кадры 2 и 3", 10)
+    assert plan[0].expected.startswith("Картинки кадров 2, 3 поставлены")
+
+
+def test_question_with_fix_order_may_act():
+    goal = "разберись почему упал ИИ-редактор сцен, почини и перезапусти"
+    assert _QUESTION_ASK_RE.search(goal) and _ACT_NOW_RE.search(goal)
+    assert not _ACT_NOW_RE.search("как починить ноду")
+
+
+@pytest.mark.parametrize(
+    "phrase", ["где сейчас ошибки по проектам", "какие проекты упали", "покажи проблемы во всех проектах"]
+)
+def test_trouble_over_all_projects_reads_overview(phrase):
+    step = read_step(phrase)
+    assert step["action"] == "projects.overview"
+    assert step["params"]["status"] == "attention"
+
+
+@pytest.mark.parametrize("phrase", ["почини упавшие проекты", "почему проекты упали", "ошибки проекта 5"])
+def test_action_or_one_project_is_not_overview(phrase):
+    assert read_step(phrase) is None

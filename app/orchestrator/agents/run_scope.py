@@ -52,7 +52,7 @@ def run_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
                 params={"project_id": int(pid)},
                 mutating=True,
                 risk="high",
-                expected=f"Проект #{pid} смонтирован заново: озвучка и сборка ролика.",
+                expected=f"Проект #{pid} смонтирован заново из готовой озвучки и кадров.",
             )
         ]
     if _FULL.match(text):

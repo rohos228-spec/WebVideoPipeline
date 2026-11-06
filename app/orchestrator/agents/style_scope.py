@@ -226,10 +226,14 @@ _VOICE_CHANGE = re.compile(
 )
 
 
-def voice_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
-    """«Поменяй голос на мужской», «поставь голос Сара»: смена голоса ноды «Озвучка»."""
+def voice_plan(goal: str, project_id: int | None, *, second_part: bool = False) -> list[PlanStep] | None:
+    """«Поменяй голос на мужской», «поставь голос Сара»: смена голоса ноды «Озвучка».
+
+    ``second_part``: «музыку тише и голос мужской» — глагол относится к обеим частям.
+    """
     text = " ".join(str(goal or "").lower().replace("ё", "е").split())
-    if not ("голос" in text or "диктор" in text) or not _VOICE_CHANGE.search(text) or _QUESTION.search(text):
+    asked = second_part or _VOICE_CHANGE.search(text)
+    if not ("голос" in text or "диктор" in text) or not asked or _QUESTION.search(text):
         return None
     from app.services.action_layer.builtin_voice import voice_keyword
 

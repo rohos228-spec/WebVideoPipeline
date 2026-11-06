@@ -851,6 +851,45 @@ async def today_changes(
 _NOTHING = "возвращать нечего"
 
 
+def failed_edit_text(goal: str) -> str:
+    return (
+        f"Прошлая просьба «{goal}» не выполнилась и ничего не поменяла, возвращать нечего. "
+        "Чтобы откатить более раннюю правку, напишите «верни обратно» ещё раз: покажу, что именно вернётся."
+    )
+
+
+def _failed_just_before(task_id: Any) -> str:
+    """Просьба прямо перед этой, если её правка упала: откат иначе вернул бы другую, старую правку."""
+    if task_id is None:
+        return ""
+    from sqlalchemy import text as sql
+
+    from app.orchestrator.agents.task_store import TaskStore
+    from app.orchestrator.db.migrations import connect
+
+    session_id = (TaskStore().get(int(task_id)) or {}).get("session_id")
+    if not session_id:
+        return ""
+    conn = connect()
+    try:
+        row = conn.execute(
+            sql("SELECT id, goal FROM orch_tasks WHERE session_id = :sid AND id < :tid ORDER BY id DESC LIMIT 1"),
+            {"sid": str(session_id), "tid": int(task_id)},
+        ).first()
+        if row is None:
+            return ""
+        last = conn.execute(
+            sql(
+                "SELECT status FROM orch_steps WHERE task_id = :tid AND mutating = 1 "
+                "ORDER BY position DESC LIMIT 1"
+            ),
+            {"tid": int(row[0])},
+        ).first()
+    finally:
+        conn.close()
+    return str(row[1] or "прошлая правка") if last is not None and str(last[0]) == "failed" else ""
+
+
 async def plan_for_task(text: str, task_id: Any = None) -> UndoPlan | None:
     """Планёр чата кодом: правка промта (применить, отменить предложение) и откат правки беседы.
 
@@ -869,6 +908,10 @@ async def plan_for_task(text: str, task_id: Any = None) -> UndoPlan | None:
         if found is not None:
             return UndoPlan(found.steps, found.reason)
         plan = await resolve(text, scope, operators=operators)
+        if plan is not None and plan.steps and not _free_words(text) and not kinds_of(text):
+            failed = await asyncio.to_thread(_failed_just_before, task_id)
+            if failed:
+                return UndoPlan([], failed_edit_text(failed))
         nothing = plan is not None and not plan.steps and _NOTHING in plan.reason
         # Откатывать нечего (или нечего подходящего), а правка промта ждёт применения.
         about_prompt = plan is None and undo_phrase(text) and "prompt_version" in kinds_of(text)
