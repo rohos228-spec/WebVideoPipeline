@@ -647,7 +647,7 @@ def _pipeline_state_lines(project: Project) -> list[str]:
     lines = []
     for i, (_run, node_type) in enumerate(LINEAR_RUNNING_PIPELINE):
         ready_idx = 2 * i + 1
-        if ready_idx < pos:
+        if ready_idx <= pos:
             state = "готово"
         elif 2 * i <= pos:
             state = "текущий"
@@ -710,7 +710,17 @@ async def _checks_context(session: AsyncSession, project: Project) -> list[str]:
             "failed": "ОШИБКА",
             "skipped": "пропущена",
         }
-        lines.append(f"СТАТУСЫ НОД (прогон #{run.id}, статус прогона {run.status.value}):")
+        ru_run = {
+            "new": "новый",
+            "running": "выполняется",
+            "paused": "на паузе (готов к запуску следующего шага)",
+            "waiting_hitl": "ждёт аппрува человека",
+            "done": "завершён",
+            "failed": "ошибка",
+            "cancelled": "отменён",
+        }
+        run_st = ru_run.get(run.status.value, run.status.value)
+        lines.append(f"СТАТУСЫ НОД (прогон #{run.id}, статус прогона: {run_st}):")
         for n in nodes:
             st = ru.get(n.status.value, n.status.value)
             extra = ""

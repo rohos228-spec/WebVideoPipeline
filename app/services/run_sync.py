@@ -263,9 +263,12 @@ def _aggregate_workflow_run_status(run: WorkflowRun, project: Project | None = N
     any_running = False
     any_pending = False
     any_failed = False
+    any_waiting_hitl = False
     for nr in run.node_runs:
         if nr.status in (NodeRunStatus.running, NodeRunStatus.queued):
             any_running = True
+        elif nr.status == NodeRunStatus.waiting_hitl:
+            any_waiting_hitl = True
         elif nr.status == NodeRunStatus.pending:
             any_pending = True
         elif nr.status == NodeRunStatus.failed:
@@ -293,8 +296,10 @@ def _aggregate_workflow_run_status(run: WorkflowRun, project: Project | None = N
         run.status = WorkflowRunStatus.running
         if run.started_at is None:
             run.started_at = now
-    elif any_pending:
+    elif any_waiting_hitl:
         run.status = WorkflowRunStatus.waiting_hitl
+    elif any_pending:
+        run.status = WorkflowRunStatus.paused
     else:
         run.status = WorkflowRunStatus.done
         if run.finished_at is None:
