@@ -165,6 +165,19 @@ def _run_step(project_id: int, code: str) -> PlanStep:
     )
 
 
+_STATE_READS = frozenset({"project.status", "node.describe"})
+
+
+def _status_step(project_id: int) -> PlanStep:
+    return PlanStep(
+        action="project.status",
+        params={"project_id": project_id},
+        mutating=False,
+        risk="none",
+        expected="Текущее состояние проекта перед запуском шага.",
+    )
+
+
 def _apply_step(queued: list[PlanStep], project_id: int) -> PlanStep:
     ops = [op for step in queued for op in step.params.get("ops") or [] if isinstance(op, dict)]
     frames = sorted({int(op["frame_number"]) for op in ops if op.get("frame_number")})
@@ -220,6 +233,10 @@ def order_steps(plan: list[PlanStep]) -> list[PlanStep]:
         )
         if first_img is not None and "img_pr" not in codes:
             out = _inserted(out, first_img, _run_step(int(out[first_img].params["project_id"]), "img_pr"))
+    run = next((s for s in out if s.action == "step.run_step"), None)
+    if run is not None and not any(s.action in _STATE_READS for s in out):
+        # Запуск без чтения состояния проверка плана не пропускает.
+        out = _inserted(out, 0, _status_step(int(run.params["project_id"])))
     return out
 
 

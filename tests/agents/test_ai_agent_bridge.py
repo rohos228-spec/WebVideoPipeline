@@ -196,3 +196,11 @@ def test_card_warning_reaches_the_window():
     }
     reply = bridge.done_payload({"card": card})["reply"]
     assert "кнопка ниже" in reply and "#6" in reply
+
+
+def test_failure_cause_is_plain():
+    summary = "Нода «Работа с GPT 1» (n_excel_gpt_1), шаг: ошибка. Ошибка: project_file: модель не вернула apply-ops JSON {\"ops\":[…]}"
+    assert bridge.failure_cause(summary) == "Причина сбоя ноды «Работа с GPT 1»: модель не вернула ответ в нужном формате."
+    assert bridge.failure_cause("Нода «Сценарий»: всё хорошо") == ""
+    card = {"change_id": "c1", "title": "Запуск", "steps": []}
+    assert bridge.done_payload({"card": card, "cause": "Причина: x."})["reply"].startswith("Причина: x.")

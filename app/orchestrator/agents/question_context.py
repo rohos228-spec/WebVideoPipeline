@@ -645,6 +645,12 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         # Без проверки содержания чат отвечал статусом ноды «готово» — а склейка закадра
         # или герои в промтах могли не сходиться.
         return _allowed([("diag.content_checks", checks), ("project.status", {"project_id": int(pid)})])
+    from app.orchestrator.agents.read_plan import read_step
+
+    overview = read_step(text)
+    if overview and overview["params"].get("status") == "attention":
+        # «Где ошибки по проектам»: окно открыто в проекте, но спрашивают про все.
+        return _allowed([("projects.overview", dict(overview["params"]))])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
     node_failure = _has(norm, _NODE_FAILURE) or (

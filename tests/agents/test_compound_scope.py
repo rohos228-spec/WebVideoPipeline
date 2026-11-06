@@ -95,8 +95,8 @@ async def test_new_voice_is_recorded_before_montage(rules, phrase):
 
 async def test_style_then_images_runs_prompts_first(rules):
     plan = await rules._shortcut_plan(1, "сделай стиль аниме для всех кадров и перезапусти картинки")
-    assert _actions(plan) == ["prompt.edit_text", "step.run_step", "step.run_step"]
-    assert [step.params["step_code"] for step in plan[1:]] == ["img_pr", "img"]
+    assert _actions(plan) == ["project.status", "prompt.edit_text", "step.run_step", "step.run_step"]
+    assert [step.params["step_code"] for step in plan[2:]] == ["img_pr", "img"]
 
 
 async def test_part_without_rule_sends_whole_ask_to_planner(rules):
@@ -173,3 +173,14 @@ def test_trouble_over_all_projects_reads_overview(phrase):
 @pytest.mark.parametrize("phrase", ["почини упавшие проекты", "почему проекты упали", "ошибки проекта 5"])
 def test_action_or_one_project_is_not_overview(phrase):
     assert read_step(phrase) is None
+
+
+def test_critic_context_keeps_only_current_ask():
+    from app.orchestrator.agents.supervisor import _critic_context
+
+    context = (
+        "Проект #11.\nПоследние реплики этого чата — короткая просьба продолжает их:\n"
+        "Человек: поменяй голос на женский\nЧат: Сделаю.\nДругая строка"
+    )
+    out = _critic_context(context, "музыку тише и голос мужской")
+    assert "женский" not in out and "Другая строка" in out and "голос мужской" in out

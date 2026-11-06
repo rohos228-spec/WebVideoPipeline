@@ -908,7 +908,7 @@ async def plan_for_task(text: str, task_id: Any = None) -> UndoPlan | None:
         if found is not None:
             return UndoPlan(found.steps, found.reason)
         plan = await resolve(text, scope, operators=operators)
-        if plan is not None and plan.steps and not _free_words(text) and not kinds_of(text):
+        if plan is not None and not _free_words(text) and not kinds_of(text):
             failed = await asyncio.to_thread(_failed_just_before, task_id)
             if failed:
                 return UndoPlan([], failed_edit_text(failed))

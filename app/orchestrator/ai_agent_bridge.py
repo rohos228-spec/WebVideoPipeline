@@ -215,9 +215,25 @@ def _card_item(card: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_CAUSE_RE = re.compile(r"Нода «([^»]+)».*?Ошибка:\s*(.+)", re.DOTALL)
+
+
+def failure_cause(summary: str) -> str:
+    """«Разберись почему упало и почини»: карточка говорит про запуск, причину надо сказать рядом."""
+    found = _CAUSE_RE.search(summary)
+    if not found:
+        return ""
+    why = re.sub(r"^\s*\w+_file:\s*", "", found.group(2)).strip()
+    if "не вернула" in why and "JSON" in why:
+        why = "модель не вернула ответ в нужном формате"
+    why = " ".join(why.split())[:240].rstrip(" .…")
+    return f"Причина сбоя ноды «{found.group(1)}»: {why}."
+
+
 async def _collect(queue: asyncio.Queue, after_seq: int, timeout: float) -> dict[str, Any]:
     """События сессии после ``after_seq``: последняя реплика, карточка, итог задачи."""
     reply, card, status, error = "", None, None, None
+    cause = ""
     phases: list[str] = []
     started = time.monotonic()
     last_reply_at: float | None = None
@@ -240,6 +256,8 @@ async def _collect(queue: asyncio.Queue, after_seq: int, timeout: float) -> dict
             card = payload
             _remember(card)
             break
+        if typ == "step_finished" and payload.get("action") == "diag.node_failure":
+            cause = failure_cause(str(payload.get("cause") or payload.get("summary") or "")) or cause
         if typ == "message" and str(payload.get("role") or "assistant") != "user":
             text = _text_of(payload)
             if text:
@@ -255,7 +273,7 @@ async def _collect(queue: asyncio.Queue, after_seq: int, timeout: float) -> dict
             if reply:
                 break
             last_reply_at = time.monotonic()
-    return {"reply": reply, "card": card, "status": status, "error": error, "phases": phases}
+    return {"reply": reply, "card": card, "status": status, "error": error, "phases": phases, "cause": cause}
 
 
 async def _late_reply(session_id: str) -> str:
@@ -330,6 +348,8 @@ def done_payload(result: dict[str, Any]) -> dict[str, Any]:
             what += f" ({project})"
         reply = (f"Сделаю: {what}." if what else "") + " Это нужно подтвердить — кнопка ниже."
         reply = reply.strip()
+    if card and result.get("cause"):
+        reply = f"{result['cause']}\n\n{reply}"
     if card:
         # «Не поставлен в очередь: #6 — …»: без этой строки проект пропадал из ответа молча.
         warned = [plain_errors(str(w)) for w in card.get("warnings") or [] if str(w).strip() and str(w) not in reply]

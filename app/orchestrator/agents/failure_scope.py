@@ -251,5 +251,7 @@ def logs_with_diagnosis(plan: list[PlanStep]) -> list[PlanStep]:
         for pid in dict.fromkeys(pids)
         if isinstance(pid, int) and pid not in have
     ]
-    return [*plan, *extra]
+    # Журнал нужен до запуска: после платного шага он уже про новый запуск.
+    at = next((i for i, step in enumerate(plan) if step.mutating), len(plan))
+    return [*plan[:at], *extra, *plan[at:]]
 

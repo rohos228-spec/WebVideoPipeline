@@ -247,10 +247,44 @@ _PROMPT_PROPOSE = (
 _SCREEN_NOTE_PREFIX = "Проверка плана"
 
 
-def _critic_context(context: str) -> str:
-    """Контекст критику без подсказок проверки плана: они о прошлом, уже отклонённом плане."""
+def _critic_context(context: str, goal: str = "") -> str:
+    """Контекст критику без подсказок проверки плана: они о прошлом, уже отклонённом плане.
+
+    Прошлые реплики чата критику тоже не нужны: он сверял план с позапрошлой просьбой
+    («человек просил показать ошибки», «просил женский голос») и отклонял верный план.
+    """
     lines = (context or "").split("\n")
-    return "\n".join(line for line in lines if not line.lstrip().startswith(_SCREEN_NOTE_PREFIX)).strip()
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        if line.startswith(_DIALOG_NOTE_START):
+            skipping = True
+            continue
+        if skipping and re.match(r"(Человек|Чат): ", line):
+            continue
+        skipping = False
+        if not line.lstrip().startswith(_SCREEN_NOTE_PREFIX):
+            kept.append(line)
+    out = "\n".join(kept).strip()
+    if goal:
+        out = f"Просьба человека, с которой сверять план: «{goal}».\n{out}".strip()
+    return out
+
+
+_DIALOG_NOTE_START = "Последние реплики этого чата"
+
+
+def _failure_cause_of(step: PlanStep, result: Any) -> str:
+    """Полный текст ошибки упавшей ноды из разбора сбоя: пересказ шага обрезан до 300 знаков."""
+    if step.action != "diag.node_failure" or envelope_status(result) != "ok":
+        return ""
+    body = envelope_body(result)
+    if not isinstance(body, dict):
+        return ""
+    errors = body.get("errors") if isinstance(body.get("errors"), dict) else {}
+    error = errors.get("error") or body.get("error") or errors.get("batch_error") or ""
+    node = body.get("title") or body.get("node_key") or ""
+    return f"Нода «{node}». Ошибка: {error}" if error else ""
 
 
 _CHECK_RU = {
@@ -3684,7 +3718,7 @@ class Supervisor:
         # Подсказки проверки плана («Проверка плана …: исправь план, только id из каталога …») —
         # для планировщика, и к критику план приходит уже после неё. Задача 348: критик прочитал
         # подсказку про прошлый, отклонённый план и вернул её как revise к исправленному.
-        context = _critic_context(context)
+        context = _critic_context(context, str((self.tasks.get(task_id) or {}).get('goal') or ''))
         skipped = self._launch_skipped.get(int(task_id))
         if skipped:
             # Проекты, убранные кодом до карточки, — не ошибка плана: критик не должен просить
@@ -5482,6 +5516,7 @@ class Supervisor:
                 "warnings": envelope_warnings(result),
                 "skipped": envelope_skipped(result),
                 "summary": task_summary.step_summary(note),
+                "cause": _failure_cause_of(step, result),
             },
             task_id=task_id,
         )
