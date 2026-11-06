@@ -1,7 +1,7 @@
 """HTTP-клиент 52pay.com для генерации видео семейством Seedance.
 
 Поддерживаемые модели:
-  1. seedance-2.0-mini-ref (SEEDANCE_MINI_KEY):
+  1. seedance-2.0-mini (SEEDANCE_MINI_KEY / SEEDANCE_FAST_KEY):
      - prompt, seconds ("4"–"15"), aspect_ratio ("16:9"), resolution ("480p" | "720p")
      - metadata.content с ролями: first_frame, last_frame, reference_image (max 9),
        reference_video (max 3), reference_audio (max 3).
@@ -49,12 +49,12 @@ def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
     s = cfg or settings
     name_low = (model_name or "").lower()
     if "fast" in name_low:
-        return (s.seedance_fast_key or "").strip()
+        return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
     if "2.5" in name_low or "2-5" in name_low or "overseas" in name_low or "海外" in model_name:
-        return (s.seedance_overseas_key or "").strip()
+        return (s.seedance_overseas_key or s.seedance_fast_key or s.seedance_mini_key or "").strip()
     if "mini" in name_low or "ref" in name_low:
-        return (s.seedance_mini_key or "").strip()
-    return (s.seedance_mini_key or s.seedance_fast_key or s.seedance_overseas_key or "").strip()
+        return (s.seedance_mini_key or s.seedance_fast_key or s.seedance_overseas_key or "").strip()
+    return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
 
 
 def pay52_configured() -> bool:
@@ -76,7 +76,7 @@ def pay52_video_configured(spec: dict[str, Any] | None = None) -> bool:
 
 def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     """Сборка тела запроса согласно правилам конкретной модели Seedance на 52pay."""
-    model_raw = str(spec.get("model") or spec.get("id") or "seedance-2.0-mini-ref")
+    model_raw = str(spec.get("model") or spec.get("id") or "seedance-2.0-mini")
     prompt = str(values.get("prompt") or values.get("text") or "").strip()
 
     raw_dur = values.get("duration") or values.get("seconds") or 5
@@ -103,8 +103,8 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
     if isinstance(ref_audios, str):
         ref_audios = [ref_audios]
 
-    # 1. Модель seedance-2.0-mini-ref (базовый Mini)
-    if "mini" in model_raw.lower() or "seedance-2.0-mini-ref" in model_raw.lower():
+    # 1. Модель seedance-2.0-mini (базовый Mini)
+    if "mini" in model_raw.lower() or "seedance-2.0-mini" in model_raw.lower():
         content: list[dict[str, str]] = []
         img_count = 0
         if first_frame and img_count < 9:
@@ -146,7 +146,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             )
 
         payload: dict[str, Any] = {
-            "model": "seedance-2.0-mini-ref",
+            "model": "seedance-2.0-mini",
             "prompt": prompt,
             "seconds": str(min(15, max(4, dur_int))),
             "aspect_ratio": raw_ratio,
