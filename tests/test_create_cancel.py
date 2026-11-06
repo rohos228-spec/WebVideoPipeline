@@ -1,10 +1,12 @@
 import asyncio
 import uuid
 from pathlib import Path
+
 import pytest
+
 from app.db import session_scope
 from app.services import credit_ledger as cl
-from app.services.create_jobs import enqueue_generation, cancel_job
+from app.services.create_jobs import cancel_job, enqueue_generation
 
 
 @pytest.mark.asyncio
