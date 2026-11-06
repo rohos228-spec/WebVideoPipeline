@@ -1012,6 +1012,9 @@ class QuestionContext:
         try:
             params = {k: v for k, v in params.items() if k != "_named"}
             result = await asyncio.wait_for(self._runner(action, params, app), self.timeout_s)
+            from app.orchestrator.agents import findings
+
+            findings.remember(action, params, result)
         except Exception as exc:
             logger.warning("orch question read {} failed: {}", action, type(exc).__name__)
             return Fact(action, title, "", ok=False)
@@ -1039,6 +1042,18 @@ class QuestionContext:
         return [Fact("chat.changes", DONE_TITLE, "\n".join(lines) if lines else _DONE_EMPTY)]
 
     async def gather(
+        self, text: str, project_id: int | None, app: Any = None, session_id: str | None = None
+    ) -> list[Fact]:
+        # Разборы этого пути («найди где теряется стиль») запоминаются для «почини».
+        from app.orchestrator.agents import findings
+
+        token = findings.bind(session_id)
+        try:
+            return await self._gather(text, project_id, app, session_id)
+        finally:
+            findings.unbind(token)
+
+    async def _gather(
         self, text: str, project_id: int | None, app: Any = None, session_id: str | None = None
     ) -> list[Fact]:
         from app.orchestrator.agents.project_nodes import match_nodes, roster_text

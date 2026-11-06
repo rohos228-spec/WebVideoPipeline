@@ -536,6 +536,8 @@ class Supervisor:
         self._launch_note: dict[int, str] = {}
         # Массовый запуск: кого не поставили (жёсткое условие запуска) — первой строкой карточки.
         self._launch_skipped: dict[int, str] = {}
+        # «Почини» из разбора: чем продолжить после правки («перезапусти промты картинок …»).
+        self._fix_next: dict[int, str] = {}
         self._unknown_step: dict[int, dict[str, Any]] = {}
         self._appr_seq: dict[int, int] = {}
         self._appr_open: dict[int, str | None] = {}
@@ -2869,6 +2871,16 @@ class Supervisor:
 
     def _last_check(self, session_id: str) -> tuple[str, dict] | None:
         # «Почини» — к последнему разбору в чате: сбою ноды или проверке содержания.
+        from app.orchestrator.agents import findings
+
+        kept = findings.last(session_id)
+        if kept:
+            # Разбор с вариантами исправления от самого действия (и из быстрого пути вопросов).
+            return str(kept["action"]), {
+                **kept["params"],
+                "_fix_options": list(kept["fix_options"]),
+                **({"_healthy": kept["healthy_text"]} if kept.get("healthy_text") else {}),
+            }
         rows: list[dict] = []
         for action in ("diag.node_failure", "diag.content_checks"):
             try:
@@ -3148,6 +3160,10 @@ class Supervisor:
             return None
         if self._status(task_id) is not TaskStatus.planning:
             await self._set_status(task_id, TaskStatus.planning, session_id=session_id)
+        # «А теперь запускай» после «почини»: фраза запуска, которую чат сам предложил.
+        from app.orchestrator.agents import findings as _findings
+
+        goal = _findings.launch_goal(goal, session_id)
         # «Почини» сразу после разбора сбоя: без проекта и ноды планировщик отвечал «уточните».
         last_check = self._last_check(session_id) if is_bare_fix(goal) else None
         if last_check and last_check[0] == "diag.node_failure":
@@ -3155,7 +3171,24 @@ class Supervisor:
         token = _LLM_TASK.set(int(task_id))
         try:
             # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
+            if last_check and last_check[1].get("_healthy"):
+                # Разбор ничего сломанного не нашёл: честный ответ вместо платного повтора.
+                nothing = str(last_check[1]["_healthy"])
+                await write_on_loop(self._save_plan, task_id, [])
+                self._fail_detail[task_id] = nothing
+                self._code_answers.add(task_id)
+                self._trace_plan(task_id, "fix_nothing", [], nothing)
+                return []
             fixed = await plan_fix_from_last(last_check)
+            if fixed and last_check:
+                from app.orchestrator.agents import findings
+
+                after = findings.next_phrase(
+                    list(last_check[1].get("_fix_options") or []), [s.action for s in fixed]
+                )
+                if after:
+                    self._fix_next[int(task_id)] = f"Когда правка применена, дальше: «{after}»."
+                    findings.set_next(session_id, after)
             if not fixed:
                 fixed = await self._shortcut_plan(task_id, goal)
             intent = None
@@ -5492,6 +5525,9 @@ class Supervisor:
         if not self._claim_step(step_id):
             return True
         note = self._note_step(task_id, step, result)
+        from app.orchestrator.agents import findings
+
+        findings.remember(step.action, dict(step.params), result, session_id=session_id)
         problem, change_id = await write_on_loop(
             self._write_step_done, task_id, step, step_id, result, position, what=f"task {task_id} step done"
         )
@@ -5564,7 +5600,11 @@ class Supervisor:
             detail=self._fail_detail.pop(task_id, ""),
             steps=self._notes.pop(task_id, []),
             answered=task_id in self._code_answers,
-            note=str(self._launch_skipped.get(int(task_id)) or ""),
+            note=" ".join(
+                part
+                for part in (self._launch_skipped.get(int(task_id)), self._fix_next.pop(int(task_id), None))
+                if part
+            ),
         )
         self._code_answers.discard(task_id)
         token = _LLM_TASK.set(int(task_id))

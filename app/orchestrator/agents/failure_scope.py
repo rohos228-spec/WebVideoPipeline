@@ -69,7 +69,9 @@ async def plan_fix_from_diag(project_id: int) -> list[PlanStep] | None:
     return None
 
 
-async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanStep] | None:
+async def plan_fix_from_content(
+    project_id: int, step: str | None, keyword: str | None = None
+) -> list[PlanStep] | None:
     """«Почини» после проверки содержания: точные правки ячеек (бесплатно) или первое исправление."""
     from app.orchestrator import app_ref
     from app.services.action_layer.content_checks_diag import _diag_content_checks
@@ -77,6 +79,8 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
 
     ctx = ActionContext(app=app_ref.current(), operator="system", read_only=True)
     params: dict = {"project_id": int(project_id), **({"step": step} if step else {})}
+    if keyword:
+        params["keyword"] = str(keyword)
     out = await _diag_content_checks(ctx, params)
     fixes = [f for f in (out or {}).get("fix_options") or [] if f.get("action") not in _READ_ONLY]
     # Человек сам попросил починить: правки ячеек закадра — все, карточкой.
@@ -175,8 +179,20 @@ async def plan_fix_from_last(last: tuple[str, dict] | None) -> list[PlanStep] | 
     pid = params.get("project_id")
     if not isinstance(pid, int):
         return None
+    kept = [f for f in (params.get("_fix_options") or []) if isinstance(f, dict)]
+    if kept:
+        # Варианты от самого разбора: точные правки — все, иначе первое исполнимое.
+        usable = [f for f in kept if f.get("action") and f["action"] not in _READ_ONLY]
+        exact = [f for f in usable if f.get("deterministic") or f.get("action") == "shot.edit_cell_voiceover"]
+        # Порядок разбора главнее: первым он ставит исправление найденной причины (стиль в промте),
+        # и только если оно само точечное — берём все точечные правки сразу.
+        chosen = exact[:_MAX_EDITS] if usable and usable[0] in exact else usable[:1]
+        if chosen:
+            return [_fix_step(f, "Исправление по разбору") for f in chosen]
     if action == "diag.content_checks":
-        return await plan_fix_from_content(pid, params.get("step"))
+        return await plan_fix_from_content(pid, params.get("step"), keyword=params.get("keyword"))
+    if action in ("project.status", "node.output"):
+        return None
     return await plan_fix_from_diag(pid)
 
 

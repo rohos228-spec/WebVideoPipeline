@@ -43,6 +43,56 @@ async def keyword_in_prompts(pid: int, keyword: str) -> dict[str, Any]:
     return {"keyword": keyword, "frames": len(rows), "with_prompt": len(filled), "missing": missing}
 
 
+async def keyword_fixes(ctx: ActionContext, pid: int, found: dict[str, Any]) -> list[dict[str, Any]]:
+    """Чем чинить потерю слова стиля: промт ноды промтов и перезапуск, или перегенерация картинок."""
+    word = found["keyword"]
+    if not found["with_prompt"]:
+        return []
+    if found["missing"]:
+        from app.services.action_layer.builtin_group import _effective_project
+        from app.services.action_layer.node_failure import node_for_step
+
+        key = None
+        try:
+            detail = await _effective_project(ctx, pid)
+            key = node_for_step(bi._meta(detail), await bi._node_runs(ctx, pid), "img_pr")
+        except Exception:  # noqa: BLE001 — без ключа ноды остаётся перезапуск промтов
+            key = None
+        out: list[dict[str, Any]] = []
+        if key:
+            append = f"В каждом промте картинки обязательно укажи стиль «{word}»."
+            out.append(
+                {
+                    "action": "prompt.edit_text",
+                    "params": {
+                        "project_id": pid,
+                        "node_key": key,
+                        "rationale": f"слова «{word}» нет в {len(found['missing'])} из {found['with_prompt']} промтов",
+                        "append": append,
+                    },
+                    "title_ru": "Дописать в промт ноды «Промты картинок» требование стиля (применяет человек кнопкой)",
+                    "phrase_ru": f"допиши в промт ноды {key} проекта {pid}: {append}",
+                }
+            )
+        out.append(
+            {
+                "action": "step.run_step",
+                "params": {"project_id": pid, "step_code": "img_pr"},
+                "title_ru": "Перезапустить промты картинок с новым промтом (платно)",
+                "phrase_ru": f"перезапусти промты картинок проекта {pid}",
+            }
+        )
+        return out
+    return [
+        {
+            "action": "step.run_step",
+            "params": {"project_id": pid, "step_code": "img"},
+            "title_ru": f"Перегенерировать картинки: промты уже со стилем «{word}», теряет генерация (модель или рефы)",
+            "phrase_ru": f"перезапусти картинки проекта {pid}",
+        }
+    ]
+
+
 def keyword_text(found: dict[str, Any]) -> str:
     word, total, filled, missing = found["keyword"], found["frames"], found["with_prompt"], found["missing"]
     if not filled:
@@ -111,6 +161,7 @@ async def _diag_content_checks(ctx: ActionContext, params: dict) -> dict:
     found_word = await keyword_in_prompts(pid, keyword) if keyword else None
     if found_word is not None:
         lines.append(keyword_text(found_word))
+        fixes += await keyword_fixes(ctx, pid, found_word)
     for report in reports:
         lines.append(cc.summary_text(report))
         fixes += (

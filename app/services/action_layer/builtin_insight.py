@@ -941,6 +941,19 @@ def _human_wait_ru(reason: str) -> str:
     return "автопроверка шага пропущена, воркер ждёт ручного ▶" + (f" ({_clip(reason, 120)})" if reason else "")
 
 
+def _manual_run_fix(pid: int, nxt: dict) -> dict | None:
+    code = str(nxt.get("step") or "")
+    if not code:
+        return None
+    name = str(nxt.get("title") or _step_ru(code))
+    return {
+        "action": "step.run_step",
+        "params": {"project_id": int(pid), "step_code": code},
+        "title_ru": f"Запустить шаг «{name}» вручную: это снимает ожидание ▶",
+        "phrase_ru": f"запусти {name.lower()} проекта {pid}",
+    }
+
+
 def _pause_lines(pause: dict, fs: dict | None) -> list[str]:
     lines = []
     if pause.get("await_human"):
@@ -1012,6 +1025,13 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Следующий шаг: {nxt['title']}.")
     lines.append(f"Готово шагов: {done} из {len(steps)}.")
     lines += _pause_lines(pause, fs)
+    if (pause.get("await_human") or (pause.get("await_manual_start") and not pause["paused"])) and nxt:
+        # «Почини» после «почему стоит»: запустить следующий шаг вручную — это снимает ожидание ▶.
+        fix = _manual_run_fix(pid, nxt)
+        if fix:
+            out["fix_options"] = [fix]
+            out["suggested_phrase"] = fix["phrase_ru"]
+            lines.append(f"Что можно сделать: {fix['title_ru']} — «{fix['phrase_ru']}».")
     if out["generation_active"] or running:
         lines.append("Идёт генерация" + (f": {', '.join(out['running_nodes'])}." if running else "."))
     if failed:
