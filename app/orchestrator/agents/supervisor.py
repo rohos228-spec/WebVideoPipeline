@@ -3248,8 +3248,12 @@ class Supervisor:
         else:
             self._launch_note.pop(task_id, None)
         try:
+            from app.orchestrator.agents.compound_scope import sync_apply_counts
+
+            # Счётчики применения — до подстановки модели и цены: без них шаг видео не получал генератор.
             resolved = _chain_from_queue(
-                [await self._resolved(self._with_defaults(step)) for step in drafted], goal
+                [await self._resolved(self._with_defaults(step)) for step in sync_apply_counts(list(drafted))],
+                goal,
             )
         except PlanResolveRefused as exc:
             # Шаг нельзя достроить без чтения данных: плана нет, человеку — текст отказа.
@@ -3261,11 +3265,8 @@ class Supervisor:
             self._fail_detail[task_id] = str(exc)
             self._code_answers.add(task_id)
             return []
-        from app.orchestrator.agents.compound_scope import sync_apply_counts
-
         plan = [
-            tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions))
-            for step in sync_apply_counts(resolved)
+            tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
         ]
         plan, nothing = await self._drop_unchanged_settings(task_id, plan, goal)
         plan = await self._drop_blocked_launches(task_id, plan, goal, session_id)
