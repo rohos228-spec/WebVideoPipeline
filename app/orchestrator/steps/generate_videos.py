@@ -56,6 +56,7 @@ from app.services.artifact_recovery import (
     recover_scene_images_from_disk,
     recover_scene_videos_from_disk,
 )
+from app.services.db_v2 import frame_is_archived
 from app.services.gpt_client import get_gpt_client
 from app.services.hitl import send_hitl_text
 from app.services.img_streams import (
@@ -395,18 +396,22 @@ async def _claim_shot1_video_batch(
     videos_dir = project.data_dir / "videos" if project is not None else None
     # populate_existing: после parallel SessionLocal() attrs.inflight иначе stale
     # в identity map родителя → кадры навсегда пропускаются.
-    frames = (
-        (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project_id)
-                .order_by(Frame.number)
-                .execution_options(populate_existing=True)
+    frames = [
+        fr
+        for fr in (
+            (
+                await session.execute(
+                    select(Frame)
+                    .where(Frame.project_id == project_id)
+                    .order_by(Frame.number)
+                    .execution_options(populate_existing=True)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+        if not frame_is_archived(fr)
+    ]
     claimed: list[Frame] = []
     dirty = False
     for fr in frames:
@@ -483,18 +488,22 @@ async def _claim_shot2_video_batch(
         return []
     xlsx_path = project.data_dir / "project.xlsx"
     shot2_by = read_shot2_columns(xlsx_path) if xlsx_path.is_file() else {}
-    frames = (
-        (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project.id)
-                .order_by(Frame.number)
-                .execution_options(populate_existing=True)
+    frames = [
+        fr
+        for fr in (
+            (
+                await session.execute(
+                    select(Frame)
+                    .where(Frame.project_id == project.id)
+                    .order_by(Frame.number)
+                    .execution_options(populate_existing=True)
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+        if not frame_is_archived(fr)
+    ]
     from app.orchestrator.steps.generate_images import frame_hidden_from_paid_generation
     from app.services.vo_shot_expand import is_shot_child
 
@@ -1060,11 +1069,15 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         )
 
     scenes_dir = project.data_dir / "scenes"
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     out_dir = project.data_dir / "videos"
     out_dir.mkdir(parents=True, exist_ok=True)
 

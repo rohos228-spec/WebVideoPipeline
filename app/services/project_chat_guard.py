@@ -25,6 +25,7 @@ from app.services.chat_humanize import _TYPE_DEFAULT, humanize_reply, step_title
 #: (остановка — защитное действие, человек ждёт её немедленно).
 CONFIRM_KEYS: tuple[str, ...] = (
     "run_step",
+    "run_node",
     "hitl_decision",
     "set_option",
     "set_prompt",
@@ -145,10 +146,12 @@ def action_title(act: dict, keymap: dict | None = None) -> str:
             "Опубликовать готовый ролик на все площадки, где его ещё нет (TikTok, YouTube Shorts, "
             "Instagram Reels, VK Клипы, Likee), с подписью из темы проекта. Отозвать из студии нельзя."
         )
-    if key == "run_step":
-        step = str(v or "")
+    if key in ("run_step", "run_node"):
+        step = str(act.get("run_step") or "")
+        node_key = str(act.get("node_key") or act.get("run_node") or "")
+        label = (km.get(node_key, {}).get("label") if node_key else None) or step_title(step, km)
         paid = " Это платный шаг." if step in PAID_MEDIA_STEPS else ""
-        return f"Запустить шаг «{step_title(step, km)}».{paid}"
+        return f"Запустить шаг «{label}».{paid}"
     if key == "hitl_decision":
         return f"Проверка человеком: {_HITL_RU.get(str(v), str(v))}."
     if key == "set_option":
@@ -203,8 +206,16 @@ def take_pending(project_id: int, token: str) -> dict | None:
 def action_note(entry: dict, keymap: dict | None = None) -> str:
     """Плашка под ответом: что реально выполнено — по-русски, названиями с канваса."""
     km = keymap or {}
-    if "run_step" in entry:
-        return f"запущен шаг «{entry.get('step_label') or step_title(str(entry['run_step']), km)}»"
+    if "run_step" in entry or "run_node" in entry:
+        step_code = str(entry.get("run_step") or "")
+        node_key = str(entry.get("node_key") or "")
+        label = (
+            entry.get("step_label")
+            or (km.get(node_key, {}).get("label") if node_key else None)
+            or (step_title(step_code, km) if step_code else None)
+            or "шаг"
+        )
+        return f"запущен шаг «{label}»"
     if "stop_step" in entry:
         return "генерация остановлена"
     if "set_option" in entry:

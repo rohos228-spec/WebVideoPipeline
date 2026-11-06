@@ -901,6 +901,7 @@ export interface DbOrchestratorChatResult {
     project_graph?: unknown;
     error?: string;
     run_step?: string;
+    run_node?: string;
     step_label?: string;
     status?: string;
     stop_step?: boolean;

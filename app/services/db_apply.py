@@ -1089,8 +1089,9 @@ def export_project_xlsx(
             snap = backup_to_old(path)
         except Exception:  # noqa: BLE001
             snap = None
+        active_frames = [fr for fr in frames if not db_v2.frame_is_archived(fr)]
         cells = 0
-        for fr in frames:
+        for fr in active_frames:
             col = fr.number + 2
             attrs = fr.attrs or {}
             writes = {
@@ -1390,11 +1391,15 @@ async def apply_ops(
     await session.flush()
 
     # Детали из scenes[].shots[] → Frame.attrs (place/действие/описание…).
-    all_frames = list(
-        (
-            await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number))
-        ).scalars()
-    )
+    all_frames = [
+        fr
+        for fr in (
+            (
+                await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number))
+            ).scalars()
+        )
+        if not db_v2.frame_is_archived(fr)
+    ]
     meta_now = project.meta if isinstance(project.meta, dict) else {}
     expanded = expand_scene_registry_onto_frames(all_frames, meta_now.get("scene_registry"))
     if expanded:
