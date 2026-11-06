@@ -795,7 +795,7 @@ export function OrchestratorPanel({ projectId }: Props) {
         if (a.error) notes.push(`не получилось: ${a.error}`);
         else if (a.note) notes.push(a.note);
         else if (a.inspect_project || a.project_graph) notes.push("посмотрел схему проекта");
-        else if (a.run_step) notes.push(`запущен шаг «${a.step_label ?? a.run_step}»`);
+        else if (a.run_step || a.run_node) notes.push(`запущен шаг «${a.step_label ?? a.run_step ?? a.run_node}»`);
         else if (a.stop_step) notes.push("генерация остановлена");
         else if (a.set_option) notes.push(`настройка: ${a.set_option}`);
         else if (a.set_prompt) notes.push(`промт: ${a.set_prompt}`);
