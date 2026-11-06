@@ -122,6 +122,34 @@ def clip_report_ids(plan: list[PlanStep]) -> list[PlanStep]:
     return out
 
 
+
+# «Исправь и перезапусти», «почини и запусти заново»: модель ставила node.reset_from_step перед
+# step.run_step того же шага. Сброс стирает результаты (удаление) — план блокировался целиком,
+# хотя упавший шаг перезапускается и без сброса. Сброс оставляем, только если о нём просили.
+_RESET_ASKED = re.compile(
+    r"(?<![а-я])(?:сброс\w*|сбрось|обнули\w*|очисти\w*|с\s+нуля|с\s+чистого|удали\w*|стереть|сотри)(?![а-я])"
+)
+
+
+def drop_needless_reset(plan: list[PlanStep], goal: str) -> list[PlanStep]:
+    text = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    if _RESET_ASKED.search(text):
+        return plan
+    runs = {
+        (step.params.get("project_id"), step.params.get("step_code"))
+        for step in plan
+        if step.action in ("step.run_step", "node.run_step")
+    }
+    out = [
+        step
+        for step in plan
+        if not (
+            step.action == "node.reset_from_step"
+            and (step.params.get("project_id"), step.params.get("step_code")) in runs
+        )
+    ]
+    return out if out else plan
+
 # «Опубликуй», «выложи на ютуб», «збс, теперь опубликуй»: подпись — тема проекта (её же требует
 # проверка «подпись совпадает с темой»), площадки — названные или все ещё не опубликованные.
 # Планировщик вместо карточки спрашивал «уточните площадки и подпись».

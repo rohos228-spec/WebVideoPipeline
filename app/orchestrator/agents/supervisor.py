@@ -3119,6 +3119,10 @@ class Supervisor:
         from app.orchestrator.agents.run_scope import clip_report_ids
 
         drafted = clip_report_ids(list(drafted))
+        from app.orchestrator.agents.run_scope import drop_needless_reset
+
+        # «Исправь и перезапусти»: сброс шага перед его же перезапуском — удаление, план блокировался.
+        drafted = drop_needless_reset(list(drafted), goal)
         # «Кадр 8: ночное освещение» — свет на доске, а не платная перерисовка картинки.
         drafted = light_as_coverage(drafted, goal)
         # «Музыка для проекта 4 — файл C:\...\bgm.wav»: путь из просьбы, если шаг загрузки без файла.

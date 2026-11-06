@@ -292,3 +292,24 @@ def test_explained_empty_plan_has_no_not_understood_prefix():
     assert _EXPLAINS_RE.search("В проекте 33 нет кадров, поэтому запуск видео невозможен")
     assert _EXPLAINS_RE.search("В проекте #10 формат кадра уже такой, менять нечего")
     assert not _EXPLAINS_RE.search("Уточните, какой кадр перерисовать")
+
+
+
+def test_fix_and_rerun_drops_reset_of_same_step():
+    from app.orchestrator.agents.run_scope import drop_needless_reset
+    from app.orchestrator.contracts import PlanStep
+
+    def st(action, **params):
+        return PlanStep(action=action, params=params, expected="x")
+
+    plan = [
+        st("project.status", project_id=12),
+        st("node.reset_from_step", project_id=12, step_code="img_pr"),
+        st("step.run_step", project_id=12, step_code="img_pr"),
+    ]
+    out = drop_needless_reset(plan, "исправь и перезапусти")
+    assert [s.action for s in out] == ["project.status", "step.run_step"]
+    kept = drop_needless_reset(plan, "сбрось промты и запусти с нуля")
+    assert len(kept) == 3
+    other = [st("node.reset_from_step", project_id=12, step_code="img_pr"), st("step.run_step", project_id=12, step_code="video")]
+    assert len(drop_needless_reset(other, "перезапусти")) == 2
