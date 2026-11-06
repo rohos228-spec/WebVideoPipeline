@@ -29,6 +29,7 @@ def test_handled_falls_back_on_not_understood():
     # С пояснением, чего нет и что можно вместо, — ответ оркестратора, не старый путь.
     assert bridge.handled({"reply": "Этого чат пока не умеет. Скорость речи не настраивается.", "card": None})
     assert not bridge.handled({"reply": "", "card": None})
+    assert bridge.handled({"reply": "Сценарий верный. Совы не умеют видеть в полной темноте.", "card": None})
     assert not bridge.handled(None)
 
 
@@ -113,3 +114,36 @@ def test_old_project_without_own_canvas_sees_run_graph_nodes():
     assert [n["id"] for n in meta["canvas_graph"]["nodes"]] == ["n_videos"]
     own = {"canvas_graph": {"nodes": [{"id": "n_a", "type": "plan"}], "edges": []}}
     assert with_effective_graph(own, graph)["canvas_graph"]["nodes"][0]["id"] == "n_a"
+
+
+def test_trailing_verb_moves_only_when_alone():
+    from app.orchestrator.queue import fix_typos
+
+    assert fix_typos("все проекты до монтажа доведи") == "запусти все проекты до монтажа"
+    for keep in (
+        "разберись почему упал ИИ-редактор сцен, почини и перезапусти",
+        "проверь что закадр совпадает с текстом сценария, и если нет — исправь",
+    ):
+        assert fix_typos(keep) == keep
+
+
+def test_card_hides_reads_ids_and_repeated_project():
+    card = {
+        "change_id": "c", "title": "Изменить закадр ячейки", "risk": "medium",
+        "steps": [
+            {"text": "Результат ноды — нода «Сценарий»; проект #10", "risk": "none"},
+            {"text": "Изменить закадр — parent_uuid 4a8a1c4a233d4dd3a1b3e795; voiceover Вот факт.; проект #10", "risk": "medium"},
+            {"text": "Изменить закадр — parent_uuid 7ef52126e98740298ecc0f19; voiceover Первый.; проект #10", "risk": "medium"},
+        ],
+    }
+    title = bridge.card_title(card)
+    assert "Результат ноды" not in title and "parent_uuid" not in title and "voiceover" not in title
+    assert title.count("проект #10") == 1 and "закадр: Вот факт." in title
+
+
+def test_new_video_request_skips_open_project_rules():
+    from app.orchestrator.agents.supervisor import _NEW_VIDEO_RE
+
+    assert _NEW_VIDEO_RE.search("сделай ролик про пчёл в стиле аниме с женским голосом")
+    assert not _NEW_VIDEO_RE.search("поменяй голос на женский")
+    assert not _NEW_VIDEO_RE.search("сделай стиль аниме для всех кадров")

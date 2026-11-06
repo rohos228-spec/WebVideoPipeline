@@ -2855,8 +2855,11 @@ class Supervisor:
 
         # Правила видят только слова человека: хвост о прошлой просьбе — для модели.
         goal = words_to_digits(strip_continuation(goal))
+        # «Сделай ролик про пчёл с женским голосом»: новый проект — правила голоса, стиля и
+        # музыки открытого проекта молчат (план ставит модель или правило создания ниже).
+        new_video = bool(_NEW_VIDEO_RE.search(goal))
         fixed: list[PlanStep] | None = None
-        if not fixed:
+        if not fixed and not new_video:
             # «Перемонтируй с музыкой потише»: громкость от текущей, без вопроса «сколько 0–100».
             from app.orchestrator.agents.music_scope import music_volume_plan
 
@@ -2866,17 +2869,17 @@ class Supervisor:
                 from app.orchestrator.agents.style_scope import voice_plan as _voice_also
 
                 fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id)) or [])]
-        if not fixed:
+        if not fixed and not new_video:
             # «Сделай, чтобы во всех картинках был пластилин»: правка промта «Промты картинок».
             from app.orchestrator.agents.style_scope import style_plan
 
             fixed = await style_plan(goal, self._task_project_id(task_id))
-        if not fixed:
+        if not fixed and not new_video:
             # «Сделай все картинки темнее», «сократи текст озвучки»: правка промта всего проекта.
             from app.orchestrator.agents.style_scope import wide_edit_plan
 
             fixed = await wide_edit_plan(goal, self._task_project_id(task_id))
-        if not fixed:
+        if not fixed and not new_video:
             # «Поменяй голос на мужской»: голос ноды «Озвучка», а не «загрузите файл».
             from app.orchestrator.agents.style_scope import voice_plan
 
@@ -3092,6 +3095,9 @@ class Supervisor:
                     context = (context + "\n" + context_note(intent)).strip()
             if not fixed and _NODE_WORD_RE.search(goal or ""):
                 context = (context + "\n" + _node_name_note()).strip()
+            if not fixed and _NEW_VIDEO_RE.search(goal or ""):
+                # Окно ИИ-агента всегда в проекте: «сделай ролик про пчёл» меняло голос проекта 10.
+                context = (context + "\n" + _NEW_VIDEO_NOTE).strip()
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
@@ -6530,9 +6536,19 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
 _NO_APPLY_RE = re.compile(r"не\s+примен|без\s+применени|только\s+(?:подготов|предлож)", re.IGNORECASE)
 
 
-_READ_NOTE_CHARS = 2500
+_READ_NOTE_CHARS = 1500
+_NEW_VIDEO_RE = re.compile(
+    r"^\s*(?:сделай|создай|сгенерируй|запили|сними|нужен|хочу)\s+(?:нов\w+\s+|ещ[её]\s+(?:один\s+)?)?"
+    r"(?:ролик|видео|клип|видос|мультик)\w*\s+(?:про|о|об|на\s+тему)\s",
+    re.IGNORECASE,
+)
+_NEW_VIDEO_NOTE = (
+    "Это просьба сделать НОВЫЙ ролик: создай новый проект (project.create) с этой темой. "
+    "Открытый в окне проект не меняй. Стиль, голос и длительность — для нового проекта: "
+    "что нельзя задать при создании, назови в ответе следующей фразой после создания."
+)
 _NODE_WORD_RE = re.compile(r"(?<!\w)нод\w*", re.IGNORECASE)
-_READ_CONTEXT_CHARS = 9000
+_READ_CONTEXT_CHARS = 5000
 _LAUNCH_ASK_RE = re.compile(
     r"(?<!\w)(запуст|прогон|перезапуст|исправ|почин|переген|сгенер|перерисуй|переделай)\w*",
     re.IGNORECASE,

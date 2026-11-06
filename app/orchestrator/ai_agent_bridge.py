@@ -28,8 +28,10 @@ DECIDE_TIMEOUT_S = 165.0
 _IDLE_AFTER_REPLY_S = 2.5
 
 # Ответы, после которых реплику лучше отдать прежнему движку окна.
+# Только начало ответа: в разборе сценария про сов «не умеют» стояло в середине, и мост
+# отдавал готовый ответ старому пути.
 _NOT_HANDLED_RE = re.compile(
-    r"Не понял, что сделать|^\s*Этого чат пока не умеет\.?\s*$|не умею|Модель сейчас не отвечает", re.I
+    r"^\s*(?:Не понял, что сделать|Этого чат пока не умеет\.?\s*$|Я не умею|Модель сейчас не отвечает)", re.I
 )
 _AUTO_PREFIX_RE = re.compile(r"^\[РЕЖИМ:[^\]]*\]\s*", re.S)
 _END_TYPES = {"task_done", "task_failed"}
@@ -97,18 +99,48 @@ def _text_of(payload: dict[str, Any]) -> str:
 _RISK_RU = {"none": "нет", "low": "низкий", "medium": "средний", "high": "высокий", "critical": "критичный"}
 
 
+_UUID_RE = re.compile(r"\b(?:parent_uuid|uuid|cell_id)\s+[0-9a-f]{12,}\s*;?\s*", re.I)
+_PROJECT_TAIL_RE = re.compile(r";?\s*проект #(\d+)\s*$")
+
+
+def _action_steps(card: dict[str, Any]) -> list[dict[str, Any]]:
+    """Шаги, которые что-то меняют или стоят денег; чтения перед ними на карточке — шум."""
+    steps = [s for s in card.get("steps") or [] if isinstance(s, dict)]
+    acting = [s for s in steps if s.get("paid") or str(s.get("risk") or "none") != "none"]
+    return acting or steps
+
+
+def _step_lines(card: dict[str, Any]) -> tuple[list[str], str]:
+    """Тексты шагов без служебных ключей; общий проект — один раз, а не у каждого шага."""
+    lines: list[str] = []
+    projects: set[str] = set()
+    for step in _action_steps(card):
+        text = _UUID_RE.sub("", str(step.get("text") or step.get("title") or "")).strip(" ;")
+        text = re.sub(r"\bvoiceover\s+", "закадр: ", text)
+        found = _PROJECT_TAIL_RE.search(text)
+        if found:
+            projects.add(found.group(1))
+        lines.append(text)
+    if len(projects) == 1:
+        lines = [_PROJECT_TAIL_RE.sub("", line).strip(" ;") for line in lines]
+    project = f"проект #{next(iter(projects))}" if len(projects) == 1 else ""
+    return [line for line in lines if line], project
+
+
 def card_title(card: dict[str, Any]) -> str:
     """Строка карточки окна: что сделает, по шагам, цена и риск."""
     parts = [str(card.get("title") or "Действие оркестратора").strip()]
-    steps = [s for s in card.get("steps") or [] if isinstance(s, dict)]
+    lines, project = _step_lines(card)
+    if project:
+        parts[0] += f" ({project})"
+    steps = _action_steps(card)
     if len(steps) > 1 or (steps and steps[0].get("params_text")):
-        lines = []
-        for step in steps[:8]:
-            text = str(step.get("text") or step.get("title") or "").strip()
-            if text:
-                lines.append(text + (" (платно)" if step.get("paid") else ""))
-        if lines:
-            parts.append("шаги: " + "; ".join(lines))
+        shown = [
+            line + (" (платно)" if step.get("paid") else "")
+            for line, step in zip(lines[:8], steps[:8], strict=False)
+        ]
+        if shown:
+            parts.append("шаги: " + "; ".join(shown))
     if card.get("cost_text"):
         parts.append(str(card["cost_text"]))
     risk = card.get("plan_risk") or card.get("risk")
@@ -202,8 +234,10 @@ def done_payload(result: dict[str, Any]) -> dict[str, Any]:
     reply = str(result.get("reply") or "")
     pending = [_card_item(card)] if card else []
     if card and not reply:
-        steps = [str(x.get("text") or x.get("title") or "").strip() for x in card.get("steps") or [] if isinstance(x, dict)]
-        what = "; ".join(t for t in steps if t) or str(card.get("title") or "")
+        lines, project = _step_lines(card)
+        what = "; ".join(lines) or str(card.get("title") or "")
+        if project and what:
+            what += f" ({project})"
         reply = (f"Сделаю: {what}." if what else "") + " Это нужно подтвердить — кнопка ниже."
         reply = reply.strip()
     return {

@@ -292,6 +292,9 @@ _BATCH_THEN_RUN_RE = re.compile(
 )
 
 
+_TAIL_LINKS = frozenset({"и", "а", "—", "-", "–", "потом", "затем", "нет", "то", "тогда", "или"})
+
+
 def fix_typos(text: str) -> str:
     out = str(text or "")
     low = out.lower()
@@ -300,10 +303,17 @@ def fix_typos(text: str) -> str:
             low = rx.sub(good, low)
             out = low
     # «Все проекты до монтажа доведи»: глагол в конце — переносим вперёд, как пишут планировщику.
+    # Только когда глагол в фразе один: «почини и перезапусти», «если нет — исправь» не трогаем.
     tokens = out.split()
     if len(tokens) >= 3:
         last = tokens[-1].lower().strip(".!?")
-        if last in _IMPERATIVES and tokens[0].lower() not in _IMPERATIVES:
+        head = [t.lower().strip(".,!?:;") for t in tokens[:-1]]
+        if (
+            last in _IMPERATIVES
+            and not any(t in _IMPERATIVES for t in head)
+            and head[-1] not in _TAIL_LINKS
+            and not tokens[-2].endswith((",", ":", ";"))
+        ):
             out = " ".join([tokens[-1].strip(".!?"), *tokens[:-1]])
     # «Запусти 5 и скажи, сколько это будет стоить»: цена и так в карточке запуска — вторую
     # просьбу убираем, иначе планировщик отвечал «чат не умеет».
