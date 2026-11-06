@@ -2843,6 +2843,213 @@ class Supervisor:
                 return str(row.get("action_name")), params
         return None
 
+    async def _shortcut_plan(self, task_id: int, goal: str) -> list[PlanStep] | None:
+        """Точные правила по словам просьбы — без модели; ``None`` — ни одно не подошло."""
+        fixed: list[PlanStep] | None = None
+        if not fixed:
+            # «Перемонтируй с музыкой потише»: громкость от текущей, без вопроса «сколько 0–100».
+            from app.orchestrator.agents.music_scope import music_volume_plan
+
+            fixed = await music_volume_plan(goal, self._task_project_id(task_id))
+            if fixed and " и " in f" {goal.lower()} ":
+                # «Музыку тише и голос мужской»: вторая просьба терялась — добавить смену голоса.
+                from app.orchestrator.agents.style_scope import voice_plan as _voice_also
+
+                fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id)) or [])]
+        if not fixed:
+            # «Сделай, чтобы во всех картинках был пластилин»: правка промта «Промты картинок».
+            from app.orchestrator.agents.style_scope import style_plan
+
+            fixed = await style_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Сделай все картинки темнее», «сократи текст озвучки»: правка промта всего проекта.
+            from app.orchestrator.agents.style_scope import wide_edit_plan
+
+            fixed = await wide_edit_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Поменяй голос на мужской»: голос ноды «Озвучка», а не «загрузите файл».
+            from app.orchestrator.agents.style_scope import voice_plan
+
+            fixed = voice_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Перемонтируй», «доведи до конца»: планировщик отвечал «чат пока не умеет».
+            from app.orchestrator.agents.run_scope import run_plan
+
+            fixed = run_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Покажи промт второго кадра», «поменяй промт кадра 3 на …»: промт одного кадра.
+            from app.orchestrator.agents.frame_scope import frame_prompt_plan
+
+            fixed = frame_prompt_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Перезапусти видео кадра 2»: видео одного кадра заново, а не «чат не умеет».
+            from app.orchestrator.agents.frame_scope import video_frame_plan
+
+            fixed = video_frame_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Кадр 4 переделай», «кит на 2 кадре кривой, перегенери»: картинка кадра заново.
+            from app.orchestrator.agents.frame_scope import image_frame_plan
+
+            fixed = image_frame_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Поменяй местами кадры 1 и 2»: обмен картинками, без «картинки или видео?».
+            from app.orchestrator.agents.frame_scope import swap_frames_plan
+
+            fixed = swap_frames_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Опубликуй», «выложи на ютуб»: подпись — тема проекта, без «уточните подпись».
+            from app.orchestrator.agents.run_scope import publish_plan
+
+            fixed = await publish_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            # «Создай ролик про акул и доведи до картинок», «отчёт за неделю».
+            from app.orchestrator.agents.run_scope import create_run_plan
+
+            fixed = create_run_plan(goal)
+        if not fixed and self._launch_allowed("queue.enqueue_many"):
+            # «Запусти проекты 2, 3, 5 до видео»: очередь сразу, без «проектов 2 и 3 нет».
+            from app.orchestrator.agents.action_catalog import _studio_projects
+            from app.orchestrator.agents.launch_scope import seed_multi_launch
+
+            fixed = seed_multi_launch(goal, lambda: [pid for pid, _ in _studio_projects(task_id)])
+        return fixed
+
+    async def _canonical_goal(self, task_id: int, goal: str) -> str | None:
+        """«Кит на втором стрёмный, давай по новой» → «кадр 2 переделай» (``intent_rewrite``)."""
+        from app.orchestrator.agents.intent_rewrite import canonical_goal
+
+        out = await canonical_goal(
+            goal,
+            getattr(self.planner, "router", None),
+            self._llm_kwargs(task_id, AgentRole.classifier.value),
+        )
+        if out:
+            logger.info("orch task {} intent rewrite: {!r} -> {!r}", task_id, goal, out)
+        return out
+
+    async def _intent_stage(self, task_id: int, goal: str, context: str) -> Any:
+        """Стадия намерения (``intent_retriever``): кандидаты в каталог задачи и лог решения.
+
+        ``None`` — стадия выключена (``ORCH_INTENT_RETRIEVER=0``), сбой или долгий ответ: план
+        строится прежним путём. Кандидаты только добавляются к лексической выборке.
+        """
+        from app.orchestrator.agents import intent_retriever as ir
+        from app.orchestrator.agents.action_catalog import _allowed_specs, _task_project, boost_task
+
+        if not ir.enabled():
+            return None
+        ir.count("tasks")
+        try:
+            specs = _allowed_specs()
+        except Exception:
+            logger.exception("orch intent: catalog unavailable")
+            return None
+        intent = await ir.retrieve_intent(
+            goal,
+            router=getattr(self.planner, "router", None),
+            llm_kwargs=self._llm_kwargs(task_id, AgentRole.classifier.value),
+            specs=specs,
+            project_id=_task_project(task_id),
+            dialog=str(context or "")[-1500:],
+        )
+        digest = hashlib.sha1(str(goal).encode("utf-8")).hexdigest()[:10]
+        if intent is None:
+            logger.info("orch intent task={} request_hash={} status=skipped", task_id, digest)
+            return None
+        boost_task(task_id, intent.candidates)
+        logger.info(
+            "orch intent task={} request_hash={} offered={} candidates={} confidence={:.2f} "
+            "clarify={} entities={} latency_ms={} summary={!r}",
+            task_id,
+            digest,
+            len(specs),
+            intent.candidates,
+            intent.confidence,
+            bool(intent.clarification),
+            intent.entities,
+            intent.latency_ms,
+            intent.summary,
+        )
+        return intent
+
+    async def _repair_plan(
+        self,
+        task_id: int,
+        session_id: str,
+        goal: str,
+        context: str,
+        intent: Any,
+    ) -> tuple[list[PlanStep] | None, str]:
+        """Ровно одна попытка ремонта пустого плана: шире каталог, проверенная команда, причина.
+
+        1) ``intent_rewrite`` переводит фразу в проверенную команду; если на неё срабатывает
+           правило кодом — берём его план (те же проверки дальше);
+        2) иначе планировщик ещё раз: лексика top-k*2 + кандидаты намерения, смысл просьбы,
+           причина прошлого пустого плана.
+        Если и после ремонта план пустой — остаётся честный вопрос планировщика.
+        """
+        from app.orchestrator.agents import intent_retriever as ir
+        from app.orchestrator.agents.action_catalog import boost_task
+
+        reason = self._planner_reason(task_id)
+        canonical = await self._canonical_goal(task_id, goal)
+        if canonical:
+            again = await self._shortcut_plan(task_id, canonical)
+            if again:
+                self._trace_plan(task_id, "intent_rewrite", list(again), canonical)
+                ir.count("repair_used")
+                ir.count("repair_ok")
+                return again, canonical
+        if not ir.enabled() and not canonical:
+            return [], goal
+        ir.count("repair_used")
+        boost_task(task_id, list(intent.candidates) if intent is not None else [], wide=True)
+        notes = [f"Прошлая попытка вернула пустой план: «{reason or 'без причины'}»."]
+        if canonical:
+            notes.append(f"Слова человека: «{goal}». Смысл просьбы в виде команды: «{canonical}».")
+        notes.append(
+            "Каталог расширен. Проект задачи известен; если смысл ясен — верни план из каталога, "
+            "необязательные детали подставь сам или опусти. Пустой план — только если такого действия "
+            "в каталоге действительно нет (тогда так и скажи) или без ответа человека делать нечего."
+        )
+        target = canonical or goal
+        again = await self._draft_plan(task_id, session_id, target, (context + "\n" + " ".join(notes)).strip())
+        logger.info(
+            "orch intent task={} repair steps={} canonical={!r} prev_reason={!r}",
+            task_id,
+            len(again or []),
+            canonical,
+            reason[:120],
+        )
+        if again:
+            self._trace_plan(task_id, "intent_repair", list(again), target)
+            ir.count("repair_ok")
+            return again, target
+        return again, goal
+
+    def _intent_outcome(self, task_id: int, goal: str, drafted: Any) -> None:
+        """Итог понимания для метрик: план, вопрос или «нет такого действия»."""
+        from app.orchestrator.agents import intent_retriever as ir
+
+        if not ir.enabled():
+            return
+        if drafted:
+            status = "plan"
+            ir.count("plan_ok")
+        elif drafted == [] and ir.is_clarify(self._planner_reason(task_id)):
+            status = "clarify"
+            ir.count("plan_clarify")
+        else:
+            status = "empty"
+            ir.count("plan_empty")
+        logger.info(
+            "orch intent task={} final_status={} steps={} actions={}",
+            task_id,
+            status,
+            len(drafted or []),
+            [_step_action(step) for step in (drafted or [])][:10],
+        )
+
     async def _make_plan(
         self,
         task_id: int,
@@ -2864,77 +3071,25 @@ class Supervisor:
             # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
             fixed = await plan_fix_from_last(last_check)
             if not fixed:
-                # «Перемонтируй с музыкой потише»: громкость от текущей, без вопроса «сколько 0–100».
-                from app.orchestrator.agents.music_scope import music_volume_plan
+                fixed = await self._shortcut_plan(task_id, goal)
+            intent = None
+            if not fixed and not last_check:
+                # Стадия намерения: смысл просьбы и действия из ВСЕГО каталога, лексика — усиление.
+                intent = await self._intent_stage(task_id, goal, context)
+                if intent is not None:
+                    from app.orchestrator.agents.intent_retriever import context_note
 
-                fixed = await music_volume_plan(goal, self._task_project_id(task_id))
-                if fixed and " и " in f" {goal.lower()} ":
-                    # «Музыку тише и голос мужской»: вторая просьба терялась — добавить смену голоса.
-                    from app.orchestrator.agents.style_scope import voice_plan as _voice_also
-
-                    fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id)) or [])]
-            if not fixed:
-                # «Сделай, чтобы во всех картинках был пластилин»: правка промта «Промты картинок».
-                from app.orchestrator.agents.style_scope import style_plan
-
-                fixed = await style_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Сделай все картинки темнее», «сократи текст озвучки»: правка промта всего проекта.
-                from app.orchestrator.agents.style_scope import wide_edit_plan
-
-                fixed = await wide_edit_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Поменяй голос на мужской»: голос ноды «Озвучка», а не «загрузите файл».
-                from app.orchestrator.agents.style_scope import voice_plan
-
-                fixed = voice_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Перемонтируй», «доведи до конца»: планировщик отвечал «чат пока не умеет».
-                from app.orchestrator.agents.run_scope import run_plan
-
-                fixed = run_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Покажи промт второго кадра», «поменяй промт кадра 3 на …»: промт одного кадра.
-                from app.orchestrator.agents.frame_scope import frame_prompt_plan
-
-                fixed = frame_prompt_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Перезапусти видео кадра 2»: видео одного кадра заново, а не «чат не умеет».
-                from app.orchestrator.agents.frame_scope import video_frame_plan
-
-                fixed = video_frame_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Кадр 4 переделай», «кит на 2 кадре кривой, перегенери»: картинка кадра заново.
-                from app.orchestrator.agents.frame_scope import image_frame_plan
-
-                fixed = image_frame_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Поменяй местами кадры 1 и 2»: обмен картинками, без «картинки или видео?».
-                from app.orchestrator.agents.frame_scope import swap_frames_plan
-
-                fixed = swap_frames_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Опубликуй», «выложи на ютуб»: подпись — тема проекта, без «уточните подпись».
-                from app.orchestrator.agents.run_scope import publish_plan
-
-                fixed = await publish_plan(goal, self._task_project_id(task_id))
-            if not fixed:
-                # «Создай ролик про акул и доведи до картинок», «отчёт за неделю».
-                from app.orchestrator.agents.run_scope import create_run_plan
-
-                fixed = create_run_plan(goal)
-            if not fixed and self._launch_allowed("queue.enqueue_many"):
-                # «Запусти проекты 2, 3, 5 до видео»: очередь сразу, без «проектов 2 и 3 нет».
-                from app.orchestrator.agents.action_catalog import _studio_projects
-                from app.orchestrator.agents.launch_scope import seed_multi_launch
-
-                fixed = seed_multi_launch(goal, lambda: [pid for pid, _ in _studio_projects(task_id)])
+                    context = (context + "\n" + context_note(intent)).strip()
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
                 drafted = await self._draft_plan(
                     task_id, session_id, goal, (context + "\n" + _APPROVAL_NOTE).strip()
                 )
+            if drafted == [] and not fixed and not last_check:
+                drafted, goal = await self._repair_plan(task_id, session_id, goal, context, intent)
+            if not fixed and not last_check:
+                self._intent_outcome(task_id, goal, drafted)
             if drafted and _enable_not_launch(goal, list(drafted)):
                 self._trace_plan(task_id, "enable_not_launch", list(drafted), "включение ноды, не запуск")
                 drafted = await self._draft_plan(
@@ -2944,6 +3099,9 @@ class Supervisor:
                     drafted = [step for step in drafted if _step_action(step) != "step.run_step"]
         finally:
             _LLM_TASK.reset(token)
+            from app.orchestrator.agents.action_catalog import clear_boost
+
+            clear_boost(task_id)
         if drafted is None:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.

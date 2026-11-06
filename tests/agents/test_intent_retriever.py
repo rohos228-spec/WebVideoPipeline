@@ -1,0 +1,188 @@
+"""Стадия намерения: разбор JSON модели, отсев id вне каталога, флаг, таймаут, каталог задачи."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from types import SimpleNamespace
+
+import pytest
+
+from app.orchestrator.agents import action_catalog, intent_retriever
+from app.orchestrator.agents.action_catalog import ActionCatalog, boost_task, clear_boost
+
+
+def _spec(action_id: str, title: str = "действие") -> SimpleNamespace:
+    return SimpleNamespace(
+        id=action_id,
+        title_ru=title,
+        description_ru=title,
+        risk="read",
+        spends_money=False,
+        params_schema={"type": "object", "properties": {"project_id": {"type": "integer"}}},
+    )
+
+
+SPECS = [
+    _spec("montage.queue_ops", "Очередь правок кадров"),
+    _spec("montage.get_board", "Доска кадров"),
+    _spec("project.status", "Состояние проекта"),
+    _spec("publish.send", "Опубликовать"),
+]
+
+
+@pytest.fixture(autouse=True)
+def _on(monkeypatch):
+    monkeypatch.setenv("ORCH_INTENT_RETRIEVER", "1")
+
+
+def _fake_call(monkeypatch, text: str, delay: float = 0.0, seen: list | None = None):
+    async def router_call(router, tier, messages, **kwargs):
+        if seen is not None:
+            seen.append((tier, messages, kwargs))
+        if delay:
+            await asyncio.sleep(delay)
+        return SimpleNamespace(text=text)
+
+    monkeypatch.setattr("app.orchestrator.agents.llm_call.router_call", router_call)
+
+
+def _run(goal: str = "кадр 3 стрёмный, давай по новой", **kw):
+    return asyncio.run(
+        intent_retriever.retrieve_intent(
+            goal, router=object(), llm_kwargs={"task_id": 7}, specs=SPECS, project_id=10, **kw
+        )
+    )
+
+
+def test_parses_json_and_drops_unknown_ids(monkeypatch):
+    seen: list = []
+    answer = {
+        "intent_summary_ru": "перерисовать картинку кадра 3",
+        "candidate_action_ids": ["montage.queue_ops", "made.up", "montage.get_board", "montage.queue_ops"],
+        "extracted_entities": {"frame_numbers": [3, "x"], "project_ids": [], "values": {"style": "аниме"}},
+        "confidence": 0.92,
+        "needs_clarification": None,
+    }
+    _fake_call(monkeypatch, "Вот ответ: " + json.dumps(answer, ensure_ascii=False), seen=seen)
+    intent = _run()
+    assert intent is not None
+    assert intent.candidates == ["montage.queue_ops", "montage.get_board"]
+    assert intent.entities == {"frame_numbers": [3], "values": {"style": "аниме"}}
+    assert intent.confidence == pytest.approx(0.92)
+    assert intent.clarification is None
+    tier, messages, kwargs = seen[0]
+    assert tier == "fast" and kwargs["agent_role"] == "classifier"
+    prompt = messages[1]["content"]
+    # Модель видит весь каталог и открытый проект.
+    assert "publish.send" in prompt and "проект #10" in prompt
+
+
+@pytest.mark.parametrize("text", ["", "не знаю", "[1,2]", "{oops"])
+def test_garbage_gives_none(monkeypatch, text):
+    _fake_call(monkeypatch, text)
+    assert _run() is None
+
+
+def test_flag_off_skips_model(monkeypatch):
+    monkeypatch.setenv("ORCH_INTENT_RETRIEVER", "0")
+    seen: list = []
+    _fake_call(monkeypatch, "{}", seen=seen)
+    assert _run() is None
+    assert seen == []
+
+
+def test_timeout_gives_none(monkeypatch):
+    monkeypatch.setattr(intent_retriever, "TIMEOUT_S", 0.05)
+    _fake_call(monkeypatch, "{}", delay=1.0)
+    assert _run() is None
+
+
+def test_confidence_and_clarification_are_clamped(monkeypatch):
+    _fake_call(
+        monkeypatch,
+        json.dumps({"candidate_action_ids": ["project.status"], "confidence": 7, "needs_clarification": " Какой? "}),
+    )
+    intent = _run()
+    assert intent.confidence == 1.0 and intent.clarification == "Какой?"
+
+
+def test_boost_adds_only_allowed_ids_and_clears(monkeypatch):
+    monkeypatch.setattr(action_catalog, "select_ids", lambda text, specs, limit: ["project.status"])
+    catalog = ActionCatalog(specs=lambda: SPECS, project_of=lambda _t: 10)
+    assert [r["id"] for r in catalog.entries("что-то", 55)] == ["project.status"]
+    boost_task(55, ["montage.queue_ops", "not.allowed"])
+    try:
+        ids = [r["id"] for r in catalog.entries("что-то", 55)]
+        assert ids == ["montage.queue_ops", "project.status"]
+        # Другой задаче чужие кандидаты не достаются.
+        assert [r["id"] for r in catalog.entries("что-то", 56)] == ["project.status"]
+    finally:
+        clear_boost(55)
+    assert [r["id"] for r in catalog.entries("что-то", 55)] == ["project.status"]
+
+
+def test_wide_repair_doubles_lexical_limit(monkeypatch):
+    limits: list[int] = []
+    monkeypatch.setattr(action_catalog, "select_ids", lambda text, specs, limit: limits.append(limit) or [])
+    catalog = ActionCatalog(max_catalog=24, specs=lambda: SPECS)
+    boost_task(57, [], wide=True)
+    try:
+        catalog.entries("x", 57)
+    finally:
+        clear_boost(57)
+    catalog.entries("x", 57)
+    assert limits == [48, 24]
+
+
+def test_context_note_has_summary_entities_and_candidates():
+    note = intent_retriever.context_note(
+        intent_retriever.Intent(
+            summary="перерисовать кадр 2", candidates=["montage.queue_ops"], entities={"frame_numbers": [2]}
+        )
+    )
+    assert "перерисовать кадр 2" in note and '"frame_numbers":[2]' in note and "montage.queue_ops" in note
+
+
+def test_few_shot_only_with_flag(monkeypatch):
+    from app.orchestrator.agents.planner import FEW_SHOT, _system_prompt
+
+    assert FEW_SHOT[1] in _system_prompt([], "", "CATALOG")
+    monkeypatch.setenv("ORCH_INTENT_RETRIEVER", "0")
+    assert FEW_SHOT[1] not in _system_prompt([], "", "CATALOG")
+    # Без каталога примеров нет вовсе.
+    monkeypatch.setenv("ORCH_INTENT_RETRIEVER", "1")
+    assert FEW_SHOT[1] not in _system_prompt([], "", "")
+
+
+def test_few_shot_actions_exist_in_catalog():
+    """Примеры не должны учить действиям, которых нет: каждый id из примеров есть в реестре."""
+    import re
+
+    from app.orchestrator.actions import whitelist
+    from app.orchestrator.agents.planner import FEW_SHOT
+    from app.services.action_layer.spec import ensure_builtin_actions
+
+    ensure_builtin_actions()
+    allowed = set(whitelist())
+    used = set(re.findall(r'"action":"([a-z_.]+)"', " ".join(FEW_SHOT)))
+    used |= {"project.continue_pipeline", "spend.summary", "diag.incidents"}
+    assert used and used <= allowed, used - allowed
+
+
+@pytest.mark.parametrize(
+    "goal",
+    ["смени диктора на Сару", "сделай картинки для всех кадров", "кадр номер 6 какой то стремный переделай плиз"],
+)
+def test_wide_edit_rule_does_not_swallow_other_intents(goal):
+    """Правило «правка всех картинок» не перехватывает голос, запуск шага и правку одного кадра."""
+    from app.orchestrator.agents.style_scope import wide_edit_target
+
+    assert wide_edit_target(goal) is None
+
+
+def test_wide_edit_rule_still_catches_style():
+    from app.orchestrator.agents.style_scope import wide_edit_target
+
+    assert wide_edit_target("хочу все картинки в стиле аниме") == "images"
+    assert wide_edit_target("сделай сценарий короче") == "script"

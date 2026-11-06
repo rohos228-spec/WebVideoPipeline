@@ -22,6 +22,12 @@ import shutil
 import tempfile
 from functools import lru_cache
 from pathlib import Path
+import os
+
+# Переводчик формулировок (intent_rewrite) делает лишний вызов модели: сценарии ответов в тестах
+# его не ждут. Тесты самого переводчика включают его явно.
+os.environ.setdefault("ORCH_INTENT_REWRITE", "0")
+os.environ.setdefault("ORCH_INTENT_RETRIEVER", "0")
 
 import pytest
 from sqlalchemy.pool import NullPool

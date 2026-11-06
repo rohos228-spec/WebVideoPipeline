@@ -390,9 +390,58 @@ def _system_prompt(rules: list[Chunk], block: str = "", catalog: str = "", nodes
         lines.append(chunk.text)
     if catalog:
         lines.append(catalog)
+        lines.extend(_few_shot())
     if nodes:
         lines.append(nodes)
     return "\n".join(lines)
+
+
+def _few_shot() -> tuple[str, ...]:
+    """Примеры «живая фраза → план» для синтеза (выключаются с ``ORCH_INTENT_RETRIEVER=0``)."""
+    from app.orchestrator.agents.intent_retriever import enabled
+
+    return FEW_SHOT if enabled() else ()
+
+
+# Проблемные формулировки из живых прогонов чата → верные планы. P — проект задачи. Это примеры
+# смысла, а не список допустимых фраз: так же разбирай любые другие слова с тем же намерением.
+FEW_SHOT: tuple[str, ...] = (
+    "Примеры (P — project_id задачи; поля expected/risk/paid опущены для краткости):",
+    '«кадр 3 не нравится, сделай по новой» → {"steps":[{"action":"montage.queue_ops","params":'
+    '{"project_id":P,"ops":[{"type":"image_regen","frame_number":3}]}}]}',
+    '«на втором кадре сова должна быть белая» → {"steps":[{"action":"montage.queue_ops","params":'
+    '{"project_id":P,"ops":[{"type":"image_regen_correction","frame_number":2,"prompt":"сова должна быть белая"}]}}]}',
+    '«видос кадра 5 дёргается, перезапусти» → {"steps":[{"action":"montage.queue_ops","params":'
+    '{"project_id":P,"ops":[{"type":"video_regen","frame_number":5}]}}]}',
+    '«промт кадра 4 замени на сова над озером» → {"steps":[{"action":"montage.queue_ops","params":'
+    '{"project_id":P,"ops":[{"type":"image_regen_prompt","frame_number":4,"prompt":"сова над озером"}]}}]}',
+    '«поменяй кадры 2 и 3 местами» → {"steps":[{"action":"montage.swap_slots","params":{"project_id":P,'
+    '"kind":"image","a_frame":2,"a_shot":1,"b_frame":3,"b_shot":1}}]}',
+    '«погнали рисовать» / «генери картинки» → {"steps":[{"action":"project.status","params":{"project_id":P}},'
+    '{"action":"step.run_step","params":{"project_id":P,"step_code":"img"}}]}',
+    '«оживи кадры» → то же с step_code "video"; «озвучь ролик», «нужен закадровый голос» — step_code "audio".',
+    '«запускай видео», «делай видео из картинок», «сделай картинки для всех кадров» — это запуск шага (video / img), а не монтаж и не правка промта: монтаж только на «собери / смонтируй / пересобери ролик», правка промта — только когда сказано, КАКИМИ должны быть картинки.',
+    '«пересобери ролик» / «смонтируй заново» → {"steps":[{"action":"project.status","params":{"project_id":P}},'
+    '{"action":"montage.run_montage","params":{"project_id":P}}]}',
+    '«дожми проект до готового видео» → project.status и project.continue_pipeline того же проекта.',
+    '«прогони 12 и 13 до картинок» → {"steps":[{"action":"queue.enqueue_many","params":{"project_ids":[12,13],'
+    '"mode":"until_node","target_node_type":"images","enable_auto_mode":true}}]}',
+    '«музон орёт» / «сделай музыку тише» → {"steps":[{"action":"montage.set_assemble_params","params":'
+    '{"project_id":P,"bgm_level":10}}]} (0-100; тише — 10-15, громче — 35-50; текущий уровень не нужен).',
+    '«пусть озвучивает женщина» / «смени диктора на Сару» → {"steps":[{"action":"audio.set_voice","params":'
+    '{"project_id":P,"voice":"Сара"}}]} (voice — имя голоса или просто «женский» / «мужской»; «другой голос» — противоположный пол).',
+    '«хочу все картинки в стиле аниме» → {"steps":[{"action":"prompt.edit_text","params":{"project_id":P,'
+    '"node_key":"<нода промтов картинок>","rationale":"Человек попросил: «стиль аниме».",'
+    '"append":"ТРЕБОВАНИЕ ЧЕЛОВЕКА К СТИЛЮ: аниме во всех кадрах."}}]}',
+    '«сценарий скучный, сделай поинтереснее» → prompt.edit_text ноды «Сценарий» с append-требованием к тексту.',
+    '«замути ролик про космос» → {"steps":[{"action":"project.create","params":{"title":"Ролик про космос",'
+    '"topic":"Ролик про космос"}}]}',
+    "Правка содержимого ОДНОГО кадра («в шестом кадре добавь луну», «кадр 2 без людей») — image_regen_correction этого кадра; prompt.edit_text меняет ВСЕ кадры и для одного кадра не годится. Требование ко всем кадрам («в каждом кадре зима», «во всех картинках без текста») — наоборот, prompt.edit_text ноды промтов картинок, а не ответ и не правки по кадрам.",
+    "«чо там с проектом», «почему стоит», «сколько потратил» → только чтения (project.status, diag.incidents, "
+    "spend.summary), без запусков.",
+    "Не хватает необязательной детали (шот, точная громкость, имя голоса) — подставь разумное значение или "
+    "опусти поле, но план верни; пустой план с вопросом — только если нельзя понять, что делать.",
+)
 
 
 _CATALOG_RULES = (
