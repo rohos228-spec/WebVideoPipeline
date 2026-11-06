@@ -224,3 +224,14 @@ async def test_apply_queue_phrase_reads_the_board(monkeypatch):
     assert plan[0].action == "montage.apply_queue"
     assert plan[0].params == {"project_id": 5, "frame_numbers": [2], "max_image_ops": 1, "max_video_ops": 1}
     assert await fs.apply_queue_plan("примени правку промта", 5) is None
+
+
+def test_apply_after_queue_in_same_plan_declares_added_ops():
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [
+        PlanStep(action="montage.queue_ops", params={"project_id": 10, "ops": [{"type": "image_regen", "frame_number": 1}, {"type": "image_regen", "frame_number": 2}]}, expected="x"),
+        PlanStep(action="montage.apply_queue", params={"project_id": 10, "frame_numbers": [1, 2], "max_image_ops": 0, "max_video_ops": 0}, expected="x"),
+    ]
+    out = cs.sync_apply_counts(plan)
+    assert (out[1].params["max_image_ops"], out[1].params["max_video_ops"]) == (2, 0)

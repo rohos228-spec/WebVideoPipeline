@@ -3261,8 +3261,11 @@ class Supervisor:
             self._fail_detail[task_id] = str(exc)
             self._code_answers.add(task_id)
             return []
+        from app.orchestrator.agents.compound_scope import sync_apply_counts
+
         plan = [
-            tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions)) for step in resolved
+            tighten_paid_step(self.actions, step_with_registry_paid(step, self.actions))
+            for step in sync_apply_counts(resolved)
         ]
         plan, nothing = await self._drop_unchanged_settings(task_id, plan, goal)
         plan = await self._drop_blocked_launches(task_id, plan, goal, session_id)

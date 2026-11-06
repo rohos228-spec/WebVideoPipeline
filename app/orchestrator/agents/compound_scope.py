@@ -248,3 +248,30 @@ def compound_note(clauses: list[str]) -> str:
         "Если для части не хватает данных (например, суммы), верни пустой план и задай один вопрос об этом. "
         "Не ставь платный запуск вместо пропущенной части."
     )
+
+
+def sync_apply_counts(plan: list[PlanStep]) -> list[PlanStep]:
+    """Применение очереди в одном плане с её постановкой: заявить и те правки, что добавят шаги выше.
+
+    Иначе применение заявляло «картинок 0» (очередь при планировании была пуста) и отказывало.
+    """
+    out: list[PlanStep] = []
+    added: dict[int, list[dict]] = {}
+    for step in plan:
+        pid = step.params.get("project_id")
+        if step.action == "montage.queue_ops" and isinstance(pid, int):
+            added.setdefault(pid, []).extend(op for op in step.params.get("ops") or [] if isinstance(op, dict))
+        if step.action == "montage.apply_queue" and isinstance(pid, int) and added.get(pid):
+            ops = added[pid]
+            wanted = {n for n in step.params.get("frame_numbers") or [] if isinstance(n, int)}
+            chosen = [op for op in ops if not wanted or op.get("frame_number") in wanted]
+            images = sum(1 for op in chosen if str(op.get("type") or "").startswith("image_"))
+            videos = sum(1 for op in chosen if str(op.get("type") or "").startswith("video_"))
+            params = {
+                **step.params,
+                "max_image_ops": int(step.params.get("max_image_ops") or 0) + images,
+                "max_video_ops": int(step.params.get("max_video_ops") or 0) + videos,
+            }
+            step = step.model_copy(update={"params": params})
+        out.append(step)
+    return out
