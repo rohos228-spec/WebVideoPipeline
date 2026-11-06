@@ -29,7 +29,7 @@ _IDLE_AFTER_REPLY_S = 2.5
 
 # Ответы, после которых реплику лучше отдать прежнему движку окна.
 _NOT_HANDLED_RE = re.compile(
-    r"Не понял, что сделать|Этого чат пока не умеет|не умею|Модель сейчас не отвечает", re.I
+    r"Не понял, что сделать|^\s*Этого чат пока не умеет\.?\s*$|не умею|Модель сейчас не отвечает", re.I
 )
 _AUTO_PREFIX_RE = re.compile(r"^\[РЕЖИМ:[^\]]*\]\s*", re.S)
 _END_TYPES = {"task_done", "task_failed"}
@@ -291,10 +291,18 @@ async def decide(request: Any, project_id: int | None, token: str, approve: bool
         # Подписка живая: всё, что пришло после неё, — итог этого решения.
         result = await _collect(queue, 0, DECIDE_TIMEOUT_S)
     reply = str(result.get("reply") or "")
+    pending: list[dict[str, Any]] = []
     if result.get("card"):
-        more = card_title(result["card"])
-        reply = (reply + "\n\n" if reply else "") + f"Дальше нужно ещё одно подтверждение: {more}. Напишите «да» — покажу кнопку."
+        _remember(result["card"])
+        pending = [_card_item(result["card"])]
+        reply = (reply + "\n\n" if reply else "") + "Дальше нужно ещё одно подтверждение — кнопка ниже."
     if not reply:
         reply = "Принято, выполняю. Итог придёт в чат." if result.get("status") in (None, "timeout") else "Готово."
     ok = result.get("status") != "task_failed"
-    return {"ok": ok, "reply": reply, "notes": [], "error": None if ok else (result.get("error") or "task_failed")}
+    return {
+        "ok": ok,
+        "reply": reply,
+        "notes": [],
+        "error": None if ok else (result.get("error") or "task_failed"),
+        "pending_confirm": pending,
+    }

@@ -481,6 +481,10 @@ class Supervisor:
         self._approved: dict[int, str] = {}
         # Планы, собранные кодом без модели (откат «верни как было»): отпечаток плана задачи.
         self._from_code: dict[int, bool] = {}
+        # «Запусти ноду X»: план из одних чтений (ключ ноды неизвестен) — после чтений один
+        # раз дособрать план с найденным, иначе задача кончалась ответом без карточки.
+        self._read_notes: dict[int, list[str]] = {}
+        self._read_replanned: set[int] = set()
         # Снимок last_* планировщика и критика на задачу: объекты общие для всех чатов,
         # а между ответом и чтением супервизора сосед успевает их перезаписать.
         self._planner_meta: dict[int, dict[str, Any]] = {}
@@ -3086,6 +3090,8 @@ class Supervisor:
                     from app.orchestrator.agents.intent_retriever import context_note
 
                     context = (context + "\n" + context_note(intent)).strip()
+            if not fixed and _NODE_WORD_RE.search(goal or ""):
+                context = (context + "\n" + _node_name_note()).strip()
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
@@ -4314,6 +4320,7 @@ class Supervisor:
                         await self._fail_validation(task_id, session_id)
                         return
 
+            self._note_reads(task_id, started, results)
             plan = await self._insert_follow_up(task_id, plan, index + len(batch), started, results, goal)
             index += len(batch)
             await self._checkpoint(task_id, session_id, plan, index)
@@ -4332,10 +4339,69 @@ class Supervisor:
             if await self._hold_for_approval(task_id, session_id, plan, index):
                 return
 
+            if index >= len(plan):
+                more = await self._launch_after_reads(task_id, session_id, plan, goal)
+                if more:
+                    plan = [*plan, *more]
+                    await write_on_loop(self.tasks.save_plan, task_id, plan)
+                    await self._checkpoint(task_id, session_id, plan, index)
+
         if await self._stop_if_budget(task_id, session_id, plan, index):
             return
         await self._set_status(task_id, TaskStatus.done, session_id=session_id)
         await self.bus.publish(session_id, "task_done", {"task_id": task_id}, task_id=task_id)
+
+    def _note_reads(self, task_id: int, started: list[tuple[PlanStep, int]], results: list[Any]) -> None:
+        notes = self._read_notes.setdefault(task_id, [])
+        for (step, _sid), result in zip(started, results, strict=False):
+            if not step_is_readonly(step, self.actions) or envelope_status(result) != "ok":
+                continue
+            try:
+                body = json.dumps(envelope_body(result), ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                body = str(envelope_body(result))
+            notes.append(f"{step.action} {json.dumps(step.params, ensure_ascii=False)} -> {body[:_READ_NOTE_CHARS]}")
+
+    async def _launch_after_reads(
+        self, task_id: int, session_id: str, plan: list[PlanStep], goal: str
+    ) -> list[PlanStep]:
+        """Просьба что-то запустить или исправить, а в плане одни чтения: дособрать один раз.
+
+        Планировщик видит прочитанное (ключи нод, состав группы) и ставит недостающие
+        действия. Новые шаги идут обычным путём: карточка, бюджет, проверка после шага.
+        Чтения, которые уже были, отбрасываются; если действия нет — задача кончается как раньше.
+        """
+        if task_id in self._read_replanned or not _LAUNCH_ASK_RE.search(goal or ""):
+            return []
+        if _QUESTION_ASK_RE.search(goal or ""):
+            return []
+        if any(not step_is_readonly(step, self.actions) for step in plan):
+            return []
+        notes = self._read_notes.get(task_id) or []
+        if not notes:
+            return []
+        self._read_replanned.add(task_id)
+        context = _AFTER_READS_NOTE + "\n" + _node_name_note() + "\n" + "\n".join(notes)[-_READ_CONTEXT_CHARS:]
+        token = _LLM_TASK.set(int(task_id))
+        try:
+            drafted = await self._draft_plan(task_id, session_id, goal, context)
+        except Exception as exc:  # noqa: BLE001 — досборка не должна валить готовую задачу
+            logger.info("orch task {} launch after reads failed: {}", task_id, type(exc).__name__)
+            return []
+        finally:
+            _LLM_TASK.reset(token)
+        seen = {_plan_fingerprint([step]) for step in plan}
+        fresh = [step for step in drafted or [] if _plan_fingerprint([step]) not in seen]
+        if not any(not step_is_readonly(step, self.actions) for step in fresh):
+            self._trace_plan(task_id, "after_reads_none", fresh, "действия не нашлось")
+            return []
+        if any(not_in_whitelist(step.action, self.actions) for step in fresh):
+            return []
+        fresh = [tighten_paid_step(self.actions, step) for step in fresh]
+        if forecast_unknown(fresh):
+            return []
+        self._trace_plan(task_id, "after_reads", fresh, "досборка после чтений")
+        return fresh
 
     async def _insert_follow_up(
         self,
@@ -6462,6 +6528,39 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
 
 #: «Подготовь правку, но не применяй»: применение тогда не предлагаем.
 _NO_APPLY_RE = re.compile(r"не\s+примен|без\s+применени|только\s+(?:подготов|предлож)", re.IGNORECASE)
+
+
+_READ_NOTE_CHARS = 2500
+_NODE_WORD_RE = re.compile(r"(?<!\w)нод\w*", re.IGNORECASE)
+_READ_CONTEXT_CHARS = 9000
+_LAUNCH_ASK_RE = re.compile(
+    r"(?<!\w)(запуст|прогон|перезапуст|исправ|почин|переген|сгенер|перерисуй|переделай)\w*",
+    re.IGNORECASE,
+)
+_QUESTION_ASK_RE = re.compile(r"(?<!\w)(как|можно ли|почему|зачем|что будет)(?!\w)|\?\s*$", re.IGNORECASE)
+_AFTER_READS_NOTE = (
+    "Чтения по этой просьбе уже выполнены, их результаты ниже. Не повторяй их. "
+    "Поставь действие, о котором просит человек (запуск, перезапуск, исправление), "
+    "взяв ключи нод, групп и шагов из результатов. Если по результатам действовать нельзя — пустой план."
+)
+
+
+def _node_name_note() -> str:
+    """Человек зовёт ноду новым именем, а на старом холсте подпись прежняя («Работа с GPT 1»)."""
+    from app.orchestrator.default_graph import default_graph
+
+    names: dict[str, str] = {}
+    for node in default_graph()[0]:
+        label = str((node.get("data") or {}).get("label") or node.get("label") or "")
+        typ = str(node.get("type") or "")
+        if label and typ and label not in names:
+            names[label] = typ
+    pairs = "; ".join(f"«{label}» — тип {typ}" for label, typ in names.items())
+    return (
+        "Подписи нод на холсте бывают старыми: если ноды с названием из просьбы нет, ищи по типу. "
+        "Обычные названия: " + pairs + ". Тип excel_gpt на старых холстах подписан «Работа с GPT N»; "
+        "если таких нод несколько, а номер не назван, бери первую по схеме."
+    )
 
 
 def _follow_up_steps(

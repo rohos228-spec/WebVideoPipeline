@@ -1157,7 +1157,14 @@ export const api = {
   },
   /** Кнопка «Подтвердить»/«Отмена» под ответом чата проекта (запуск шага, настройка, проверка…). */
   dbOrchestratorConfirmAction: (projectId: number, body: { token: string; approve: boolean }) =>
-    http<{ ok: boolean; reply: string; notes: string[]; error?: string | null }>(
+    http<{
+      ok: boolean;
+      reply: string;
+      notes: string[];
+      error?: string | null;
+      /** Следующая карточка той же задачи (оркестратор): сразу кнопкой, без «да». */
+      pending_confirm?: DbOrchestratorChatResult["pending_confirm"];
+    }>(
       `/api/db/projects/${projectId}/orchestrator/confirm-action`,
       { method: "POST", headers: orchAuthHeaders(), body: JSON.stringify(body) },
       180_000,

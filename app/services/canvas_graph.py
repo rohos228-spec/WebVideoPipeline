@@ -259,21 +259,39 @@ async def sync_run_snapshot_from_canvas_graph(
     return True
 
 
-GRAPH_SOURCE_PROJECT = "project"
-
 
 def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | None) -> dict[str, Any]:
-    res = dict(meta or {})
-    if graph:
-        res["canvas_graph"] = graph
-    return res
+    """Мета проекта с холстом: свой холст проекта, иначе схема, по которой он идёт."""
+    out = dict(meta) if isinstance(meta, dict) else {}
+    if graph and graph.get("nodes") and not canvas_graph_from_meta(out):
+        out["canvas_graph"] = build_canvas_graph_payload(
+            workflow_id=graph.get("workflow_id"),
+            nodes=_graph_items(graph.get("nodes")),
+            edges=_graph_items(graph.get("edges")),
+        )
+    return out
 
 
-async def effective_project_meta(session: AsyncSession, project: Project) -> tuple[dict[str, Any], str]:
+async def effective_project_meta(session: AsyncSession, project: Project) -> tuple[dict[str, Any], str | None]:
+    """Старый проект без своего холста видит ноды схемы прогона, как на канвасе студии."""
+    graph = await resolve_effective_graph(session, project)
     meta = project.meta if isinstance(project.meta, dict) else {}
-    return meta, GRAPH_SOURCE_PROJECT
+    return with_effective_graph(meta, graph), (graph or {}).get("source")
 
 
 async def materialize_project_graph(session: AsyncSession, project: Project) -> bool:
+    """Первая правка ноды: проект получает свою копию схемы, общая не меняется."""
     meta = project.meta if isinstance(project.meta, dict) else {}
-    return bool(canvas_graph_from_meta(meta))
+    if canvas_graph_from_meta(meta):
+        return False
+    graph = await resolve_effective_graph(session, project)
+    if not graph:
+        return False
+    project.meta = with_effective_graph(meta, graph)
+    logger.info(
+        "[#{}] canvas_graph: project got its own copy of the {} graph ({} nodes)",
+        project.id,
+        graph.get("origin"),
+        len(graph.get("nodes") or []),
+    )
+    return True

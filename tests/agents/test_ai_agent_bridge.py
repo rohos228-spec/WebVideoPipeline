@@ -26,6 +26,8 @@ def test_handled_falls_back_on_not_understood():
     assert bridge.handled({"reply": "", "card": {"change_id": "x"}})
     assert not bridge.handled({"reply": "Не понял, что сделать. Уточните", "card": None})
     assert not bridge.handled({"reply": "Этого чат пока не умеет.", "card": None})
+    # С пояснением, чего нет и что можно вместо, — ответ оркестратора, не старый путь.
+    assert bridge.handled({"reply": "Этого чат пока не умеет. Скорость речи не настраивается.", "card": None})
     assert not bridge.handled({"reply": "", "card": None})
     assert not bridge.handled(None)
 
@@ -93,3 +95,21 @@ def test_summary_drops_quote_that_only_adds_window_project():
 
     text = "Переходы пока не добавлены. В проекте #4 — 13 кадров.\n\n«Добавь переходы между сценами в проекте 4»"
     assert drop_goal_quote(text, "добавь переходы между сценами") == "Переходы пока не добавлены. В проекте #4 — 13 кадров."
+
+
+def test_voice_speed_gap_is_explained():
+    from app.orchestrator.agents.summarizer import known_gap_text
+
+    assert "Скорость речи" in known_gap_text("сделай голос медленнее")
+    assert "Скорость речи" in known_gap_text("ускорь озвучку")
+    assert known_gap_text("поменяй голос на мужской") == ""
+
+
+def test_old_project_without_own_canvas_sees_run_graph_nodes():
+    from app.services.canvas_graph import with_effective_graph
+
+    graph = {"nodes": [{"id": "n_videos", "type": "videos"}], "edges": [], "workflow_id": 1}
+    meta = with_effective_graph({"step_failure": {}}, graph)
+    assert [n["id"] for n in meta["canvas_graph"]["nodes"]] == ["n_videos"]
+    own = {"canvas_graph": {"nodes": [{"id": "n_a", "type": "plan"}], "edges": []}}
+    assert with_effective_graph(own, graph)["canvas_graph"]["nodes"][0]["id"] == "n_a"

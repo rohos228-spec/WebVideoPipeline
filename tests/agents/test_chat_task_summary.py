@@ -241,7 +241,8 @@ async def test_validator_errors_go_back_to_planner_and_fixed_plan_runs(token: st
     try:
         task_id = await _run(rt, "sum-revise", "запусти генерацию картинок для этого проекта")
         assert rt.tasks.get(task_id)["status"] == TaskStatus.done.value
-        assert len(planner.contexts) == 2
+        # Третий вызов — досборка после чтений: просили запуск, а в плане только чтение.
+        assert len(planner.contexts) == 3 and planner.contexts[2].startswith("Чтения по этой просьбе")
         assert "step_code" in planner.contexts[1] and "img" in planner.contexts[1]
         assert [call["params"]["step_code"] for call in actions.calls] == ["img"]
     finally:

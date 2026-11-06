@@ -49,6 +49,8 @@ import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { MarkdownRenderer } from "@/components/gpt/markdown-renderer";
 import { OPEN_ORCHESTRATOR_CHAT } from "./open-chat-event";
 import { RegistrarSections } from "./registrar-sections";
+import { ChatNoticeCard } from "./chat-notice-card";
+import { useChatNotices } from "./use-chat-notices";
 
 interface Props {
   projectId: number | null;
@@ -313,6 +315,9 @@ interface ChatSession {
   projectId?: number | null;
 }
 
+const NOTICE_FRESH_MS = 24 * 60 * 60 * 1000;
+const NOTICE_SHOWN = 3;
+
 export function OrchestratorPanel({ projectId }: Props) {
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
@@ -464,6 +469,12 @@ export function OrchestratorPanel({ projectId }: Props) {
   const abortRef = useRef<AbortController | null>(null);
   const userCancelRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // Сообщения оркестратора без вопроса (разбор сбоя, «нода упала»): непрочитанные — под перепиской.
+  const chatNotices = useChatNotices(projectId ?? null);
+  // Только свежие и не больше трёх: старые непрочитанные разборы иначе заслоняют переписку.
+  const unreadNotices = chatNotices.notices
+    .filter((n) => !n.read && n.created_at && Date.now() - Date.parse(n.created_at) < NOTICE_FRESH_MS)
+    .slice(-NOTICE_SHOWN);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -1489,11 +1500,13 @@ export function OrchestratorPanel({ projectId }: Props) {
       setBusy(true);
       try {
         const r = await api.dbOrchestratorConfirmAction(projectId, { token: confirm.token, approve });
+        const next = (r.pending_confirm ?? []).map((p) => ({ ...p, resolved: false }));
         setChatLog((prev) =>
           withConfirmResolved(prev, msgIndex, confirmIndex, {
             role: "assistant",
             content: r.reply,
             notes: r.notes?.length ? r.notes : undefined,
+            confirms: next.length ? next : undefined,
             created_at: Date.now(),
           }),
         );
@@ -2395,6 +2408,13 @@ export function OrchestratorPanel({ projectId }: Props) {
                 </div>
               </div>
             )}
+            {unreadNotices.length > 0 ? (
+              <div className="space-y-2" data-testid="ai-agent-notices">
+                {unreadNotices.map((n) => (
+                  <ChatNoticeCard key={`notice-${n.id}`} notice={n} showProject={false} onRead={chatNotices.markRead} />
+                ))}
+              </div>
+            ) : null}
             <div ref={messagesEndRef} />
           </div>
 
