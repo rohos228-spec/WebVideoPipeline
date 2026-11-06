@@ -264,11 +264,13 @@ def sync_apply_counts(plan: list[PlanStep]) -> list[PlanStep]:
         if step.action == "montage.apply_queue" and isinstance(pid, int) and added.get(pid):
             ops = added[pid]
             wanted = {n for n in step.params.get("frame_numbers") or [] if isinstance(n, int)}
-            chosen = [op for op in ops if not wanted or op.get("frame_number") in wanted]
+            chosen = list(ops)  # новые правки этого плана применяем все, даже если кадры были названы раньше
             images = sum(1 for op in chosen if str(op.get("type") or "").startswith("image_"))
             videos = sum(1 for op in chosen if str(op.get("type") or "").startswith("video_"))
+            frames = sorted(wanted | {op["frame_number"] for op in chosen if isinstance(op.get("frame_number"), int)})
             params = {
                 **step.params,
+                **({"frame_numbers": frames} if wanted else {}),
                 "max_image_ops": int(step.params.get("max_image_ops") or 0) + images,
                 "max_video_ops": int(step.params.get("max_video_ops") or 0) + videos,
             }

@@ -235,3 +235,14 @@ def test_apply_after_queue_in_same_plan_declares_added_ops():
     ]
     out = cs.sync_apply_counts(plan)
     assert (out[1].params["max_image_ops"], out[1].params["max_video_ops"]) == (2, 0)
+
+
+def test_apply_frames_include_newly_queued_frame():
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [
+        PlanStep(action="montage.queue_ops", params={"project_id": 10, "ops": [{"type": "video_regen", "frame_number": 2}]}, expected="x"),
+        PlanStep(action="montage.apply_queue", params={"project_id": 10, "frame_numbers": [1], "max_image_ops": 0, "max_video_ops": 1}, expected="x"),
+    ]
+    out = cs.sync_apply_counts(plan)
+    assert out[1].params["frame_numbers"] == [1, 2] and out[1].params["max_video_ops"] == 2

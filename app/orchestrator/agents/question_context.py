@@ -685,7 +685,8 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
                 ("step.get_run_cost_basis", {"project_id": pid, "step_code": code}) for code in ("img", "video", "audio")
             )
         prompt_q = _has(norm, ("промт", "промпт"))
-        if _has(norm, _FRAMES) or prompt_q:
+        if _has(norm, _FRAMES) or prompt_q or _has(norm, ("видео", "картинк", "картинок")):
+            # «Что с видео»: число готовых видео и очередь — на доске, в статусе проекта их нет.
             # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
             board: dict[str, Any] = {"project_id": pid}
             if prompt_q:
