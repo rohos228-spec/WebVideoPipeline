@@ -27,6 +27,7 @@ import { getNodeSpec, formatNodeTypeLabel, SD_AGENT_LABELS } from "@/lib/node-ca
 import { getNodeIcon } from "@/lib/node-icons";
 import { groupHue } from "@/lib/group-color";
 import { cn, parseUtcDate } from "@/lib/utils";
+import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
@@ -1007,7 +1008,7 @@ function PosterTile({
             <video key={m.id} src={m.previewUrl ?? undefined} muted preload="metadata" controls={false} className={cn("h-full w-full object-cover", blur)} />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img key={m.id} src={m.previewUrl ?? undefined} alt={m.label} draggable={false} className={cn("h-full w-full object-cover", blur)} />
+            <img key={m.id} src={toThumbnailUrl(m.previewUrl) ?? undefined} alt={m.label} draggable={false} className={cn("h-full w-full object-cover", blur)} loading="lazy" />
           ),
         )}
       </div>

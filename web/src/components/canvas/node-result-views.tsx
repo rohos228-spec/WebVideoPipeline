@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { api } from "@/lib/api";
 import type { NodeResultItem, NodeResultSnapshot } from "@/lib/node-result-resolver";
 import { Button } from "@/components/ui/button";
@@ -1089,7 +1090,7 @@ function FrameImagesView({
               )}
             >
               {item.previewUrl ? (
-                <img src={item.previewUrl} alt="" className="h-full w-full object-cover" />
+                <img src={toThumbnailUrl(item.previewUrl)} alt="" className="h-full w-full object-cover" loading="lazy" />
               ) : (
                 <span className="flex h-full items-center justify-center px-1 text-[9px]">{item.label}</span>
               )}

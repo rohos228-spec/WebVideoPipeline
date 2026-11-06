@@ -3,6 +3,7 @@
 import type { MouseEvent } from "react";
 import { Circle, Check, Minus, User, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import type { NodeResultSnapshot } from "@/lib/node-result-resolver";
 
 function parseHeroId(content: string | undefined, projectId: number | undefined, index: number): string {
@@ -78,9 +79,10 @@ export function NodeResultBadge({
           <div className="flex h-full w-1/2 shrink-0 items-center justify-center border-r border-white/10 bg-black/30">
             {heroItem.previewUrl ? (
               <img
-                src={heroItem.previewUrl}
+                src={toThumbnailUrl(heroItem.previewUrl)}
                 alt=""
                 className="h-full w-full object-cover object-top"
+                loading="lazy"
               />
             ) : (
               <User className="h-5 w-5 text-muted-foreground" />

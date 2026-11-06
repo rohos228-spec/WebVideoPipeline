@@ -55,6 +55,7 @@ import { usePipelineMode } from "@/hooks/use-pipeline-mode";
 import { api } from "@/lib/api";
 import type { KieField, KieModelSpec } from "@/lib/api";
 import { errorMessageFromUnknown } from "@/lib/error-message";
+import { toThumbnailUrl } from "@/lib/thumbnail-url";
 import { isUnfilledAssistantPrompt } from "@/lib/gen-assistant-styles";
 import { cn, parseUtcDate } from "@/lib/utils";
 import {
@@ -147,8 +148,7 @@ type HistoryItem = {
  * идут полным файлом и этот хелпер не используют.
  */
 function thumbUrl(previewUrl: string | null): string | undefined {
-  if (!previewUrl || !previewUrl.startsWith("/api/files?")) return previewUrl || undefined;
-  return `${previewUrl}&thumb=1`;
+  return toThumbnailUrl(previewUrl);
 }
 
 function makeRefFromFile(file: File): RefImage {
