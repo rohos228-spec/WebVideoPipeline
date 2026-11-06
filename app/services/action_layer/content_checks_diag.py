@@ -20,6 +20,43 @@ from app.services.action_layer.spec import RISK_READ, ActionSpec
 
 ACTION_ID = "diag.content_checks"
 _STEP = {"type": "string", "enum": list(cc.STEPS)}
+# «Найди, где теряется стиль пластилин»: слово из фразы ищем в каждом промте картинок.
+_KEYWORD = {"type": "string", "description": "слово стиля или детали, которое должно быть в промтах картинок"}
+
+
+async def keyword_in_prompts(pid: int, keyword: str) -> dict[str, Any]:
+    """В каких промтах картинок нет слова (по основе: «пластилин» найдёт «пластилиновый»)."""
+    from sqlalchemy import select
+
+    from app.models import Frame
+
+    stem = keyword.lower().replace("ё", "е")
+    stem = stem[: max(4, len(stem) - 2)] if len(stem) > 5 else stem
+    async with bi._sessions()() as s:
+        rows = (
+            await s.execute(
+                select(Frame.number, Frame.image_prompt).where(Frame.project_id == pid).order_by(Frame.number)
+            )
+        ).all()
+    filled = [(n, p) for n, p in rows if (p or "").strip()]
+    missing = [n for n, p in filled if stem not in str(p).lower().replace("ё", "е")]
+    return {"keyword": keyword, "frames": len(rows), "with_prompt": len(filled), "missing": missing}
+
+
+def keyword_text(found: dict[str, Any]) -> str:
+    word, total, filled, missing = found["keyword"], found["frames"], found["with_prompt"], found["missing"]
+    if not filled:
+        return f"Промтов картинок ещё нет (кадров {total}), слово «{word}» проверять негде."
+    if not missing:
+        return (
+            f"Слово «{word}» есть во всех {filled} промтах картинок: если на картинках его нет, стиль "
+            "теряется уже при генерации картинок (модель, рефы или стиль-пресет проекта), не в промтах."
+        )
+    shown = ", ".join(str(n) for n in missing[:15]) + ("…" if len(missing) > 15 else "")
+    return (
+        f"Слова «{word}» нет в {len(missing)} из {filled} промтов картинок — кадры {shown}. "
+        "Стиль теряется на шаге «Промты картинок»: вариант промта этой ноды не требует его в каждом кадре."
+    )
 
 
 async def _load(pid: int, steps: list[str] | None) -> dict[str, Any]:
@@ -70,6 +107,10 @@ async def _diag_content_checks(ctx: ActionContext, params: dict) -> dict:
         }
     lines: list[str] = []
     fixes: list[dict] = []
+    keyword = str(params.get("keyword") or "").strip()
+    found_word = await keyword_in_prompts(pid, keyword) if keyword else None
+    if found_word is not None:
+        lines.append(keyword_text(found_word))
     for report in reports:
         lines.append(cc.summary_text(report))
         fixes += (
@@ -78,6 +119,8 @@ async def _diag_content_checks(ctx: ActionContext, params: dict) -> dict:
             else []
         )
     stored = data.get("stored") or {}
+    if found_word is not None:
+        stored = {**stored, "keyword": found_word}
     for report in reports:
         last = stored.get(report["step"])
         if last and last.get("at"):
@@ -119,7 +162,7 @@ def content_checks_spec() -> ActionSpec:
         "enrich (после «Работы с GPT»), img_pr (промты картинок); без step — разбивка и, если "
         "есть, промты. Плюс итог проверки после шага и варианты исправления существующими "
         "действиями. Без LLM, только чтение.",
-        params_schema=bi._schema({"project_id": _PID, "step": _STEP}, ["project_id"]),
+        params_schema=bi._schema({"project_id": _PID, "step": _STEP, "keyword": _KEYWORD}, ["project_id"]),
         executor=_diag_content_checks,
         risk=RISK_READ,
         idempotent=True,

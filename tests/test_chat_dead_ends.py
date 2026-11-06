@@ -46,7 +46,8 @@ def test_style_finding_has_no_paid_rerun() -> None:
 
 def test_style_question_reads_prompt_checks() -> None:
     reads = plan_reads("у меня картинки без стиля пластилин, найди где он теряется", 46)
-    assert ("diag.content_checks", {"project_id": 46, "step": "img_pr"}) in reads
+    assert ("diag.content_checks", {"project_id": 46, "step": "img_pr", "keyword": "пластилин"}) in reads
+    assert ("diag.node_failure", {"project_id": 46, "step": "img"}) in reads
 
 
 def test_fast_run_question_reads_failure_by_step() -> None:

@@ -5564,6 +5564,7 @@ class Supervisor:
             detail=self._fail_detail.pop(task_id, ""),
             steps=self._notes.pop(task_id, []),
             answered=task_id in self._code_answers,
+            note=str(self._launch_skipped.get(int(task_id)) or ""),
         )
         self._code_answers.discard(task_id)
         token = _LLM_TASK.set(int(task_id))

@@ -114,6 +114,16 @@ _NODE_FAILURE = (
     "разбер",
     "что не так",
     "в чем проблем",
+    # «Ищи что случилось», «он отработал 3 секунды, хотя это невозможно»: разбор последнего запуска.
+    "что случил",
+    "что произошл",
+    "ищи",
+    "найди",
+    "выясни",
+    "невозможно",
+    "странн",
+    "слишком быстро",
+    "секунд",
     "упал",
     "сломал",
     "сломан",
@@ -144,6 +154,10 @@ FAILURE_RULE = (
 # ответ по смыслу шага, а не статус ноды — проверка содержания (diag.content_checks).
 _CHECK_VERB = ("провер", "сверь", "сверить", "сходит", "сходят", "совпада", "не потерял", "потерял")
 _CHECK_OBJECT = ("разбивк", "кадр", "закадр", "промт", "результат", "герои", "персонаж")
+# «Стиль пластилин», «без стиля аниме», «в стиле нуар»: само слово стиля из фразы.
+_STYLE_WORD_RE = re.compile(r"(?<![а-я])стил\w*\s+([а-яa-z][а-яa-z-]{2,})")
+# «Запустил промты» — не про стиль: только слово «стиль», не «запуСТИЛ».
+_STYLE_RE = re.compile(r"(?<![а-я])стил")
 CONTENT_TITLE = "Проверка результата по содержанию"
 CONTENT_RULE = (
     f"Факт «{CONTENT_TITLE}» — проверка кодом по данным студии: скажи, сходится ли результат, "
@@ -220,10 +234,14 @@ def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
         # «Почему картинки тёмные»: тон картинок задают стиль и промты — проверка промтов
         # покажет стиль проекта (нуар, пластилин), а не «причина неизвестна».
         return {"project_id": int(pid), "step": "img_pr"}
-    if "стил" in norm and _has(norm, ("картин", "промт", "изображ", "теря", "без стил", "пропал")):
+    if _STYLE_RE.search(norm) and _has(norm, ("картин", "промт", "изображ", "теря", "без стил", "пропал")):
         # «Картинки без стиля пластилин, найди где он теряется»: стиль пишет вариант промта
-        # картинок, проверка промтов покажет кадры без стиля.
-        return {"project_id": int(pid), "step": "img_pr"}
+        # картинок, проверка промтов покажет кадры без стиля; само слово — в параметрах проверки.
+        params = {"project_id": int(pid), "step": "img_pr"}
+        word = _STYLE_WORD_RE.search(norm)
+        if word:
+            params["keyword"] = word.group(1)
+        return params
     if "промт" in norm and (
         _has(norm, ("коротк", "длинн", "длина", "длину", "мало текст", "куцы")) or _WHERE_PROMPTS.search(norm)
     ):
@@ -644,7 +662,12 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     if checks is not None:
         # Без проверки содержания чат отвечал статусом ноды «готово» — а склейка закадра
         # или герои в промтах могли не сходиться.
-        return _allowed([("diag.content_checks", checks), ("project.status", {"project_id": int(pid)})])
+        reads = [("diag.content_checks", checks), ("project.status", {"project_id": int(pid)})]
+        if checks.get("step") == "img_pr" and _has(norm, ("теря", "пропал", "без стил", "нет стил")):
+            # «Где теряется стиль»: промты могут быть со стилем — тогда теряет генерация картинок
+            # (модель, рефы). Разбор ноды картинок показывает её модель и последний запуск.
+            reads.append(("diag.node_failure", {"project_id": int(pid), "step": "img"}))
+        return _allowed(reads)
     from app.orchestrator.agents.read_plan import read_step
 
     overview = read_step(text)
@@ -660,7 +683,7 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     if not asked and not wants_data_report(text) and project_id is None:
         # Проект открыт или назван («а с 7?»): состояние читаем всегда — иначе «данных нет».
         return []
-    logs = _has(norm, _LOGS) or _has(norm, _FAILURE)
+    logs = _has(norm, _LOGS) or _has(norm, _FAILURE) or node_failure
     reads: list[tuple[str, dict[str, Any]]] = []
     if project_id is not None:
         pid = int(project_id)

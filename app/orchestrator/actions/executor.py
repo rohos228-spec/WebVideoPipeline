@@ -966,6 +966,29 @@ async def _fill_media_basis(name: str, params: dict) -> dict:
     return out
 
 
+async def _fill_resume(params: dict) -> dict:
+    """project.resume: откуда снимается пауза, автопродвижение и лимит текстов — для оценки цены."""
+    pid = params.get("project_id")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return params
+    from app.services.llm_ledger import budget_from_meta
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, pid)
+        if project is None:
+            return params
+        meta = project.meta if isinstance(project.meta, dict) else {}
+        fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+        came_from = meta.get("paused_from_status") or fs.get("last_running") or project.status.value
+        try:
+            budget = float(budget_from_meta(meta) or 0)
+        except Exception:  # noqa: BLE001 — без лимита оценка просто «неизвестно»
+            budget = 0.0
+        auto = bool(project.auto_mode)
+        await session.rollback()
+    return {**params, "_resume": {"from": str(came_from), "auto_mode": auto, "llm_budget": budget}}
+
+
 async def plan_resolve(name: str, params: dict | None) -> dict:
     """step.run_step картинок/видео: count, генератор и разрешение из данных проекта, если не названы.
 
@@ -985,6 +1008,8 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
         return await _fill_shots(str(name), params)
     if str(name) in _BASIS_FIELDS:
         return await _fill_media_basis(str(name), params)
+    if str(name) == "project.resume":
+        return await _fill_resume(params)
     if str(name) in ("project.patch_settings", "project.patch_settings_costly"):
         from app.services.action_layer.builtin_wave5 import changed_settings_only
 

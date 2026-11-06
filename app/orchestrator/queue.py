@@ -250,6 +250,60 @@ CLASSIFY_DEADLINE_S = 25.0
 _PAST_RUN_RE = re.compile(
     r"(?<![а-я])(?:за|про)?(?:пускал|пустил|гонял|гнал)(?:а|и|ось)?(?![а-я])|(?<![а-я])отработал\w*"
 )
+# «Найди, где теряется стиль», «ищи, что случилось», «разберись, почему 3 секунды»: просьба
+# разобраться без слов о правке — вопрос с чтениями данных (быстрый путь), а не план модели:
+# планировщик думал минутами и ставил карточки запуска вместо разбора.
+_INVESTIGATE_RE = re.compile(
+    r"(?<![а-я])(?:найди|найти|ищи|поищи|разберись|разбери|выясни|посмотри|глянь|объясни|пойми|"
+    r"проверь|скажи|подскажи)(?:те)?(?![а-я])"
+)
+_INVESTIGATE_OBJECT_RE = re.compile(
+    r"где\s+(?:он\s+|она\s+|оно\s+|они\s+)?(?:теря|пропа|дева|исчез)|что\s+(?:случил|произошл|не\s+так|"
+    r"пошло\s+не\s+так|сломал)|почему|причин|в\s+ч[её]м\s+(?:дело|проблем)|куда\s+(?:дел|проп)|"
+    r"откуда|отчего"
+)
+_MUTATING_HINT_RE = re.compile(
+    r"(?<![а-я])(?:за|пере|до)?(?:пусти|запусти|генери|генерь|рисуй|делай|собери|монтируй|чини|исправь|"
+    r"поставь|ставь|смени|поменяй|замени|удали|убери|верни|откати|перепиши|допиши|добавь|создай|"
+    r"подними|сними)(?:те)?(?![а-я])"
+)
+
+
+def is_investigation(text: str) -> bool:
+    """Просьба найти причину без правок: отвечается по данным, не планом."""
+    norm = " ".join((text or "").lower().replace("ё", "е").split())
+    if not norm or _MUTATING_HINT_RE.search(norm) or _RUN_VERBS_RE.search(norm):
+        return False
+    return bool(_INVESTIGATE_RE.search(norm) and _INVESTIGATE_OBJECT_RE.search(norm))
+
+
+# «Найди, где теряется стиль», «ищи, что случилось», «разберись, почему 3 секунды»: просьба
+# разобраться без слов о правке — вопрос с чтениями данных (быстрый путь), а не план модели:
+# планировщик думал минутами и ставил карточки запуска вместо разбора.
+_INVESTIGATE_RE = re.compile(
+    r"(?<![а-я])(?:найди|найти|ищи|поищи|разберись|разбери|выясни|посмотри|глянь|объясни|пойми|"
+    r"проверь|скажи|подскажи)(?:те)?(?![а-я])"
+)
+_INVESTIGATE_OBJECT_RE = re.compile(
+    r"где\s+(?:он\s+|она\s+|оно\s+|они\s+)?(?:теря|пропа|дева|исчез)|что\s+(?:случил|произошл|не\s+так|"
+    r"пошло\s+не\s+так|сломал)|почему|причин|в\s+ч[её]м\s+(?:дело|проблем)|куда\s+(?:дел|проп)|"
+    r"откуда|отчего"
+)
+_MUTATING_HINT_RE = re.compile(
+    r"(?<![а-я])(?:за|пере|до)?(?:пусти|запусти|генери|генерь|рисуй|делай|собери|монтируй|чини|исправь|"
+    r"поставь|ставь|смени|поменяй|замени|удали|убери|верни|откати|перепиши|допиши|добавь|создай|"
+    r"подними|сними)(?:те)?(?![а-я])"
+)
+
+
+def is_investigation(text: str) -> bool:
+    """Просьба найти причину без правок: отвечается по данным, не планом."""
+    norm = " ".join((text or "").lower().replace("ё", "е").split())
+    if not norm or _MUTATING_HINT_RE.search(norm) or _RUN_VERBS_RE.search(norm):
+        return False
+    return bool(_INVESTIGATE_RE.search(norm) and _INVESTIGATE_OBJECT_RE.search(norm))
+
+
 _ROLE_Q_RE = re.compile(r"что\s+(?:вообще\s+)?делает|зачем\s+нуж|для\s+чего|что\s+значит|как\s+работает")
 _NEGATIONS = frozenset({"не", "ни"})
 
@@ -786,6 +840,13 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     sets_field = bool(
         _FRAME_VALUE_RE.search(norm) or _TO_QUEUE_RE.search(norm) or field_value or media_file
     ) and not (norm.rstrip().endswith("?"))
+    if is_investigation(norm) and not sets_field:
+        return ClassifyResult(
+            tier="fast",
+            mode=MessageMode.append,
+            deterministic=True,
+            confidence=1.0,
+        )
     if (
         has_imperative(norm)
         or sets_field
@@ -803,7 +864,7 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
     # «Что делает нода работа с гпт», «зачем нужна разбивка»: вопрос о роли, не задача.
     lead = [t for t in tokens if t not in {"а", "ну", "и", "так", "слушай"}]
     role_q = bool(lead) and lead[0] in _QUESTION_STARTS and bool(_ROLE_Q_RE.search(norm))
-    if role_q or (_PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm)):
+    if role_q or (_PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm)) or is_investigation(norm):
         return ClassifyResult(
             tier="fast",
             mode=MessageMode.append,

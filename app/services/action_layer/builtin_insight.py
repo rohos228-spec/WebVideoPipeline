@@ -878,6 +878,9 @@ def _pause_info(status: str, meta: dict) -> dict:
     paused = status in ("paused", "failed")
     fs = _step_failure(meta)
     recorded = meta.get("auto_paused_reason")
+    wait = meta.get("auto_wait") if isinstance(meta.get("auto_wait"), dict) else None
+    # Метка живёт, пока статус тот же: после ручного ▶ статус меняется и метка устаревает сама.
+    human = _human_wait_ru(str(wait.get("reason") or "")) if wait and str(wait.get("status")) == status else None
     stop = bool(meta.get("user_stop") or meta.get("mass_lane_user_stop"))
     await_start = bool(meta.get("auto_await_manual_start"))
     reason = None
@@ -894,6 +897,7 @@ def _pause_info(status: str, meta: dict) -> dict:
         "reason": reason,
         "user_stop": stop,
         "await_manual_start": await_start,
+        "await_human": human,
         "stale_reason": _clip(recorded, 160) if recorded and not paused else None,
         "sleep_until": (fs or {}).get("sleep_until"),
     }
@@ -924,8 +928,30 @@ def _mismatch_text(src: dict) -> str:
     return text + " Здесь показан статус, как в списке; сам статус я не меняю."
 
 
+_HUMAN_WAIT_RU = {
+    "CHECK_PROMPT_NOT_CONFIGURED": "автопроверка результата шага не настроена (нет чек-промта), "
+    "воркер ждёт, чтобы человек проверил шаг и нажал ▶",
+}
+
+
+def _human_wait_ru(reason: str) -> str:
+    for code, text in _HUMAN_WAIT_RU.items():
+        if code in reason:
+            return text
+    return "автопроверка шага пропущена, воркер ждёт ручного ▶" + (f" ({_clip(reason, 120)})" if reason else "")
+
+
 def _pause_lines(pause: dict, fs: dict | None) -> list[str]:
     lines = []
+    if pause.get("await_human"):
+        lines.append(f"Автопродвижение стоит: {pause['await_human']}. Сам проект не на паузе.")
+    if pause.get("await_manual_start") and not pause.get("paused"):
+        # После перезапуска сервера воркер ничего не стартует сам (startup_guard): чат отвечал
+        # «причина задержки в данных не указана», а проект просто ждал ▶.
+        lines.append(
+            "Автопродвижение ждёт ручного ▶: после перезапуска сервера воркер сам шаги не стартует. "
+            "Нажмите ▶ у проекта или скажите «запусти <шаг>» — запуск через чат снимает ожидание."
+        )
     if pause["reason"]:
         lines.append(f"Причина паузы: {pause['reason']}.")
     if pause["user_stop"]:
@@ -1467,6 +1493,7 @@ async def _project_brief(row, managed: set[int], queue: list[int]) -> dict:
         "status_ru": _status_ru(status),
         "step": cur["title"] if cur else None,
         "pause_reason": _clip(pause["reason"], 160) or None,
+        "waiting_human": _clip(pause.get("await_human"), 160) or None,
         "user_stop": pause["user_stop"],
         "error": _clip((fs or {}).get("error"), 160) or None,
         "error_status": (fs or {}).get("status"),

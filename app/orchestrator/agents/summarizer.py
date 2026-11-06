@@ -503,6 +503,8 @@ class TaskFacts:
     steps: list[StepNote] = field(default_factory=list)
     # Пустой план с готовым ответом кода («возвращать нечего»): просьбу поняли, «не понял» не пишем.
     answered: bool = False
+    # «Не поставлен в очередь: #12 — …»: проекты, убранные кодом до карточки, — и в итоге тоже.
+    note: str = ""
 
 
 def explain_failure(exc: BaseException) -> str:
@@ -1702,6 +1704,12 @@ class TaskSummarizer:
         return any(note.ok and note.text for note in facts.steps)
 
     async def summarize(self, facts: TaskFacts, *, run_id: str, task_id: Any = None) -> str:
+        text = await self._summarize(facts, run_id=run_id, task_id=task_id)
+        if facts.note and facts.note not in text:
+            text = (text.rstrip() + "\n" + facts.note).strip()
+        return text
+
+    async def _summarize(self, facts: TaskFacts, *, run_id: str, task_id: Any = None) -> str:
         fallback = deterministic_text(facts)
         if not self._wants_model(facts):
             return fallback
