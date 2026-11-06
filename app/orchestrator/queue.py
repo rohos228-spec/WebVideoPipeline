@@ -559,6 +559,52 @@ def _follow_up_reads(text: str, dialog: list[dict[str, str]]) -> str:
     return f"{prev.rstrip(' ?.!')}? {body}"
 
 
+# «И пятый тоже» после «перерисуй третий», «и 7 туда же» после «запусти 5 и 6», «а ещё два про зебр»
+# после «сделай ролик про жирафов»: короткое продолжение прошлой ПРОСЬБЫ. Без склейки чат брал его
+# вопросом и отвечал подсказкой команды («перерисуй пятый кадр в проекте 10») вместо карточки.
+_CONTINUE_START_RE = re.compile(r"^(?:и|а|ещ[её]|плюс|также|так\s+же|тоже)(?![а-я])")
+_CONTINUE_WORD_RE = re.compile(r"(?<![а-я])(?:тоже|туда\s+же|так\s+же|также|ещ[её]|то\s+же\s+самое)(?![а-я])")
+_CONTINUE_MAX_WORDS = 7
+# Хвост с прошлой просьбой: его читают модель и планировщик; правила кодом его отрезают
+# (``strip_continuation``), иначе служебные слова попадали в промт кадра.
+CONTINUE_MARK = "(продолжение прошлой просьбы «"
+
+
+def strip_continuation(text: str) -> str:
+    """Слова человека без хвоста ``continued_request``."""
+    body = str(text or "")
+    cut = body.find(CONTINUE_MARK)
+    return body[:cut].rstrip() if cut >= 0 else body
+
+
+def continued_request(previous: list[tuple[str, str]], reply: str) -> str | None:
+    """Короткое продолжение прошлой просьбы → просьба целиком для планировщика; иначе None."""
+    text = " ".join(str(reply or "").lower().replace("ё", "е").split())
+    words = _TOKEN_RE.findall(text)
+    if (
+        not words
+        or len(words) > _CONTINUE_MAX_WORDS
+        or text.rstrip().endswith("?")
+        or not (_CONTINUE_START_RE.search(text) or _CONTINUE_WORD_RE.search(text))
+        or not _CONTINUE_WORD_RE.search(text) and not re.search(r"\d|перв|втор|трет|четв|пят|шест|седьм|восьм|девят|десят|два|две|три", text)
+        or is_status_question(text)
+    ):
+        return None
+    prev = next((body for role, body in previous if role == "user"), "")
+    prev_norm = " ".join(prev.lower().replace("ё", "е").split())
+    if not prev_norm or len(prev_norm) > 200:
+        return None
+    asks_work = (
+        has_imperative(prev_norm) or wish_task(prev_norm) or polite_task(prev_norm)
+        or bool(_LETS_TASK_RE.search(prev_norm))
+    )
+    if not asks_work or is_plain_question(prev_norm):
+        return None
+    # Номера прошлой просьбы — «N»: правила кодом не должны взять старый номер вместо нового.
+    shape = re.sub(r"(?<!\d)\d{1,5}(?!\d)", "N", prev.strip().rstrip(".!"))
+    return f"{reply.strip()} {CONTINUE_MARK}{shape}» — то же самое для нового)"
+
+
 def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
     """Исходная просьба вместе с коротким ответом на уточняющий вопрос чата; иначе None."""
     words = _TOKEN_RE.findall((reply or "").lower())
@@ -873,7 +919,7 @@ class MessageQueue:
             command = (
                 suggested_command(last[1]) if is_go_ahead(text) and last and last[0] == "assistant" else None
             )
-            parsed = command or answered_request(previous, text) or text
+            parsed = command or answered_request(previous, text) or continued_request(previous, text) or text
         job = asyncio.create_task(
             self._classify(
                 session_id,

@@ -262,3 +262,25 @@ def test_render_and_swap_are_not_style_edits():
 
     assert wide_edit_target("сделай рендер картинок") is None
     assert wide_edit_target("кадры 3 и 4 поменяй местами") is None
+
+
+@pytest.mark.parametrize(
+    "prev,reply",
+    [("перерисуй третий", "и пятый тоже"), ("запусти 5 и 6 до картинок", "и 7 туда же"),
+     ("сделай ролик про жирафов", "а ещё два про зебр")],
+)
+def test_short_continuation_of_request_becomes_task(prev, reply):
+    from app.orchestrator.queue import classify_deterministic, continued_request, strip_continuation
+
+    goal = continued_request([("assistant", "ok"), ("user", prev)], reply)
+    assert goal and classify_deterministic(goal).mode.value == "task"
+    # Правила кодом видят только слова человека, старые номера — «N».
+    assert strip_continuation(goal) == reply
+    assert "5" not in goal.split(reply, 1)[1] or reply.startswith("и 7")
+
+
+@pytest.mark.parametrize("prev,reply", [("какой голос", "а другие"), ("перерисуй третий", "а что с проектом")])
+def test_question_follow_up_is_not_glued_to_request(prev, reply):
+    from app.orchestrator.queue import continued_request
+
+    assert continued_request([("assistant", "ok"), ("user", prev)], reply) is None

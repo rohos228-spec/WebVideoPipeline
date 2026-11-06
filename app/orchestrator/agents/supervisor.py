@@ -2847,7 +2847,10 @@ class Supervisor:
         """Точные правила по словам просьбы — без модели; ``None`` — ни одно не подошло."""
         from app.orchestrator.agents.number_words import words_to_digits
 
-        goal = words_to_digits(goal)
+        from app.orchestrator.queue import strip_continuation
+
+        # Правила видят только слова человека: хвост о прошлой просьбе — для модели.
+        goal = words_to_digits(strip_continuation(goal))
         fixed: list[PlanStep] | None = None
         if not fixed:
             # «Перемонтируй с музыкой потише»: громкость от текущей, без вопроса «сколько 0–100».
