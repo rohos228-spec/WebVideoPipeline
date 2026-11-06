@@ -12,7 +12,7 @@ from app.db import session_scope
 from app.models import Project
 from app.services import sidebar_layout as layout_svc
 from app.services.gen_queue_run import clear_gen_queue_run, set_gen_queue_run
-from app.services.project_control import clear_user_stop_gate
+from app.services.project_control import clear_auto_await_manual_start, clear_user_stop_gate
 
 router = APIRouter(prefix="/sidebar-layout", tags=["sidebar-layout"])
 
@@ -179,6 +179,9 @@ async def bulk_enqueue_gen_queue(body: GenQueueBulkEnqueue) -> dict:
             projects.append(project)
         for project in projects:
             clear_user_stop_gate(project)
+            # Постановка в очередь с целью — осознанный «▶»: метка «ждать ручной ▶»
+            # после рестарта (startup_guard) иначе держит очередь вхолостую.
+            clear_auto_await_manual_start(project)
             await set_gen_queue_run(
                 session,
                 project,
@@ -212,6 +215,7 @@ async def enqueue_gen_queue(body: GenQueueEnqueue) -> dict:
         already_queued = body.project_id in layout_svc.get_gen_queue()
         prev_owner = chat_queue_owner(project) if already_queued else None
         clear_user_stop_gate(project)
+        clear_auto_await_manual_start(project)
         if isinstance(body.by_chat, str):
             from app.services.orch_tenancy import owns_session
 
