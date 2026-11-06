@@ -677,13 +677,16 @@ def _pipeline_state_lines(
                 if not node:
                     continue
                 ntyp = str(node.get("type") or "")
-                data = node.get("data") if isinstance(node.get("data"), dict) else {}
+                raw_data = node.get("data")
+                data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
                 label = str(data.get("label") or data.get("title") or ntyp)
 
                 st = status_by_key.get(nid) if status_by_key else None
                 if st:
                     state = _NODE_STATUS_RU.get(st, st)
                 else:
+                    run_st: ProjectStatus | None
+                    ready_st: ProjectStatus | None
                     if ntyp == "excel_gpt":
                         from app.models import ProjectStatus
                         from app.services.excel_gpt_node import (
@@ -724,9 +727,10 @@ def _pipeline_state_lines(
         for n in nodes:
             raw = str(n.get("type") or "")
             present_types.add(raw)
-            data = n.get("data") if isinstance(n.get("data"), dict) else {}
-            if data.get("sd_agent"):
-                present_types.add("sd_assemble" if data.get("sd_agent") == "assemble" else "sd_agent")
+            raw_d = n.get("data")
+            d: dict[str, Any] = raw_d if isinstance(raw_d, dict) else {}
+            if d.get("sd_agent"):
+                present_types.add("sd_assemble" if d.get("sd_agent") == "assemble" else "sd_agent")
 
     pipeline_entries = [
         (run, ntyp) for run, ntyp in LINEAR_RUNNING_PIPELINE if not present_types or ntyp in present_types
@@ -2900,9 +2904,12 @@ async def _execute_orchestrator_reply(
                         meta = dict(project.meta or {})
                         cand = str(meta.get("active_excel_gpt_node_key") or "")
                         if not cand:
-                            cg = meta.get("canvas_graph") if isinstance(meta.get("canvas_graph"), dict) else {}
-                            cg_nodes = cg.get("nodes") or []
-                            cg_edges = cg.get("edges") or []
+                            raw_cg = meta.get("canvas_graph")
+                            cg: dict[str, Any] = raw_cg if isinstance(raw_cg, dict) else {}
+                            raw_nodes = cg.get("nodes")
+                            cg_nodes = raw_nodes if isinstance(raw_nodes, list) else []
+                            raw_edges = cg.get("edges")
+                            cg_edges = raw_edges if isinstance(raw_edges, list) else []
                             try:
                                 order = _linear_order(cg_nodes, cg_edges)
                             except Exception:
