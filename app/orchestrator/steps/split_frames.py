@@ -26,17 +26,18 @@ def _split_input_hash(project: Project) -> str | None:
         normalize_text,
         step_prompt_hash,
     )
-    from app.services.xlsx_step_runners import _SPLIT_DB_HINT
+    from app.services.node_step_params import build_split_db_hint
 
     try:
         vo = cx.ensure_current_voiceover(project)
         if vo is None:
             return None
         vo_text = vo.read_text(encoding="utf-8")
+        hint = build_split_db_hint(project, vo_text)
         return compute_input_hash(
             unit_input={"voiceover": normalize_text(vo_text)},
             fingerprint=contract_fingerprint("vp_frame_split"),
-            prompt_hash=step_prompt_hash(project, "split", hints=[_SPLIT_DB_HINT]),
+            prompt_hash=step_prompt_hash(project, "split", hints=[hint]),
             model=effective_text_model(),
         )
     except Exception as e:  # noqa: BLE001 — hash недоступен → legacy-пропуск
@@ -57,11 +58,17 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
 
     current_split_hash = _split_input_hash(project)
 
-    existing_frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    from app.services.db_v2 import frame_is_archived
+
+    existing_frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     meta = dict(project.meta or {})
     if len(existing_frames) >= 2 and meta.get("split_completed"):
         # Этап 2 (C.0): короткое замыкание валидно только при том же входе
@@ -139,15 +146,19 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
     # Без DB→xlsx после replace_frames снимок остаётся на старых ~N колонках
     # (проект #33: DB=133, xlsx/UI=80).
     try:
-        frames_for_export = (
-            (
-                await session.execute(
-                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+        frames_for_export = [
+            fr
+            for fr in (
+                (
+                    await session.execute(
+                        select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)
+                    )
                 )
+                .scalars()
+                .all()
             )
-            .scalars()
-            .all()
-        )
+            if not frame_is_archived(fr)
+        ]
         if len(frames_for_export) >= 2:
             exported = db_apply.export_project_xlsx(project, list(frames_for_export))
             logger.info(
@@ -186,11 +197,15 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
             e,
         )
 
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     if len(frames) < 2:
         raise RuntimeError(f"после replace_frames в БД кадров {len(frames)} (нужно ≥2)")
 

@@ -718,7 +718,11 @@ async def run_split_xlsx(
     ts = _ts()
     tmp_dir = cx.tmp_gpt_dir(project)
     prompt_file = cx.write_split_prompt_file(project, tmp_dir, ts=ts)
-    chat_msg = cx.chat_message(project, "split", prompt_file_name=prompt_file.name) + _SPLIT_DB_HINT
+    vo_text = voiceover.read_text(encoding="utf-8", errors="replace")
+    from app.services.node_step_params import build_split_db_hint, resolve_max_split_frames
+
+    chat_hint = build_split_db_hint(project, vo_text)
+    chat_msg = cx.chat_message(project, "split", prompt_file_name=prompt_file.name) + chat_hint
     from app.services.retry_feedback import prompt_addendum
 
     chat_msg += prompt_addendum(project, "split", "splitting")
@@ -762,7 +766,7 @@ async def run_split_xlsx(
     try:
         from app.services.input_hash import step_prompt_hash
 
-        split_prompt_hash: str | None = step_prompt_hash(project, "split", hints=[_SPLIT_DB_HINT])
+        split_prompt_hash: str | None = step_prompt_hash(project, "split", hints=[chat_hint])
     except Exception:  # noqa: BLE001 — учёт возьмёт fallback из gpt_api
         split_prompt_hash = None
 
@@ -772,8 +776,8 @@ async def run_split_xlsx(
     # числом лучше локальной нарезки: он принимается с мягкой находкой.
     from app.services import content_checks as cc
 
-    vo_text = voiceover.read_text(encoding="utf-8", errors="replace")
     requested = cc.requested_frame_count(project)
+    max_allowed = resolve_max_split_frames(project, vo_text)
     concat_ok: dict[str, Any] = {}
 
     def _validate(payload: Any) -> list[str]:
@@ -781,7 +785,7 @@ async def run_split_xlsx(
         problems = cc.split_contract_problems(vo_text, frames)
         if problems:
             return problems
-        n = len(clamp_parent_frames(frames))
+        n = len(clamp_parent_frames(frames, max_frames=max_allowed))
         if requested is not None and n != requested:
             concat_ok["frames"] = frames
             return [f"кадров {n}, а в сценарии просили ровно {requested}: соедини или раздели соседние фразы"]
@@ -805,7 +809,12 @@ async def run_split_xlsx(
             # находку «число кадров» запишет проверка после шага (content_checks).
             logger.warning("split_db: число кадров не как в сценарии — ответ принят: {}", str(e)[:200])
             return _split_result(
-                proj_xlsx, f"[frame_count_mismatch] {e}", concat_ok["frames"], vo_text, degraded=False
+                proj_xlsx,
+                f"[frame_count_mismatch] {e}",
+                concat_ok["frames"],
+                vo_text,
+                degraded=False,
+                max_frames=max_allowed,
             )
         blocks = split_voiceover_locally(vo_text)
         blocks = [b.strip() for b in blocks if b.strip()]
@@ -821,7 +830,7 @@ async def run_split_xlsx(
         reply = f"[degraded_no_llm] {e}"
         frames_spec = [{"закадр": b} for b in blocks]
 
-    return _split_result(proj_xlsx, reply, frames_spec, vo_text, degraded=degraded)
+    return _split_result(proj_xlsx, reply, frames_spec, vo_text, degraded=degraded, max_frames=max_allowed)
 
 
 def _split_result(
@@ -831,11 +840,12 @@ def _split_result(
     vo_text: str,
     *,
     degraded: bool,
+    max_frames: int = MAX_PARENT_FRAMES,
 ) -> XlsxRoundtripResult:
     from app.services import content_checks as cc
 
     # Контракт держит только нижнюю границу (≥2 кадра), верхнюю ставим здесь.
-    frames_spec = clamp_parent_frames(frames_spec)
+    frames_spec = clamp_parent_frames(frames_spec, max_frames=max_frames)
     # Последняя сверка того, что уйдёт в кадры (после крышки и на деградации тоже).
     problems = cc.split_contract_problems(vo_text, frames_spec)
     if problems:
@@ -927,11 +937,15 @@ async def _load_img_pr_context(
         if proj is None:
             raise RuntimeError(f"project #{project.id} not found for img_pr db_frames")
         await db_v2.backfill_project_v2(session, proj)
-        frames = list(
-            (await session.execute(select(Frame).where(Frame.project_id == proj.id).order_by(Frame.number)))
-            .scalars()
-            .all()
-        )
+        frames = [
+            fr
+            for fr in (
+                (await session.execute(select(Frame).where(Frame.project_id == proj.id).order_by(Frame.number)))
+                .scalars()
+                .all()
+            )
+            if not db_v2.frame_is_archived(fr)
+        ]
         ents = list(
             (await session.execute(select(Entity).where(Entity.project_id == proj.id))).scalars().all()
         )
@@ -1640,17 +1654,22 @@ async def sync_after_img_pr(session: AsyncSession, project: Project, xlsx_path: 
             project.id,
             applied,
         )
+    from app.services.db_v2 import frame_is_archived
     from app.services.plan_shot2 import (
         SHOT2_PROMPT_ATTR,
         SHOT2_STATUS_ATTR,
         read_shot2_columns,
     )
 
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     by_num = read_shot2_columns(xlsx_path)
     shot2_n = 0
     for fr in frames:

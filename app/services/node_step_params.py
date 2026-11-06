@@ -146,13 +146,13 @@ def calculate_fallback_split_limits(
     if not target_frames:
         dur = duration_seconds_for_step(project, "plan")
         if dur:
-            target_frames = max(6, min(24, int(round(dur / 5.0))))
+            target_frames = max(6, int(round(dur / 4.0)))
         elif char_count > 0:
-            target_frames = max(6, min(24, int(round(char_count / 70))))
+            target_frames = max(6, int(round(char_count / 70)))
         else:
             target_frames = 12
     else:
-        target_frames = max(4, min(30, target_frames))
+        target_frames = max(2, target_frames)
 
     if char_count > 0 and target_frames > 0:
         avg = max(20, round(char_count / target_frames))
@@ -204,6 +204,124 @@ def build_step_params_block(project: Project, step_code: str) -> str:
     if step_code == "split":
         return build_split_params_block(project)
     return ""
+
+
+def resolve_max_split_frames(project: Project, vo_text: str | None = None) -> int:
+    """Определяет верхнюю границу для clamp_parent_frames.
+
+    Если проект короткий (Shorts) без настроек — стандартные 30 кадров.
+    Если ролик длинный (>1500 зн) или есть явные настройки (сценарий, лимиты символов),
+    лимит кадров рассчитывается динамически, чтобы не схлопывать длинный текст в 30 кадров.
+    """
+    import math
+
+    from app.services import content_checks as cc
+
+    requested = cc.requested_frame_count(project)
+    if requested is not None and requested > 0:
+        return max(30, requested + 10)
+
+    vo_len = len((vo_text or "").strip())
+    if not vo_len:
+        vo_len = len((getattr(project, "script_text", "") or "").strip())
+    if not vo_len:
+        data_dir = getattr(project, "data_dir", None)
+        if data_dir:
+            from pathlib import Path
+
+            vo_path = Path(data_dir) / "voiceover.txt"
+            if vo_path.is_file():
+                try:
+                    vo_len = len(vo_path.read_text(encoding="utf-8", errors="replace").strip())
+                except Exception:
+                    pass
+
+    mn, mx, amn, _ = split_cell_limits_from_project(project)
+
+    min_required_frames = 2
+    max_by_limits = 30
+    if mx is not None and mx > 0 and vo_len > 0:
+        min_required_frames = max(2, int(math.ceil(vo_len / mx)))
+    if mn is not None and mn > 0 and vo_len > 0:
+        max_by_limits = max(30, int(math.ceil(vo_len / max(15, mn))))
+    elif amn is not None and amn > 0 and vo_len > 0:
+        max_by_limits = max(30, int(math.ceil(vo_len / max(20, amn))))
+
+    if vo_len > 1500:
+        # Для длинных роликов при средней длине кадра ~35-50 символов
+        natural_max = max(30, int(math.ceil(vo_len / 35)))
+        return max(natural_max, min_required_frames, max_by_limits)
+
+    return max(30, min_required_frames, max_by_limits)
+
+
+def build_split_db_hint(project: Project, vo_text: str | None = None) -> str:
+    """Генерирует hint для LLM с учётом настроек ячеек проекта и длины закадра."""
+    from app.services import content_checks as cc
+
+    mn, mx, amn, amx = split_cell_limits_from_project(project)
+    requested = cc.requested_frame_count(project)
+
+    vo_len = len((vo_text or "").strip())
+    if not vo_len:
+        vo_len = len((getattr(project, "script_text", "") or "").strip())
+    if not vo_len:
+        data_dir = getattr(project, "data_dir", None)
+        if data_dir:
+            from pathlib import Path
+
+            vo_path = Path(data_dir) / "voiceover.txt"
+            if vo_path.is_file():
+                try:
+                    vo_len = len(vo_path.read_text(encoding="utf-8", errors="replace").strip())
+                except Exception:
+                    pass
+
+    base = (
+        "\n\n# РАЗБИВКА — ИСТОЧНИК ПРАВДЫ БАЗА\n"
+        "Верни ТОЛЬКО JSON apply-ops:\n"
+        '{"ops":[{"target":"replace_frames","frames":['
+        '{"закадр":"текст кадра 1","длительность":3},'
+        '{"закадр":"текст кадра 2"}'
+        "]}]}\n"
+    )
+
+    rules = [
+        "Запрещено дробить на микро-фразы по 1-2 слова.",
+        "Один кадр = законченная мысль/сцена.",
+        "Весь закадровый текст должен быть полностью сохранён в кадрах слово в слово без пропусков и изменений.",
+    ]
+
+    has_custom_limits = any(v is not None for v in (mn, mx, amn, amx))
+    if requested is not None:
+        rules.append(f"В сценарии/настройках явно задано число кадров: строго сделай ровно {requested} кадров.")
+    elif has_custom_limits:
+        limit_parts = []
+        if mn is not None:
+            limit_parts.append(f"минимум {mn} символов в кадре")
+        if mx is not None:
+            limit_parts.append(f"максимум {mx} символов в кадре")
+        if amn is not None and amx is not None:
+            limit_parts.append(f"в среднем {amn}–{amx} символов на кадр")
+        elif amn is not None:
+            limit_parts.append(f"в среднем от {amn} символов на кадр")
+        elif amx is not None:
+            limit_parts.append(f"в среднем до {amx} символов на кадр")
+        rules.append(
+            f"СТРОГИЕ НАСТРОЙКИ РАЗБИВКИ ЯЧЕЕК: {', '.join(limit_parts)}. "
+            "Разбей весь закадровый текст строго в соответствии с этими лимитами."
+        )
+    elif vo_len > 1500:
+        approx_frames = max(10, round(vo_len / 70))
+        rules.append(
+            f"Длинный ролик (~{vo_len} символов): разбей текст примерно на {approx_frames} кадров "
+            "(в среднем 50–100 символов на кадр, 3–6 сек озвучки)."
+        )
+    else:
+        rules.append("ФОРМАТ SHORTS: для ролика 60–75 сек делай 15–25 кадров (максимум 30). Нужно ≥2 и ≤30 кадров.")
+
+    rules.append("Каждый кадр — отдельный объект с полем закадр.\n")
+    return base + " ".join(rules)
 
 
 def send_to_main_pc_for_project(project: Project) -> bool:

@@ -576,18 +576,24 @@ async def media_review(
 ) -> list[dict]:
     """Кадры с путями к последним scene_image / scene_video для визуального HITL."""
     artifact_kind = ArtifactKind.scene_image if kind == "images" else ArtifactKind.scene_video
-    frames = (
-        (
-            await session.execute(
-                select(Frame)
-                .where(Frame.project_id == project_id)
-                .options(selectinload(Frame.artifacts))
-                .order_by(Frame.number.asc())
+    from app.services.db_v2 import ARCHIVE_NUMBER_FROM, frame_is_archived
+
+    frames = [
+        fr
+        for fr in (
+            (
+                await session.execute(
+                    select(Frame)
+                    .where(Frame.project_id == project_id, Frame.number < ARCHIVE_NUMBER_FROM)
+                    .options(selectinload(Frame.artifacts))
+                    .order_by(Frame.number.asc())
+                )
             )
+            .scalars()
+            .all()
         )
-        .scalars()
-        .all()
-    )
+        if not frame_is_archived(fr)
+    ]
     out: list[dict] = []
     for fr in frames:
         arts = [a for a in fr.artifacts if a.kind == artifact_kind]

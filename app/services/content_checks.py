@@ -303,14 +303,14 @@ def requested_frame_count(project: Any) -> int | None:
             n = int(float(cast(Any, split.get(key))))
         except (TypeError, ValueError):
             continue
-        if 2 <= n <= 60:
+        if 2 <= n <= 500:
             return n
     plan = str(getattr(project, "general_plan", "") or "")
     for pattern in _COUNT_PATTERNS:
         m = pattern.search(plan)
         if m:
             n = int(m.group(1))
-            if 2 <= n <= 60:
+            if 2 <= n <= 500:
                 return n
     return None
 

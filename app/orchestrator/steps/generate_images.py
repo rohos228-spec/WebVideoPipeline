@@ -64,6 +64,7 @@ from app.models import (
     Project,
     ProjectStatus,
 )
+from app.services.db_v2 import frame_is_archived
 from app.services.gpt_client import get_gpt_client
 from app.services.hitl import send_hitl_photo
 from app.services.img_streams import (
@@ -692,11 +693,15 @@ async def run(session: AsyncSession, project: Project, bot: Any = None) -> None:
         )
 
     # Excel не bootstrap'им: кадры/промты только из БД (явный Import отдельно).
-    frames = list(
-        (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project.id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
 
     if not frames:
         # Кнопки «Импорт Excel» в UI нет: `excel_io.import_project_xlsx`
@@ -1204,11 +1209,15 @@ async def _pending_shot1_numbers(
 ) -> list[int]:
     from app.services.vision_check_loop import scene_regen_allows
 
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     out: list[int] = []
     for fr in frames:
         if project is not None:
@@ -1290,11 +1299,15 @@ async def _claim_shot1_batch(
 
     if limit < 1:
         return []
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     claimed: list[Frame] = []
     for prefer_child in (False, True):
         if len(claimed) >= limit:
@@ -1375,11 +1388,15 @@ async def _claim_shot2_batch(
 
     if limit < 1:
         return []
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     claimed: list[Frame] = []
     for fr in frames:
         if project is not None:
@@ -1604,11 +1621,15 @@ async def _all_frames_have_image_or_failed(
             return False
         return True
 
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     for fr in frames:
         if project is not None:
             allow = scene_regen_allows(project, fr.number, 1)
@@ -1728,11 +1749,15 @@ async def _next_shot2_frame_to_process(
 ) -> Frame | None:
     from app.services.vision_check_loop import scene_regen_allows
 
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     for fr in frames:
         if project is not None:
             allow = scene_regen_allows(project, fr.number, 2)
@@ -1752,11 +1777,15 @@ async def _next_shot2_frame_to_process(
 
 
 async def _all_shot2_done(session: AsyncSession, project_id: int) -> bool:
-    frames = (
-        (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
-        .scalars()
-        .all()
-    )
+    frames = [
+        fr
+        for fr in (
+            (await session.execute(select(Frame).where(Frame.project_id == project_id).order_by(Frame.number)))
+            .scalars()
+            .all()
+        )
+        if not frame_is_archived(fr)
+    ]
     for fr in frames:
         attrs = fr.attrs or {}
         prompt = attrs.get(SHOT2_PROMPT_ATTR) or ""
