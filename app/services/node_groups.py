@@ -504,11 +504,34 @@ _EDGE_KINDS = ("after", "pass", "fail")
 
 
 def custom_groups_dir() -> Path:
-    return find_project_root() / "node_groups"
+    from app.settings import settings
+
+    return Path(settings.data_dir) / "node_groups"
 
 
-def _group_file(group_id: str) -> Path:
-    return custom_groups_dir() / f"{group_id}.json"
+def custom_groups_dirs() -> list[Path]:
+    """Каталоги пользовательских групп: primary (settings.data_dir) + fallback (repo root)."""
+    primary = custom_groups_dir()
+    dirs = [primary]
+    repo_dir = find_project_root() / "node_groups"
+    try:
+        if repo_dir.resolve() != primary.resolve() and repo_dir.is_dir():
+            dirs.append(repo_dir)
+    except Exception:
+        if repo_dir.is_dir():
+            dirs.append(repo_dir)
+    return dirs
+
+
+def _group_file(group_id: str, *, for_write: bool = False) -> Path:
+    target = custom_groups_dir() / f"{group_id}.json"
+    if for_write or target.exists():
+        return target
+    for d in custom_groups_dirs():
+        candidate = d / f"{group_id}.json"
+        if candidate.is_file():
+            return candidate
+    return target
 
 
 def _spec_from_dict(raw: dict[str, Any], *, builtin: bool) -> GroupNodeSpec:
@@ -637,29 +660,34 @@ def validate_group_payload(raw: dict[str, Any]) -> list[str]:
 
 
 def load_custom_groups() -> dict[str, NodeGroupDef]:
-    """Пользовательские группы из node_groups/*.json (без кэша — файлы мелкие)."""
+    """Пользовательские группы из node_groups/*.json (primary: data_dir, fallback: repo)."""
     out: dict[str, NodeGroupDef] = {}
-    folder = custom_groups_dir()
-    if not folder.is_dir():
-        return out
-    for path in sorted(folder.glob("*.json")):
-        try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            errs = validate_group_payload(raw)
-            if errs:
-                logger.warning("node_groups: {} пропущен: {}", path.name, errs)
+    seen_ids: set[str] = set()
+    for folder in custom_groups_dirs():
+        if not folder.is_dir():
+            continue
+        for path in sorted(folder.glob("*.json")):
+            gid_from_stem = path.stem
+            if gid_from_stem in seen_ids:
                 continue
-            g = _group_from_dict(raw, builtin=False)
-            if g.group_id in NODE_GROUPS:
-                logger.warning(
-                    "node_groups: {} — id {!r} занят встроенной группой, пропуск",
-                    path.name,
-                    g.group_id,
-                )
-                continue
-            out[g.group_id] = g
-        except Exception as e:  # noqa: BLE001 — битый файл не роняет каталог
-            logger.warning("node_groups: не смог прочитать {}: {}", path.name, e)
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                errs = validate_group_payload(raw)
+                if errs:
+                    logger.warning("node_groups: {} пропущен: {}", path.name, errs)
+                    continue
+                g = _group_from_dict(raw, builtin=False)
+                if g.group_id in NODE_GROUPS:
+                    logger.warning(
+                        "node_groups: {} — id {!r} занят встроенной группой, пропуск",
+                        path.name,
+                        g.group_id,
+                    )
+                    continue
+                seen_ids.add(g.group_id)
+                out[g.group_id] = g
+            except Exception as e:  # noqa: BLE001 — битый файл не роняет каталог
+                logger.warning("node_groups: не смог прочитать {}: {}", path.name, e)
     return out
 
 
@@ -669,7 +697,7 @@ def all_groups() -> dict[str, NodeGroupDef]:
 
 
 def save_custom_group(raw: dict[str, Any]) -> NodeGroupDef:
-    """Создать/перезаписать пользовательскую группу (JSON в репо)."""
+    """Создать/перезаписать пользовательскую группу (JSON в data_dir/node_groups)."""
     errs = validate_group_payload(raw)
     if errs:
         raise ValueError("спек группы невалиден: " + "; ".join(errs))
@@ -682,7 +710,7 @@ def save_custom_group(raw: dict[str, Any]) -> NodeGroupDef:
     group = _group_from_dict(payload, builtin=False)
     folder = custom_groups_dir()
     folder.mkdir(parents=True, exist_ok=True)
-    _group_file(gid).write_text(
+    _group_file(gid, for_write=True).write_text(
         json.dumps(_group_to_dict(group), ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -713,6 +741,14 @@ def delete_custom_group(group_id: str) -> None:
     if not path.is_file():
         raise ValueError(f"неизвестная группа {gid!r}")
     path.unlink()
+    # Удалим и дубликат из других каталогов (например, repo legacy), если был
+    for d in custom_groups_dirs():
+        legacy = d / f"{gid}.json"
+        if legacy.is_file():
+            try:
+                legacy.unlink()
+            except OSError:
+                pass
     logger.info("node_groups: удалена пользовательская группа {}", gid)
 
 

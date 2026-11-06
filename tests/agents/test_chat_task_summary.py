@@ -13,7 +13,13 @@ from app.orchestrator.agents.summarizer import (  # noqa: E402
     deterministic_text,
     explain_failure,
 )
-from app.orchestrator.contracts import AgentRole, MessageMode, PlanStep, TaskStatus, ValidatorResult  # noqa: E402
+from app.orchestrator.contracts import (  # noqa: E402
+    AgentRole,
+    MessageMode,
+    PlanStep,
+    TaskStatus,
+    ValidatorResult,
+)
 from app.orchestrator.db.migrations import connect  # noqa: E402
 from app.services.plain_ru import plain_ru  # noqa: E402
 from app.services.spend_guard import BLOCK_KILL_SWITCH, PaidCallBlocked  # noqa: E402

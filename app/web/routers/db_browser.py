@@ -454,7 +454,10 @@ _ORCHESTRATOR_SYSTEM = (
     '"характер":"…","правила":""}],'
     '"ops":[{"frame_uuid":"…","fields":{"персонажи":"c01"}}]}.\n'
     '2) ЗАПУСТИТЬ шаг → {"actions":[{"run_step":"<код>"}]} '
-    "(img_pr, img, anim_pr, video, audio, music, assemble, publish…).\n"
+    "(plan, script, split, hero, items, img_pr, img, anim_pr, video, audio, music, assemble, publish…). "
+    'Для нод «Работа с GPT» / «ИИ-редактор сцен» (тип excel_gpt) ОБЯЗАТЕЛЬНО передавай node_key: '
+    '{"actions":[{"run_step":"excel_gpt","node_key":"n_excel_gpt_1"}]}. '
+    'Также можно запустить ноду напрямую: {"actions":[{"run_node":"<node_key>"}]}.\n'
     '3) ОСТАНОВИТЬ генерацию → {"actions":[{"stop_step":true}]}.\n'
     "4) НАСТРОЙКА генерации → "
     '{"actions":[{"set_option":{"key":"<ключ>","value":"<id>"}}]} — '
@@ -475,7 +478,7 @@ _ORCHESTRATOR_SYSTEM = (
     '{"open_ui":{"kind":"node_studio","node_key":"n_plan"}}.\n'
     "НАЗВАНИЯ НОД: маппи русские названия пользователя на node_key по "
     "разделу НОДЫ КАНВАСА (название в «»). ВНИМАНИЕ: «Сценарий» — это нода "
-    "plan (n_plan); «Закадровый текст» — script (n_script); «Работа с GPT» — "
+    "plan (n_plan); «Закадровый текст» — script (n_script); «ИИ-редактор сцен» / «Работа с GPT» — "
     "ноды excel_gpt (n_excel_gpt_1, n_excel_gpt_2…).\n"
     "8) HITL-РЕШЕНИЕ (когда нода ждёт аппрува) → "
     '{"actions":[{"hitl_decision":"approve|regenerate|reject|edit_prompt"}]}.\n'
@@ -627,8 +630,17 @@ _STEP_RU: dict[str, str] = {
 }
 
 
-def _pipeline_state_lines(project: Project) -> list[str]:
-    """Состояние шагов по реальному порядку пайплайна (для контекста модели)."""
+def _pipeline_state_lines(
+    project: Project,
+    nodes: list[dict] | None = None,
+    edges: list[dict] | None = None,
+    status_by_key: dict[str, str] | None = None,
+) -> list[str]:
+    """Состояние шагов по реальному порядку пайплайна (для контекста модели).
+
+    Приоритет — реальный граф канваса проекта (с его порядком нод и статусами NodeRun).
+    Фоллбек — линейный реестр (с фильтрацией нод, которых нет на канвасе).
+    """
     from app.orchestrator.node_registry import (
         LINEAR_RUNNING_PIPELINE,
         NODE_TYPE_TO_READY,
@@ -636,18 +648,107 @@ def _pipeline_state_lines(project: Project) -> list[str]:
         NODE_TYPE_TO_STEP_CODE,
     )
     from app.services.chat_humanize import step_title
+    from app.services.project_state import _status_ord
+
+    if nodes is None:
+        meta = project.meta if isinstance(project.meta, dict) else {}
+        cg = meta.get("canvas_graph")
+        if isinstance(cg, dict) and cg.get("nodes"):
+            nodes = [dict(n) for n in (cg.get("nodes") or []) if isinstance(n, dict)]
+            edges = [dict(e) for e in (cg.get("edges") or []) if isinstance(e, dict)]
+
+    if nodes:
+        by_id = {str(n.get("id") or ""): n for n in nodes if n.get("id")}
+        ordered_ids: list[str] = []
+        if edges:
+            try:
+                ordered_ids = _linear_order(nodes, edges)
+            except Exception:
+                ordered_ids = []
+        if not ordered_ids:
+            sinks = _side_sink_ids(nodes)
+            ordered_ids = [str(n.get("id")) for n in nodes if str(n.get("id")) not in sinks]
+
+        if ordered_ids:
+            lines: list[str] = []
+            cur_status = getattr(project, "status", None)
+            for nid in ordered_ids:
+                node = by_id.get(nid)
+                if not node:
+                    continue
+                ntyp = str(node.get("type") or "")
+                raw_data = node.get("data")
+                data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+                label = str(data.get("label") or data.get("title") or ntyp)
+
+                st = status_by_key.get(nid) if status_by_key else None
+                if st:
+                    state = _NODE_STATUS_RU.get(st, st)
+                else:
+                    run_st: ProjectStatus | None
+                    ready_st: ProjectStatus | None
+                    if ntyp == "excel_gpt":
+                        from app.models import ProjectStatus
+                        from app.services.excel_gpt_node import (
+                            running_status_for_slot,
+                            slot_index_from_node,
+                        )
+
+                        slot = slot_index_from_node(node)
+                        run_st = running_status_for_slot(slot)
+                        ready_st = getattr(ProjectStatus, f"enrich_{slot}_ready", None)
+                    else:
+                        run_st = NODE_TYPE_TO_RUNNING.get(ntyp)
+                        ready_st = NODE_TYPE_TO_READY.get(ntyp)
+
+                    if cur_status and run_st and cur_status == run_st:
+                        state = "текущий"
+                    elif cur_status and ready_st and _status_ord(cur_status) >= _status_ord(ready_st):
+                        state = "готово"
+                    else:
+                        state = "ждёт"
+
+                if ntyp == "excel_gpt":
+                    marker = data.get("sd_agent") or data.get("agent")
+                    if marker:
+                        step_code = "scene_asm" if marker == "assemble" else "scene_d"
+                    else:
+                        step_code = "excel_gpt"
+                    lines.append(f"- «{label}» (код для JSON: {step_code}, node_key: {nid}): {state}")
+                else:
+                    step_code = NODE_TYPE_TO_STEP_CODE.get(ntyp, ntyp)
+                    lines.append(f"- «{label}» (код для JSON: {step_code}): {state}")
+            if lines:
+                return lines
+
+    # Фоллбек: статический пайплайн, но фильтруем sd_agent/sd_assemble если их нет на канвасе
+    present_types: set[str] = set()
+    if nodes:
+        for n in nodes:
+            raw = str(n.get("type") or "")
+            present_types.add(raw)
+            raw_d = n.get("data")
+            d: dict[str, Any] = raw_d if isinstance(raw_d, dict) else {}
+            if d.get("sd_agent"):
+                present_types.add("sd_assemble" if d.get("sd_agent") == "assemble" else "sd_agent")
+
+    pipeline_entries = [
+        (run, ntyp) for run, ntyp in LINEAR_RUNNING_PIPELINE if not present_types or ntyp in present_types
+    ]
+    if not pipeline_entries:
+        pipeline_entries = list(LINEAR_RUNNING_PIPELINE)
 
     ordered: list[str] = []
-    for _run, node_type in LINEAR_RUNNING_PIPELINE:
+    for _run, node_type in pipeline_entries:
         ordered.append(NODE_TYPE_TO_RUNNING[node_type].value)
         ordered.append(NODE_TYPE_TO_READY[node_type].value)
     current = project.status.value if project.status else ""
     pos = ordered.index(current) if current in ordered else 0
 
     lines = []
-    for i, (_run, node_type) in enumerate(LINEAR_RUNNING_PIPELINE):
+    for i, (_run, node_type) in enumerate(pipeline_entries):
         ready_idx = 2 * i + 1
-        if ready_idx < pos:
+        if ready_idx <= pos:
             state = "готово"
         elif 2 * i <= pos:
             state = "текущий"
@@ -710,7 +811,17 @@ async def _checks_context(session: AsyncSession, project: Project) -> list[str]:
             "failed": "ОШИБКА",
             "skipped": "пропущена",
         }
-        lines.append(f"СТАТУСЫ НОД (прогон #{run.id}, статус прогона {run.status.value}):")
+        ru_run = {
+            "new": "новый",
+            "running": "выполняется",
+            "paused": "на паузе (готов к запуску следующего шага)",
+            "waiting_hitl": "ждёт аппрува человека",
+            "done": "завершён",
+            "failed": "ошибка",
+            "cancelled": "отменён",
+        }
+        run_st = ru_run.get(run.status.value, run.status.value)
+        lines.append(f"СТАТУСЫ НОД (прогон #{run.id}, статус прогона: {run_st}):")
         for n in nodes:
             st = ru.get(n.status.value, n.status.value)
             extra = ""
@@ -970,10 +1081,12 @@ _NODE_STATUS_RU = {
 }
 
 
-async def _canvas_nodes_context(session: AsyncSession, project: Project) -> tuple[list[str], dict[str, dict]]:
+async def _canvas_nodes_context(
+    session: AsyncSession, project: Project
+) -> tuple[list[str], dict[str, dict], list[dict], list[dict], dict[str, str]]:
     """Ноды канваса проекта: ключ → название (data.label) + тип + статус.
 
-    Возвращает (строки для контекста, keymap node_key → {type, label}).
+    Возвращает (строки для контекста, keymap node_key → {type, label}, nodes, edges, status_by_key).
     Названия — те, что пользователь видит на канвасе («Сценарий» = plan!).
 
     SoT графа — ``meta.canvas_graph`` (туда пишет connect_edges/add_node).
@@ -1025,7 +1138,7 @@ async def _canvas_nodes_context(session: AsyncSession, project: Project) -> tupl
         suffix = f" — {_NODE_STATUS_RU.get(st, st)}" if st else ""
         lines.append(f"- {key} → «{label}» (тип {typ}){suffix}")
     if not lines:
-        return [], keymap
+        return [], keymap, nodes, edges_src, status_by_key
     # Цепочка пайплайна (без storage) + отдельно рёбра к хранилищу.
     # Иначе оркестратор врёт «нет связи к storage», хотя connect_edges уже есть.
     try:
@@ -1042,7 +1155,7 @@ async def _canvas_nodes_context(session: AsyncSession, project: Project) -> tupl
         lines.append(f"СВЯЗИ К ХРАНИЛИЩУ / сбоку ({len(pairs)}): " + ", ".join(pairs))
     else:
         lines.append("СВЯЗИ К ХРАНИЛИЩУ: нет (провести можно действием connect_edges, только если попросят).")
-    return ["НОДЫ КАНВАСА (ключ → «название» (тип) — статус):", *lines], keymap
+    return ["НОДЫ КАНВАСА (ключ → «название» (тип) — статус):", *lines], keymap, nodes, edges_src, status_by_key
 
 
 def _settings_context(project: Project) -> list[str]:
@@ -2488,7 +2601,9 @@ async def _build_orchestrator_prompt(
         f"{m.get('role', '?')}: {m.get('content', '')}" for m in (body.history or [])[-8:]
     )
     diag_lines = await _diagnostics_context(session, project)
-    canvas_lines, canvas_keymap = await _canvas_nodes_context(session, project)
+    canvas_lines, canvas_keymap, canvas_nodes, canvas_edges, canvas_statuses = await _canvas_nodes_context(
+        session, project
+    )
     catalog_lines = await _projects_catalog_context(session)
     fix_bugs = _is_fix_bugs_mode(body.message, flag=bool(body.fix_bugs))
     diagnose_only = _is_diagnose_only_question(body.message, fix_bugs=fix_bugs)
@@ -2504,7 +2619,7 @@ async def _build_orchestrator_prompt(
         + (f"\nТЕМА: {topic_snip}" if topic_snip else "")
         + "\n"
         + "\nШАГИ ПАЙПЛАЙНА (реальный порядок и состояние):\n"
-        + "\n".join(_pipeline_state_lines(project))
+        + "\n".join(_pipeline_state_lines(project, nodes=canvas_nodes, edges=canvas_edges, status_by_key=canvas_statuses))
         + "\n\n"
         + "\n".join(await _checks_context(session, project))
         + ("\n\n" + "\n".join(diag_lines) if diag_lines else "")
@@ -2754,7 +2869,7 @@ async def _execute_orchestrator_reply(
                 continue
             if guard.needs_confirm(act, auto=auto):
                 title = guard.action_title(act, canvas_keymap)
-                if "run_step" in act and is_running_status(project.status):
+                if ("run_step" in act or "run_node" in act) and is_running_status(project.status):
                     title += " Сейчас идёт другой шаг — он будет прерван."
                 pending_confirm.append(
                     {
@@ -2768,8 +2883,43 @@ async def _execute_orchestrator_reply(
                 )
                 continue
             try:
-                if "run_step" in act:
+                if "run_step" in act or "run_node" in act:
                     step = str(act.get("run_step") or "").strip()
+                    node_key = str(act.get("node_key") or act.get("run_node") or "").strip() or None
+                    km = canvas_keymap or {}
+                    if step in km or step.startswith("n_"):
+                        if not node_key:
+                            node_key = step
+                        step = ""
+                    if not step and node_key:
+                        ninfo = km.get(node_key) or {}
+                        ntyp = str(ninfo.get("type") or "")
+                        if ntyp == "excel_gpt":
+                            step = "excel_gpt"
+                        elif ntyp:
+                            from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE
+
+                            step = NODE_TYPE_TO_STEP_CODE.get(ntyp, ntyp)
+                    if step == "excel_gpt" and not node_key:
+                        meta = dict(project.meta or {})
+                        cand = str(meta.get("active_excel_gpt_node_key") or "")
+                        if not cand:
+                            raw_cg = meta.get("canvas_graph")
+                            cg: dict[str, Any] = raw_cg if isinstance(raw_cg, dict) else {}
+                            raw_nodes = cg.get("nodes")
+                            cg_nodes = raw_nodes if isinstance(raw_nodes, list) else []
+                            raw_edges = cg.get("edges")
+                            cg_edges = raw_edges if isinstance(raw_edges, list) else []
+                            try:
+                                order = _linear_order(cg_nodes, cg_edges)
+                            except Exception:
+                                order = [str(n.get("id")) for n in cg_nodes]
+                            for nid in order:
+                                if km.get(nid, {}).get("type") == "excel_gpt":
+                                    cand = nid
+                                    break
+                        node_key = cand or None
+
                     if not step:
                         continue
                     if step not in STEP_CODE_TO_NODE_TYPE:
@@ -2784,13 +2934,20 @@ async def _execute_orchestrator_reply(
 
                     # Кнопка «Подтвердить» = ручной ▶ (как в Studio). Автономный режим без
                     # кнопки не обрывает идущую генерацию и уважает очередь.
-                    new_status = await start_step(session, project, step, explicit_ui_start=confirmed)
+                    new_status = await start_step(
+                        session, project, step, node_key=node_key, explicit_ui_start=confirmed
+                    )
                     await commit_with_retry(session)
+                    step_label = (
+                        (km.get(node_key, {}).get("label") if node_key else None)
+                        or step_title(step, km)
+                    )
                     actions_run.append(
                         {
                             "run_step": step,
+                            "node_key": node_key,
                             "status": new_status.value,
-                            "step_label": step_title(step, canvas_keymap),
+                            "step_label": step_label,
                         }
                     )
                 elif act.get("stop_step"):
@@ -3010,7 +3167,7 @@ async def _execute_orchestrator_reply(
                 else:
                     keys = sorted(str(k) for k in act)
                     raise db_apply.ApplyOpsError(
-                        f"неизвестное действие {keys}; есть: run_step, stop_step, "
+                        f"неизвестное действие {keys}; есть: run_step, run_node, stop_step, "
                         "set_option, set_prompt, set_briefing, set_text_llm, open_ui, hitl_decision, "
                         "set_topic, create_project, create_child, delete_projects, "
                         "add_node, connect_edges, remove_node, rename_node, repair_graph, "
@@ -3356,7 +3513,7 @@ async def orchestrator_confirm_action(
         return {"ok": False, "reply": "Эта кнопка устарела — повторите просьбу в чате.", "notes": []}
     if not body.approve:
         return {"ok": True, "reply": "Отменено — ничего не менял.", "notes": []}
-    _lines, keymap = await _canvas_nodes_context(session, project)
+    _lines, keymap, *_ = await _canvas_nodes_context(session, project)
     res = await _execute_orchestrator_reply(
         session,
         project,

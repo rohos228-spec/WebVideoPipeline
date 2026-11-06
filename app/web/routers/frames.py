@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import commit_with_retry
 from app.models import Artifact, ArtifactKind, Frame, FrameStatus, Project
 from app.services.artifact_recovery import archive_older_frame_clips
+from app.services.db_v2 import ARCHIVE_NUMBER_FROM, frame_is_archived
 from app.services.img_streams import VIDEO_INFLIGHT_ATTR
 from app.services.plan_shot2 import SHOT2_STATUS_ATTR
 from app.web.deps import get_session
@@ -18,16 +19,25 @@ router = APIRouter(prefix="/projects/{project_id}/frames", tags=["frames"])
 
 
 @router.get("", response_model=list[FrameDTO])
-async def list_frames(project_id: int, session: AsyncSession = Depends(get_session)) -> list[Frame]:
+async def list_frames(
+    project_id: int,
+    include_archived: bool = False,
+    session: AsyncSession = Depends(get_session),
+) -> list[Frame]:
+    stmt = select(Frame).where(Frame.project_id == project_id)
+    if not include_archived:
+        stmt = stmt.where(Frame.number < ARCHIVE_NUMBER_FROM)
     rows = (
         (
             await session.execute(
-                select(Frame).where(Frame.project_id == project_id).order_by(Frame.number.asc())
+                stmt.order_by(Frame.number.asc())
             )
         )
         .scalars()
         .all()
     )
+    if not include_archived:
+        rows = [f for f in rows if not frame_is_archived(f)]
     return list(rows)
 
 

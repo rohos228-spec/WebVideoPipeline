@@ -143,6 +143,12 @@ class Settings(BaseSettings):
     pay52_claude_low_key: str = Field("", alias="PAY52_CLAUDE_LOW_KEY")
     pay52_claude_high_key: str = Field("", alias="PAY52_CLAUDE_HIGH_KEY")
     pay52_gpt_key: str = Field("", alias="PAY52_GPT_KEY")
+    pay52_deepseek_key: str = Field("", alias="PAY52_DEEPSEEK_KEY")
+    pay52_kimi_key: str = Field("", alias="PAY52_KIMI_KEY")
+    pay52_gemini_key: str = Field("", alias="PAY52_GEMINI_KEY")
+    pay52_seedream_key: str = Field("", alias="PAY52_SEEDREAM_KEY")
+    pay52_banana_key: str = Field("", alias="PAY52_BANANA_KEY")
+    pay52_gpt_image_key: str = Field("", alias="PAY52_GPT_IMAGE_KEY")
 
     # Seedance 52pay видео-ключи
     seedance_mini_key: str = Field("", alias="SEEDANCE_MINI_KEY")
@@ -280,17 +286,21 @@ class Settings(BaseSettings):
             from app.services.text_llm_catalog import resolve_active_model_id
 
             active_id = resolve_active_model_id(self).lower()
+            if "deepseek" in active_id:
+                return (self.pay52_deepseek_key or "").strip()
+            if "kimi" in active_id:
+                return (self.pay52_kimi_key or "").strip()
+            if "gemini" in active_id:
+                return (self.pay52_gemini_key or "").strip()
             if "glm" in active_id:
                 return (self.pay52_glm_key or "").strip()
-            if "low" in active_id:
-                return (self.pay52_claude_low_key or "").strip()
-            if "high" in active_id or "fable" in active_id:
-                return (self.pay52_claude_high_key or "").strip()
+            if "high" in active_id or "fable" in active_id or "opus" in active_id:
+                return (self.pay52_claude_high_key or self.pay52_claude_low_key or "").strip()
             if "claude" in active_id:
-                return (self.pay52_claude_low_key or "").strip()
+                return (self.pay52_claude_low_key or self.pay52_claude_high_key or "").strip()
             if "gpt" in active_id:
                 return (self.pay52_gpt_key or "").strip()
-            return (self.pay52_gpt_key or self.pay52_glm_key or self.pay52_claude_low_key or "").strip()
+            return (self.pay52_gpt_key or self.pay52_glm_key or self.pay52_claude_low_key or self.pay52_deepseek_key or "").strip()
         return (self.gpt_api_key or "").strip()
 
     @property

@@ -215,12 +215,13 @@ async def replace_all_frames(
         raise ValueError(f"replace_all_frames: нужно ≥2 кадра, получили {len(specs)}")
 
     old_frames = list((await session.execute(select(Frame).where(Frame.project_id == project.id))).scalars())
-    if old_frames:
+    active_old = [fr for fr in old_frames if not frame_is_archived(fr)]
+    if active_old:
         # Номера строго выше текущего максимума: повторный replace не
         # сталкивается с уже архивным кадром (uq_frame_number).
-        hi = max(int(fr.number or 0) for fr in old_frames)
-        park = hi + 1_000_000
-        for i, fr in enumerate(old_frames):
+        hi = max((int(fr.number or 0) for fr in old_frames), default=0)
+        park = max(hi + 1, ARCHIVE_NUMBER_FROM)
+        for i, fr in enumerate(active_old):
             attrs = dict(fr.attrs or {})
             cs = dict(attrs.get("camera_subdivide") or {})
             cs["leftover"] = True
@@ -450,13 +451,17 @@ async def insert_frame_after(
     Порядок — среднее соседних sort_key; ``number`` = max+1 (legacy-колонка
     с unique constraint, на порядок отображения не влияет).
     """
-    frames = list(
-        (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
-            )
-        ).scalars()
-    )
+    frames = [
+        fr
+        for fr in (
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
+                )
+            ).scalars()
+        )
+        if not frame_is_archived(fr)
+    ]
     # Без sort_key SQLite ставит NULL первыми: новый кадр с ключом 10
     # оказывается в конце, а порядок сцены разъезжается.
     await _fill_missing_sort_keys(session, frames)
@@ -631,13 +636,17 @@ async def project_graph(session: AsyncSession, project: Project) -> dict[str, An
             )
         ).scalars()
     )
-    frames = list(
-        (
-            await session.execute(
-                select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
-            )
-        ).scalars()
-    )
+    frames = [
+        fr
+        for fr in (
+            (
+                await session.execute(
+                    select(Frame).where(Frame.project_id == project.id).order_by(Frame.sort_key, Frame.number)
+                )
+            ).scalars()
+        )
+        if not frame_is_archived(fr)
+    ]
     texts = list(
         (await session.execute(select(FrameText).where(FrameText.project_id == project.id))).scalars()
     )

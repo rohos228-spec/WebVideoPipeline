@@ -106,6 +106,14 @@ def list_names(step_code: str, scope: PromptScope | None = None) -> list[str]:
             clean = name[:-3] if name.lower().endswith(".md") else name
             if clean:
                 names.add(clean)
+    from app.services.studio_auth import current_is_admin
+
+    if current_is_admin():
+        for (_tenant, _brand, _project_id, step, name) in _CACHE:
+            if step == step_code:
+                clean = name[:-3] if name.lower().endswith(".md") else name
+                if clean:
+                    names.add(clean)
     out = sorted(names)
     if "default" in out:
         out.remove("default")
@@ -128,6 +136,15 @@ def resolve_with_source(
             text = _CACHE.get(key)
             if text is not None:
                 return text, level
+    # Fallback для админа или воркера без контекста арендатора: если вариант
+    # существует в _CACHE под любым арендатором — брать его, а не сваливаться в default.
+    from app.services.studio_auth import current_is_admin
+
+    if current_is_admin() or sc.tenant_id is None:
+        for cand in _name_candidates(name):
+            for (_tenant, _brand, _project_id, step, n), text in _CACHE.items():
+                if step == step_code and n == cand:
+                    return text, "tenant"
     return None, "disk"
 
 
@@ -172,9 +189,13 @@ async def refresh(session: Any) -> int:
     функции в глубине шага — то самое, чего кэш и избегает.
     """
     global _LOADED
-    from sqlalchemy import select
+    from sqlalchemy import select, text
 
     from app.models import PromptLibraryEntry
+    from app.settings import settings
+
+    if settings.is_postgres:
+        await session.execute(text("select set_config('app.is_admin', 'true', true)"))
 
     rows = (await session.execute(select(PromptLibraryEntry))).scalars().all()
     _CACHE.clear()

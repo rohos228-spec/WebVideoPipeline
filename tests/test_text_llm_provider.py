@@ -203,7 +203,7 @@ def test_catalog_groups_and_snapshot_models() -> None:
 
     snapshot = {m["id"] for m in load_snapshot()}
     groups = {it["group"] for it in CATALOG}
-    assert groups == {"Anthropic", "OpenAI", "Google", "xAI", "GLM", "KIE"}
+    assert groups == {"Anthropic", "OpenAI", "Google", "xAI", "GLM", "KIE", "DeepSeek", "Kimi"}
     for it in CATALOG:
         api_model = it.get("api_model")
         if api_model and it.get("provider") == "vibecode":

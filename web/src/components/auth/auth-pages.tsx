@@ -95,26 +95,30 @@ function Shell({ title, sub, children, foot }: { title: string; sub?: string; ch
     <div className="min-h-screen w-full bg-[#070909] text-white" style={FONT}>
       <style>{`@keyframes viaIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}@keyframes viaGlow{0%,100%{opacity:.35}50%{opacity:.6}}.via-in{animation:viaIn .45s cubic-bezier(.2,.8,.2,1) both}`}</style>
       <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
-        <aside className="relative hidden overflow-hidden border-r border-white/[0.06] lg:block">
+        <aside className="relative hidden overflow-hidden lg:block">
           <div className="absolute inset-0" style={{ background: `radial-gradient(60% 50% at 30% 30%, ${A}22, transparent 70%), radial-gradient(50% 40% at 80% 90%, ${A}14, transparent 70%)`, animation: "viaGlow 6s ease-in-out infinite" }} />
           <div className="relative flex h-full flex-col p-12">
-            <a href="/home" className="flex items-center gap-3 text-[28px] font-bold tracking-wide"><span className="grid h-11 w-11 place-items-center rounded-[12px] text-[18px] text-black" style={{ background: A }}>V</span>VIA</a>
-            <div className="mt-auto">
-              <div className="mb-8 grid grid-cols-2 gap-3">
-                {[0, 1, 2, 3].map((i) => (
-                  <div key={i} className={`flex items-center justify-center rounded-[16px] border border-dashed border-white/10 bg-white/[0.02] text-zinc-600 ${i === 0 ? "col-span-2 aspect-[16/7]" : "aspect-[4/3]"}`}>
-                    <div className="flex flex-col items-center gap-2 text-[13px]"><ImageIcon className="h-6 w-6" />изображение</div>
-                  </div>
-                ))}
-              </div>
+            <a href="/home" className="inline-flex items-center">
+              <img src="/via-logo.png" alt="VIA" className="h-9 w-auto select-none" draggable={false} />
+            </a>
+            <div className="mt-8 mb-8">
               <h2 className="text-[40px] font-semibold leading-[1.1]">Контент-завод<br /><span style={{ color: A }}>мультфильмов и сериалов</span></h2>
               <p className="mt-4 max-w-md text-[17px] text-zinc-400">Сценарий, персонажи, кадры, анимация, озвучка и монтаж — в одном пайплайне.</p>
+            </div>
+            <div className="mt-auto grid grid-cols-2 gap-3">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className={`flex items-center justify-center rounded-[16px] border border-dashed border-white/10 bg-white/[0.02] text-zinc-600 ${i === 0 ? "col-span-2 aspect-[16/7]" : "aspect-[4/3]"}`}>
+                  <div className="flex flex-col items-center gap-2 text-[13px]"><ImageIcon className="h-6 w-6" />изображение</div>
+                </div>
+              ))}
             </div>
           </div>
         </aside>
         <main className="flex items-center justify-center px-6 py-12">
           <div className="via-in w-full max-w-[460px]">
-            <a href="/home" className="mb-8 flex items-center gap-3 text-[24px] font-bold lg:hidden"><span className="grid h-10 w-10 place-items-center rounded-[12px] text-black" style={{ background: A }}>V</span>VIA</a>
+            <a href="/home" className="mb-8 inline-flex items-center lg:hidden">
+              <img src="/via-logo.png" alt="VIA" className="h-8 w-auto select-none" draggable={false} />
+            </a>
             <h1 className="text-[36px] font-semibold leading-tight">{title}</h1>
             {sub ? <p className="mt-2 text-[17px] text-zinc-400">{sub}</p> : null}
             <div className="mt-8">{children}</div>
@@ -203,7 +207,7 @@ export function LoginPage() {
     } catch (e: any) { setErr(e.message); } finally { setLoading(false); }
   }
   return (
-    <Shell title="Вход в VIA" sub="Рады видеть снова" foot={<>Нет аккаунта? <L href="/register">Зарегистрироваться</L></>}>
+    <Shell title="Вход в VIA" sub="Рады видеть Вас снова!" foot={<>Нет аккаунта? <L href="/register">Зарегистрироваться</L></>}>
       <form onSubmit={submit} noValidate>
         {reset ? <Alert kind="ok">Пароль изменён. Войдите с новым паролем.</Alert> : null}
         {err ? <Alert kind="error">{err}</Alert> : null}

@@ -57,10 +57,12 @@ export function NodePalette({
   projectId,
   onAddNode,
   getSelectedNodeIds,
+  onPersistCanvas,
 }: {
   projectId: number | null;
   onAddNode: (type: string) => void;
   getSelectedNodeIds: () => string[];
+  onPersistCanvas?: () => Promise<void> | void;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -186,6 +188,7 @@ export function NodePalette({
             selectedGroupId={effectiveGroupId}
             onSelectGroup={setSelectedGroupId}
             getSelectedNodeIds={getSelectedNodeIds}
+            onPersistCanvas={onPersistCanvas}
             onInsert={insertGroup}
             onChanged={() => {
               void qc.invalidateQueries({ queryKey: ["node-groups"] });
@@ -207,6 +210,7 @@ function GroupsTab({
   selectedGroupId,
   onSelectGroup,
   getSelectedNodeIds,
+  onPersistCanvas,
   onInsert,
   onChanged,
 }: {
@@ -216,23 +220,68 @@ function GroupsTab({
   selectedGroupId: string | null;
   onSelectGroup: (id: string | null) => void;
   getSelectedNodeIds: () => string[];
+  onPersistCanvas?: () => Promise<void> | void;
   onInsert: (groupId: string) => Promise<void>;
   onChanged: () => void;
 }) {
   const [creating, setCreating] = useState(false);
 
+  const customGroups = groups.filter((g) => !g.builtin);
+  const builtinGroups = groups.filter((g) => g.builtin);
+
+  const renderGroupCard = (g: NodeGroupSummary) => {
+    const hue = groupHue(g.id);
+    const active = g.id === selectedGroupId;
+    return (
+      <button
+        key={g.id}
+        type="button"
+        className={cn(
+          "rounded-xl border px-2.5 py-2 text-left transition-colors",
+          active
+            ? "border-teal-400/50 bg-teal-400/10 shadow-[0_0_12px_rgba(43,184,160,0.15)]"
+            : "border-white/10 bg-white/[0.02] hover:border-white/25",
+        )}
+        style={{ borderLeftWidth: 3, borderLeftColor: `hsl(${hue} 70% 55% / 0.8)` }}
+        onClick={() => onSelectGroup(g.id)}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="truncate text-xs font-semibold">{g.title}</span>
+          <span
+            className={cn(
+              "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium",
+              g.builtin
+                ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
+                : "border-teal-400/30 bg-teal-500/10 text-teal-300",
+            )}
+          >
+            {g.builtin ? "встроенная" : "своя"}
+          </span>
+        </div>
+        <div className="mt-0.5 text-[10px] text-muted-foreground">
+          {NODE_CATEGORY_LABELS[g.category as NodeCategory] ?? g.category} ·{" "}
+          {g.node_count} нод
+        </div>
+      </button>
+    );
+  };
+
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex w-[300px] shrink-0 flex-col border-r border-white/10">
       <ScrollArea className="min-h-0 flex-1">
-        <div className="flex flex-col gap-1.5 p-2">
+        <div className="flex flex-col gap-2 p-2">
           {creating ? (
             <CreateGroupForm
               projectId={projectId}
               getSelectedNodeIds={getSelectedNodeIds}
-              onDone={(created) => {
+              onPersistCanvas={onPersistCanvas}
+              onDone={(created, createdGroup) => {
                 setCreating(false);
-                if (created) onChanged();
+                if (created && createdGroup) {
+                  onSelectGroup(createdGroup.id);
+                  onChanged();
+                }
               }}
             />
           ) : (
@@ -264,42 +313,24 @@ function GroupsTab({
               Групп нет — сохрани первую из выделения.
             </div>
           )}
-          {groups.map((g) => {
-            const hue = groupHue(g.id);
-            const active = g.id === selectedGroupId;
-            return (
-              <button
-                key={g.id}
-                type="button"
-                className={cn(
-                  "rounded-xl border px-2.5 py-2 text-left transition-colors",
-                  active
-                    ? "border-teal-400/50 bg-teal-400/10"
-                    : "border-white/10 bg-white/[0.02] hover:border-white/25",
-                )}
-                style={{ borderLeftWidth: 3, borderLeftColor: `hsl(${hue} 70% 55% / 0.8)` }}
-                onClick={() => onSelectGroup(g.id)}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-xs font-semibold">{g.title}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] font-medium",
-                      g.builtin
-                        ? "border-sky-400/30 bg-sky-500/10 text-sky-300"
-                        : "border-teal-400/30 bg-teal-500/10 text-teal-300",
-                    )}
-                  >
-                    {g.builtin ? "встроенная" : "своя"}
-                  </span>
-                </div>
-                <div className="mt-0.5 text-[10px] text-muted-foreground">
-                  {NODE_CATEGORY_LABELS[g.category as NodeCategory] ?? g.category} ·{" "}
-                  {g.node_count} нод
-                </div>
-              </button>
-            );
-          })}
+
+          {customGroups.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-teal-300/80">
+                Мои группы · {customGroups.length}
+              </div>
+              {customGroups.map(renderGroupCard)}
+            </div>
+          )}
+
+          {builtinGroups.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <div className="px-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Встроенные шаблоны · {builtinGroups.length}
+              </div>
+              {builtinGroups.map(renderGroupCard)}
+            </div>
+          )}
         </div>
       </ScrollArea>
       </div>
@@ -632,12 +663,15 @@ function EditGroupForm({
 function CreateGroupForm({
   projectId,
   getSelectedNodeIds,
+  onPersistCanvas,
   onDone,
 }: {
   projectId: number | null;
   getSelectedNodeIds: () => string[];
-  onDone: (created: boolean) => void;
+  onPersistCanvas?: () => Promise<void> | void;
+  onDone: (created: boolean, createdGroup?: NodeGroupSummary) => void;
 }) {
+  const qc = useQueryClient();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<string>("planning");
@@ -659,14 +693,21 @@ function CreateGroupForm({
     }
     setBusy(true);
     try {
+      if (onPersistCanvas) {
+        await onPersistCanvas();
+      }
       const g = await api.createNodeGroupFromSelection(projectId, {
         node_ids: nodeIds,
         title: title.trim(),
         description: description.trim(),
         category,
       });
+      qc.setQueryData<NodeGroupSummary[]>(["node-groups"], (prev) => [
+        g,
+        ...(prev ?? []).filter((x) => x.id !== g.id),
+      ]);
       toast.success(`Группа «${g.title}» сохранена (${g.node_count} нод)`);
-      onDone(true);
+      onDone(true, g);
     } catch (e) {
       toast.error(errorMessageFromUnknown(e));
     } finally {

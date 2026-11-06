@@ -708,7 +708,7 @@ function SplitRowView({
   const dbFrames = (framesQ.data ?? [])
     .slice()
     .sort((a, b) => a.number - b.number)
-    .filter((f) => (f.voiceover_text || "").trim());
+    .filter((f) => (f.voiceover_text || "").trim() && !f.attrs?.archived && f.number < 1_000_000);
 
   const isDb = dbFrames.length >= 2;
   const cells = row.data?.cells ?? [];
