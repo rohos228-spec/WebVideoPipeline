@@ -242,6 +242,8 @@ def image_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
 _SWAP = re.compile(
     r"(?:поменяй|смени|переставь)\s+местами\s+(?:(картинк\w*|видео)\s+)?кадр\w*\s+(\d{1,4})\s+(?:и|с)\s+(\d{1,4})"
     r"|(?:поменяй|смени|переставь)\s+(?:(картинк\w*|видео)\s+)?кадр\w*\s+(\d{1,4})\s+(?:и|с)\s+(\d{1,4})\s+местами"
+    r"|(?:(картинк\w*|видео)\s+)?кадр\w*\s+(\d{1,4})\s+(?:и|с)\s+(\d{1,4})\s+(?:поменяй|смени|переставь)\s+местами"
+    r"|(?:поменяй|смени|переставь)\s+местами\s+(\d{1,4})\s+(?:и|с)\s+(\d{1,4})\s+кадр\w*"
 )
 
 
@@ -254,9 +256,9 @@ def swap_frames_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
     found = _SWAP.search(text)
     if not found:
         return None
-    what = found.group(1) or found.group(4) or ""
-    a = int(found.group(2) or found.group(5))
-    b = int(found.group(3) or found.group(6))
+    what = found.group(1) or found.group(4) or found.group(7) or ""
+    a = int(found.group(2) or found.group(5) or found.group(8) or found.group(10))
+    b = int(found.group(3) or found.group(6) or found.group(9) or found.group(11))
     named = _PROJECT.search(text)
     if named:
         project_id = int(named.group(1))

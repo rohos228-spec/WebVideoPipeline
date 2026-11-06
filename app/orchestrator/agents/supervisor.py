@@ -2845,6 +2845,9 @@ class Supervisor:
 
     async def _shortcut_plan(self, task_id: int, goal: str) -> list[PlanStep] | None:
         """Точные правила по словам просьбы — без модели; ``None`` — ни одно не подошло."""
+        from app.orchestrator.agents.number_words import words_to_digits
+
+        goal = words_to_digits(goal)
         fixed: list[PlanStep] | None = None
         if not fixed:
             # «Перемонтируй с музыкой потише»: громкость от текущей, без вопроса «сколько 0–100».

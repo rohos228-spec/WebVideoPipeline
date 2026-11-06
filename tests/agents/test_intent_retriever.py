@@ -206,3 +206,59 @@ def test_ordinal_frame_is_one_frame_not_all():
     from app.orchestrator.agents.style_scope import wide_edit_target
 
     assert wide_edit_target("в шестом кадре добавь луну на небо") is None
+
+
+@pytest.mark.parametrize(
+    "goal",
+    ["давай уже картинки делать", "го картинки", "погнали рисовать кадры", "залей в тикток", "генери картинки",
+     "дожми проект до готового видео", "сними с очереди проекты 12 и 13", "запускай видео"],
+)
+def test_slang_requests_are_tasks_without_model(goal):
+    from app.orchestrator.queue import classify_deterministic
+
+    found = classify_deterministic(goal)
+    assert found is not None and found.mode.value == "task"
+
+
+@pytest.mark.parametrize("goal", ["давай посмотрим что там", "давай статус"])
+def test_lets_without_studio_work_is_not_forced_task(goal):
+    from app.orchestrator.queue import classify_deterministic
+
+    found = classify_deterministic(goal)
+    assert found is None or found.mode.value != "task"
+
+
+def test_number_words_become_digits_for_rules():
+    from app.orchestrator.agents.frame_scope import swap_frames_plan
+    from app.orchestrator.agents.number_words import words_to_digits
+
+    assert words_to_digits("кадры три и четыре") == "кадры 3 и 4"
+    plan = swap_frames_plan(words_to_digits("кадры три и четыре поменяй местами"), 10)
+    assert plan and (plan[0].params["a_frame"], plan[0].params["b_frame"]) == (3, 4)
+
+
+@pytest.mark.parametrize(
+    "goal",
+    ["можно запустить картинки?", "а можно музыку потише сделать?", "не мог бы ты перерисовать кадр 4?",
+     "будь добр, выложи ролик в тикток"],
+)
+def test_polite_request_is_task(goal):
+    from app.orchestrator.queue import classify_deterministic
+
+    assert classify_deterministic(goal).mode.value == "task"
+
+
+@pytest.mark.parametrize(
+    "goal", ["можно узнать сколько стоит?", "можно ли сделать дешевле?", "можешь сказать какой голос?"]
+)
+def test_polite_question_stays_question(goal):
+    from app.orchestrator.queue import polite_task
+
+    assert not polite_task(goal)
+
+
+def test_render_and_swap_are_not_style_edits():
+    from app.orchestrator.agents.style_scope import wide_edit_target
+
+    assert wide_edit_target("сделай рендер картинок") is None
+    assert wide_edit_target("кадры 3 и 4 поменяй местами") is None

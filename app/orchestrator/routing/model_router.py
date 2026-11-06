@@ -13,12 +13,15 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import random
 import time
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
+
+from loguru import logger
 
 from app.orchestrator.routing.classifier import (
     classifier_messages,
@@ -78,6 +81,18 @@ _PRICE_ALIAS = {
     "claude-haiku-4-5": "claude-haiku",
     "claude-haiku-4-5-20251001": "claude-haiku",
 }
+
+
+# Отказы, которые повтором не лечатся: нет денег, ключ не пускает, сервер недоступен, пустой поток
+# (kie при минусовом балансе). После DEAD_PROVIDER_AFTER таких подряд провайдер пропускается
+# DEAD_PROVIDER_PAUSE_S секунд: иначе каждый вызов ждал по 3 попытки на мёртвом хопе.
+_DEAD_ERROR_RE = re.compile(
+    r"http 40[12]\b|http 403\b|empty responses stream|all connection attempts failed|"
+    r"invalid token|insufficient|不能用模型|密钥",
+    re.I,
+)
+DEAD_PROVIDER_AFTER = 3
+DEAD_PROVIDER_PAUSE_S = 300.0
 
 
 def compute_cost(model: str, usage: LLMUsage, prices: dict) -> float:
@@ -245,6 +260,8 @@ class ModelRouter:
         self._sleep = sleeper or asyncio.sleep
         self._rng = rng or random.Random()
         self._clock = clock or (lambda: datetime.now(UTC))
+        # Выключатель мёртвого провайдера: provider → (отказов подряд, до какого времени пропускать).
+        self._dead: dict[str, tuple[int, float]] = {}
 
     async def call(
         self,
@@ -459,11 +476,40 @@ class ModelRouter:
             return self.ledger.pipeline_exhausted(ctx.run_id)
         return self.ledger.exhausted(ctx.run_id)
 
+    def _dead_open(self, provider: str) -> bool:
+        """Провайдер недавно отказывал одинаково (нет денег, ключ, нет связи): пока пропускаем."""
+        _count, until = self._dead.get(provider, (0, 0.0))
+        return until > time.monotonic()
+
+    def _note_provider(self, provider: str, error: str | None) -> None:
+        """Успех (``error=None``) сбрасывает счёт; «мёртвый» отказ подряд — копит и выключает."""
+        if error is None:
+            self._dead.pop(provider, None)
+            return
+        if not _DEAD_ERROR_RE.search(error):
+            return
+        count, _until = self._dead.get(provider, (0, 0.0))
+        count += 1
+        until = time.monotonic() + DEAD_PROVIDER_PAUSE_S if count >= DEAD_PROVIDER_AFTER else 0.0
+        if until and not self._dead_open(provider):
+            logger.warning(
+                "orch router: provider {} skipped for {}s after {} dead errors: {}",
+                provider,
+                DEAD_PROVIDER_PAUSE_S,
+                count,
+                error[:120],
+            )
+        self._dead[provider] = (count, until)
+
     async def _run_chain(self, ctx: CallContext) -> LLMResponse:
         hops = self._hops(ctx)
         if self._blocked(ctx):
             return self._waiting_approval(ctx, hops[0], 0)
         last_error = "chain exhausted"
+        # Мёртвые провайдеры пропускаются, пока есть живой хоп; если мертвы все — пробуем все как раньше.
+        alive = [hop for hop in hops if not self._dead_open(hop.provider)]
+        if alive and len(alive) < len(hops):
+            hops = alive
         for fallback_index, hop in enumerate(hops):
             timeout_s = self.config.fast_timeout_s if hop.tier == "fast" else self.config.strong_timeout_s
             for attempt in range(1, self.config.retries + 2):
@@ -501,8 +547,10 @@ class ModelRouter:
                         )
                         self._charge(ctx, abort_cost)
                 if response is not None:
+                    self._note_provider(hop.provider, None)
                     return response
                 assert caught is not None
+                self._note_provider(hop.provider, str(caught) or type(caught).__name__)
                 if isinstance(caught, FixtureMiss):
                     self._log(
                         ctx,
