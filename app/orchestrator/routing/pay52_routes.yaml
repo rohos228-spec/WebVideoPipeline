@@ -4,6 +4,9 @@
 
 flags:
   d1_confirmed: false
+  # Fast-tier выключен. Замер 06.11: gpt-6.1-sol low быстрее (5.0 с против 10.9 с на вызов),
+  # но контроль упал 85/86 -> 79/86: просьбы про картинки кадров уходили в ответ вместо карточки.
+  # glm-5.3-flash без ключа, claude-haiku на линии 52pay недоступен (400).
   d6_confirmed: false
 
 timeouts_s:
@@ -62,12 +65,12 @@ providers:
 # Kie — последний резерв, всегда stream. Слаг: settings.gpt_model (дефолт gpt-6-1-sol).
 chains:
   fast:
-    - model: glm-5.3-flash
+    - model: gpt-6.1-sol
       provider: 52pay
-      reasoning_effort: null
-    - model: claude-haiku-5-5
-      provider: 52pay
-      reasoning_effort: null
+      reasoning_effort: low
+    - model: gpt-6-1-sol
+      provider: kie
+      reasoning_effort: low
     - delegate: strong
   strong_unconfirmed:
     - model: gpt-6.1-sol

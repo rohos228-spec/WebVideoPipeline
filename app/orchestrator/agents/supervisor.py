@@ -3131,6 +3131,9 @@ class Supervisor:
         drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
         drafted = await fix_with_diag(list(drafted), goal, self.actions)
         drafted = content_check_scope(drafted, goal)
+        from app.orchestrator.agents.failure_scope import logs_with_diagnosis
+
+        drafted = logs_with_diagnosis(list(drafted))
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []

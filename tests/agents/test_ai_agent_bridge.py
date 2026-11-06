@@ -65,3 +65,31 @@ def test_disabled_flag_goes_legacy(monkeypatch):
         return [x async for x in bridge.stream_turn(10, "что с проектом", None)]
 
     assert asyncio.run(run()) == [("result", None)]
+
+
+def test_summary_drops_same_request_in_other_words_but_keeps_other_project():
+    from app.orchestrator.agents.summarizer import drop_goal_quote
+
+    goal = "покажи ошибки в логах по проекту 4"
+    text = "В журнале проекта #4 ошибок не найдено.\n\n«Покажи ошибки в журнале проекта 4»"
+    assert drop_goal_quote(text, goal) == "В журнале проекта #4 ошибок не найдено."
+    other = "Ошибок нет. «покажи ошибки в логах по проекту 7»"
+    assert "проекту 7" in drop_goal_quote(other, goal)
+
+
+def test_node_failure_diagnosis_reads_project_errors_too():
+    from app.orchestrator.agents.failure_scope import logs_with_diagnosis
+    from app.orchestrator.contracts import PlanStep
+
+    plan = [PlanStep(action="diag.node_failure", params={"project_id": 11}, expected="x")]
+    out = logs_with_diagnosis(plan)
+    assert [s.action for s in out] == ["diag.node_failure", "logs.tail"]
+    assert out[1].params == {"project_id": 11, "kind": "errors"}
+    assert len(logs_with_diagnosis(out)) == 2
+
+
+def test_summary_drops_quote_that_only_adds_window_project():
+    from app.orchestrator.agents.summarizer import drop_goal_quote
+
+    text = "Переходы пока не добавлены. В проекте #4 — 13 кадров.\n\n«Добавь переходы между сценами в проекте 4»"
+    assert drop_goal_quote(text, "добавь переходы между сценами") == "Переходы пока не добавлены. В проекте #4 — 13 кадров."

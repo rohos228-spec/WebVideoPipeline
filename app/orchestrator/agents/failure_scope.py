@@ -232,3 +232,24 @@ def failure_reads(
         expected="Почему упала нода: ответы модели, вход и причина.",
     )
     return [first, *plan]
+
+
+def logs_with_diagnosis(plan: list[PlanStep]) -> list[PlanStep]:
+    """Разбор упавшей ноды сразу с ошибками журнала того же проекта.
+
+    Без этого итог разбора заканчивался советом «напишите «покажи ошибки в логах»», и человек
+    делал второй заход. Чтение журнала без модели и без денег.
+    """
+    pids = [s.params.get("project_id") for s in plan if s.action == "diag.node_failure"]
+    have = {s.params.get("project_id") for s in plan if s.action == "logs.tail"}
+    extra = [
+        PlanStep(
+            action="logs.tail",
+            params={"project_id": pid, "kind": "errors"},
+            expected="Ошибки сервера по проекту рядом со сбоем ноды",
+        )
+        for pid in dict.fromkeys(pids)
+        if isinstance(pid, int) and pid not in have
+    ]
+    return [*plan, *extra]
+

@@ -25,7 +25,7 @@ from loguru import logger
 TOKEN_PREFIX = "orch:"
 TURN_TIMEOUT_S = float(os.environ.get("AI_AGENT_ORCH_TIMEOUT_S", "240"))
 DECIDE_TIMEOUT_S = 165.0
-_IDLE_AFTER_REPLY_S = 6.0
+_IDLE_AFTER_REPLY_S = 2.5
 
 # Ответы, после которых реплику лучше отдать прежнему движку окна.
 _NOT_HANDLED_RE = re.compile(

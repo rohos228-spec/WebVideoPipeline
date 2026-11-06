@@ -1543,10 +1543,38 @@ def _squash(text: str) -> str:
 _QUOTE = re.compile(r"«([^«»]+)»")
 
 
+_ASK_SYNONYMS = {"лог": "журнал", "логи": "журнал", "логах": "журнал", "логам": "журнал", "журнале": "журнал"}
+_ASK_STOP = {"по", "в", "во", "на", "для", "мне", "пожалуйста", "проекта", "проекте", "проекту", "проект"}
+
+
+def _ask_words(text: str) -> tuple[set[str], set[str]]:
+    words = re.findall(r"[а-яёa-z]+|\d+", text.lower().replace("ё", "е"))
+    nums = {w for w in words if w.isdigit()}
+    stems = {_ASK_SYNONYMS.get(w, w)[:5] for w in words if not w.isdigit() and w not in _ASK_STOP}
+    return nums, stems
+
+
+def same_ask(quoted: str, goal: str) -> bool:
+    """«Покажи ошибки в журнале проекта 4» и «покажи ошибки в логах по проекту 4» — одна просьба.
+
+    Номера должны совпасть (совет про другой проект — не повтор); если в просьбе номера нет,
+    цитата может его добавить. Слова сравниваются по основам.
+    """
+    if _squash(quoted) == _squash(goal):
+        return True
+    qn, qs = _ask_words(quoted)
+    gn, gs = _ask_words(goal)
+    # Без номера в просьбе проект берётся из окна: «…в проекте 4» — та же просьба.
+    if (gn and qn != gn) or not qs or not gs:
+        return False
+    return len(qs & gs) / len(qs | gs) >= 0.6
+
+
 def drop_goal_quote(text: str, goal: str) -> str:
     """Цитата самой просьбы («проверь промты картинок в проекте 26») в конце итога — не совет.
 
     Предложение, где кроме цитаты почти ничего нет, уходит целиком; иначе — только цитата.
+    Пересказ той же просьбы другими словами («в журнале» вместо «в логах») — тоже повтор.
     """
     asked = _squash(goal or "")
     if not asked:
@@ -1555,10 +1583,10 @@ def drop_goal_quote(text: str, goal: str) -> str:
     for line in text.splitlines():
         kept: list[str] = []
         for part in _SENTENCE.split(line):
-            if not any(_squash(q) == asked for q in _QUOTE.findall(part)):
+            if not any(same_ask(q, goal) for q in _QUOTE.findall(part)):
                 kept.append(part)
                 continue
-            rest = _QUOTE.sub(lambda m: "" if _squash(m.group(1)) == asked else m.group(0), part)
+            rest = _QUOTE.sub(lambda m: "" if same_ask(m.group(1), goal) else m.group(0), part)
             if len(re.sub(r"[\W_]+", "", rest)) >= 25:
                 kept.append(re.sub(r"\s+([,.:;!?])", r"\1", " ".join(rest.split())))
         out.append(" ".join(kept).rstrip())
@@ -1688,7 +1716,7 @@ class TaskSummarizer:
                     task_id=task_id,
                     agent_role=AgentRole.summarizer.value,
                     budget_scope=BudgetScope.internal.value,
-                    reasoning_effort=ORCH_REASONING_EFFORT,
+                    reasoning_effort=summary_effort(ORCH_REASONING_EFFORT),
                 ),
                 self.timeout_s,
             )
@@ -1721,6 +1749,17 @@ class TaskSummarizer:
             if link.rsplit("](", 1)[-1].rstrip(")") not in text
         ]
         return "\n".join([text, *dict.fromkeys(links)])
+
+
+def summary_effort(default: str | None) -> str | None:
+    """Итог пересказывает прочитанные факты: глубокое размышление не нужно (замер 06.11: high 11–16 с,
+    low около 5 с на тот же ответ). План и критик остаются на полной силе. ``ORCH_SUMMARY_EFFORT``."""
+    import os
+
+    value = os.environ.get("ORCH_SUMMARY_EFFORT", "low").strip().lower()
+    if value in {"", "default"}:
+        return default
+    return None if value in {"none", "off"} else value
 
 
 def has_prior_text(session_id: str, task_id: int) -> bool:
