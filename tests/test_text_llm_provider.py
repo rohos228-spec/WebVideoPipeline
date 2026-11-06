@@ -385,11 +385,12 @@ def test_pay52_text_catalog_and_routing(monkeypatch, tmp_path: Path) -> None:
 def test_pay52_node_override_and_breaker_routing(monkeypatch, tmp_path: Path) -> None:
     """Узел с modelId='gpt-6.1-sol' при активном 52pay уходит в 52pay, а не в kie:chat."""
     from unittest.mock import Mock
+
     import app.services.gpt_api as gpt_api
     import app.settings as settings_mod
     from app.orchestrator.node_registry import ProjectStatus
-    from app.services.llm_override import bind_project_llm, current_override
     from app.services import text_llm_catalog as cat
+    from app.services.llm_override import bind_project_llm, current_override
 
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     monkeypatch.setenv("TEXT_LLM_PROVIDER", "pay52")
@@ -409,9 +410,7 @@ def test_pay52_node_override_and_breaker_routing(monkeypatch, tmp_path: Path) ->
     fake_proj.meta = {
         "active_excel_gpt_node_key": "n_excel_gpt_1",
         "canvas_graph": {
-            "nodes": [
-                {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"modelId": "gpt-6.1-sol"}}
-            ]
+            "nodes": [{"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"modelId": "gpt-6.1-sol"}}]
         },
     }
 
@@ -428,12 +427,13 @@ def test_pay52_node_override_and_breaker_routing(monkeypatch, tmp_path: Path) ->
         assert pay52_route.url == "https://api.52pay.com/v1/chat/completions"
 
         # Проверяем, что провайдер для брейкера и роутинга — 52pay
-        _provider = "vibecode" if gpt_api._node_vibecode_override() else str(s.resolved_text_llm_provider() or "pay52")
+        _provider = (
+            "vibecode"
+            if gpt_api._node_vibecode_override()
+            else str(s.resolved_text_llm_provider() or "pay52")
+        )
         if pay52_route is not None:
             _provider = "52pay"
         breaker_key = f"{_provider}:chat"
         assert breaker_key == "52pay:chat"
         assert gpt_api._hitting_vps_relay() is False
-
-
-
