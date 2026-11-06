@@ -13,7 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
@@ -3272,13 +3272,19 @@ async def _execute_orchestrator_reply(
 async def orchestrator_chat(
     project_id: int,
     body: OrchestratorChatBody,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Диалог с оркестратором по текущему проекту (синхронный / fallback)."""
+    from app.orchestrator import ai_agent_bridge
     from app.services.gpt_api import GptApiError
     from app.services.gpt_client import GptApiUnavailable, get_gpt_client
 
     project = await _project(session, project_id)
+    # Один чат студии: сначала движок оркестратора, не взялся — прежний путь окна.
+    async for kind, data in ai_agent_bridge.stream_turn(project.id, body.message, request.app):
+        if kind == "result" and data is not None:
+            return data
     prompt, diagnose_only, canvas_keymap, diag_lines = await _build_orchestrator_prompt(session, project, body)
     try:
         reply = await get_gpt_client().ask_fresh(prompt, timeout=600, project_id=project.id)
@@ -3306,14 +3312,28 @@ async def orchestrator_chat(
 async def orchestrator_chat_stream(
     project_id: int,
     body: OrchestratorChatBody,
+    request: Request,
 ) -> StreamingResponse:
     """Потоковый диалог с оркестратором по SSE (генерация текста в реальном времени)."""
+    from app.orchestrator import ai_agent_bridge
     from app.services.gpt_client import get_gpt_client
     from app.services.tenant import current_tenant, tenant_scope
 
     captured_tenant = current_tenant()
+    app = request.app
 
     async def _generator():
+        # Один чат студии: сначала движок оркестратора (понимание фраз, план, проверки, карточки).
+        # Не взялся — дальше прежний путь окна без изменений.
+        with tenant_scope(captured_tenant):
+            async for kind, data in ai_agent_bridge.stream_turn(project_id, body.message, app):
+                if kind == "phase":
+                    yield f"data: {json.dumps({'type': 'phase', 'phase': 'thinking', 'detail': data}, ensure_ascii=False)}\n\n"
+                elif data is not None:
+                    if data.get("reply"):
+                        yield f"data: {json.dumps({'type': 'delta', 'delta': data['reply']}, ensure_ascii=False)}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', **data}, ensure_ascii=False)}\n\n"
+                    return
         yield f"data: {json.dumps({'type': 'phase', 'phase': 'thinking', 'detail': 'Анализирую граф проекта…'}, ensure_ascii=False)}\n\n"
         await asyncio.sleep(0.01)
 
@@ -3502,12 +3522,17 @@ class ConfirmActionBody(BaseModel):
 async def orchestrator_confirm_action(
     project_id: int,
     body: ConfirmActionBody,
+    request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
     """Кнопка «Подтвердить» под ответом чата: выполнить ровно то действие, что было на карточке."""
+    from app.orchestrator import ai_agent_bridge
     from app.services import project_chat_guard as guard
 
     project = await _project(session, project_id)
+    if body.token.startswith(ai_agent_bridge.TOKEN_PREFIX):
+        # Карточка движка оркестратора: решение идёт через его одобрение (оператор, бюджет, план).
+        return await ai_agent_bridge.decide(request, project.id, body.token, body.approve)
     pending = guard.take_pending(project.id, body.token)
     if pending is None:
         return {"ok": False, "reply": "Эта кнопка устарела — повторите просьбу в чате.", "notes": []}

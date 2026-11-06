@@ -47,6 +47,8 @@ import { usePersistedState } from "@/hooks/use-persisted-state";
 import { cn } from "@/lib/utils";
 import { TextLlmPicker } from "@/components/shell/text-llm-picker";
 import { MarkdownRenderer } from "@/components/gpt/markdown-renderer";
+import { OPEN_ORCHESTRATOR_CHAT } from "./open-chat-event";
+import { RegistrarSections } from "./registrar-sections";
 
 interface Props {
   projectId: number | null;
@@ -318,6 +320,8 @@ export function OrchestratorPanel({ projectId }: Props) {
     enabled: projectId != null,
   });
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
+  // Служебные блоки движка оркестратора (автономия, траты, аварийный стоп) — поверх переписки.
+  const [registrarOpen, setRegistrarOpen] = useState(false);
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
 
@@ -649,8 +653,14 @@ export function OrchestratorPanel({ projectId }: Props) {
     window.addEventListener("studio-toggle-orchestrator", onToggle);
     window.addEventListener("studio-open-orchestrator", onOpen);
     window.addEventListener("studio-close-orchestrator", onClose);
+    const onOpenChat = (ev: Event) => {
+      setOpen(true);
+      setRegistrarOpen((ev as CustomEvent<{ tab?: string }>).detail?.tab === "registrar");
+    };
+    window.addEventListener(OPEN_ORCHESTRATOR_CHAT, onOpenChat);
 
     return () => {
+      window.removeEventListener(OPEN_ORCHESTRATOR_CHAT, onOpenChat);
       window.removeEventListener("studio-toggle-orchestrator", onToggle);
       window.removeEventListener("studio-open-orchestrator", onOpen);
       window.removeEventListener("studio-close-orchestrator", onClose);
@@ -1942,6 +1952,23 @@ export function OrchestratorPanel({ projectId }: Props) {
           type="button"
           size="sm"
           variant="ghost"
+          data-testid="ai-agent-registrar"
+          aria-pressed={registrarOpen}
+          className={cn(
+            "h-7 w-7 shrink-0 p-0 hover:text-white hover:bg-white/[0.08]",
+            registrarOpen ? "text-emerald-300 bg-emerald-500/15" : "text-white/50",
+          )}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => setRegistrarOpen((v) => !v)}
+          title={registrarOpen ? "Вернуться к чату" : "Регистратор: автономия, траты, аварийный стоп, журнал"}
+        >
+          <Settings className="h-3.5 w-3.5" />
+        </Button>
+
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
           className="h-7 w-7 shrink-0 p-0 text-white/50 hover:text-white hover:bg-white/[0.08]"
           onClick={onToggleMaximized}
           title={isMaximized ? "Восстановить плавающее окно" : "Развернуть на весь экран"}
@@ -1965,7 +1992,12 @@ export function OrchestratorPanel({ projectId }: Props) {
         </Button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
+      {registrarOpen ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2" data-testid="orch-dock-registrar">
+          <RegistrarSections projectId={projectId} />
+        </div>
+      ) : null}
+      <div className={cn("min-h-0 flex-1 flex-col", registrarOpen ? "hidden" : "flex")}>
           <div
             ref={scrollContainerRef}
             className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-3.5 space-y-3.5"
