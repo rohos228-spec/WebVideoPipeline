@@ -360,16 +360,11 @@ def wants_models(text: str) -> bool:
     return _has(_norm(text), _OPTIONS)
 
 
-# Кандидаты стадии намерения (``intent_retriever``) по задаче: объединяются с лексической выборкой.
-# Лексика (``select_catalog``) остаётся мягким усилением — она добавляет действия, но не отсекает
-# те, что выбрала модель по смыслу. Только id из разрешённого каталога: остальные отбрасываются ниже.
 _BOOST: dict[int, tuple[str, ...]] = {}
-# Ремонт: на повторе лексическая выборка вдвое шире (top-k*2).
 _WIDE: set[int] = set()
 
 
 def boost_task(task_id: Any, ids: list[str] | tuple[str, ...], *, wide: bool = False) -> None:
-    """Добавить ``ids`` в каталог планировщика задачи ``task_id`` (до :func:`clear_boost`)."""
     try:
         key = int(task_id)
     except (TypeError, ValueError):

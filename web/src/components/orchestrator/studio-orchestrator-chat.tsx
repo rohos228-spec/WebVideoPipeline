@@ -445,8 +445,6 @@ function ChatPane({
 function TaskStatusBadge({ chat }: { chat: Chat }) {
   const last = chat.state.messages.at(-1);
   const { ack, touched, tasks } = chat.state;
-  // Задача, по которой событие пришло уже после вопроса: её статус и показываем. Иначе значок
-  // брал старую незакрытую задачу — «Думаю…» над карточкой подтверждения, «ошибка» после отмены.
   const fresh = touched && ack && touched.seq > ack.seq ? tasks.find((item) => item.id === touched.id) : undefined;
   const task = fresh ?? (touched ? tasks.find((item) => item.id === touched.id) : undefined) ?? currentTaskOf(tasks);
   const settled = fresh != null && !BUSY_TASK.has(fresh.status);

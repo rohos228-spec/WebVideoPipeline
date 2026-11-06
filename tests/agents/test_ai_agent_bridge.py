@@ -1,5 +1,3 @@
-"""Мост окна «ИИ-агент» к движку оркестратора (без сервера и модели)."""
-
 import asyncio
 from types import SimpleNamespace
 
@@ -26,7 +24,6 @@ def test_handled_falls_back_on_not_understood():
     assert bridge.handled({"reply": "", "card": {"change_id": "x"}})
     assert not bridge.handled({"reply": "Не понял, что сделать. Уточните", "card": None})
     assert not bridge.handled({"reply": "Этого чат пока не умеет.", "card": None})
-    # С пояснением, чего нет и что можно вместо, — ответ оркестратора, не старый путь.
     assert bridge.handled({"reply": "Этого чат пока не умеет. Скорость речи не настраивается.", "card": None})
     assert not bridge.handled({"reply": "", "card": None})
     assert bridge.handled({"reply": "Сценарий верный. Совы не умеют видеть в полной темноте.", "card": None})
@@ -51,7 +48,7 @@ def test_card_becomes_window_action_with_orch_token():
 def test_collect_returns_card_and_reply():
     async def run():
         q: asyncio.Queue = asyncio.Queue()
-        ev = lambda seq, typ, **pl: SimpleNamespace(seq=seq, type=typ, payload=pl)  # noqa: E731
+        ev = lambda seq, typ, **pl: SimpleNamespace(seq=seq, type=typ, payload=pl)
         await q.put(ev(1, "message", text="старое"))
         await q.put(ev(5, "message", text="Смотрю проект"))
         await q.put(ev(6, "approval_required", change_id="c1", title="Шаг"))

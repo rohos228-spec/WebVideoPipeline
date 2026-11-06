@@ -372,7 +372,6 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
         if (decision === "rejected") {
           const failedId = _taskId || card.taskId;
           if (failedId) {
-            // Отклонение — отмена, а не сбой: сервер шлёт cancelled, «ошибка» в шапке пугала.
             dispatch({ type: "task-status", taskId: failedId, status: "cancelled", resumeAllowed: false });
           }
         }
@@ -471,7 +470,6 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
           dispatch({ type: "approval-resolved", id: approvalId, decision: "rejected" });
           const failedId = taskId || card.taskId;
           if (failedId) {
-            // Отклонение — отмена, а не сбой: сервер шлёт cancelled, «ошибка» в шапке пугала.
             dispatch({ type: "task-status", taskId: failedId, status: "cancelled", resumeAllowed: false });
           }
         } else if (decision === "approve") {

@@ -534,7 +534,6 @@ async def test_orchestrator_chat_runs_step_action(api_client, monkeypatch) -> No
 @pytest.mark.asyncio
 async def test_orchestrator_chat_settings_actions(api_client, monkeypatch, tmp_path) -> None:
     """Оркестратор управляет настройками: опции генерации, вариант промта, LLM, стоп."""
-    # Старый путь ИИ-агента: мост к движку оркестратора выключен.
     monkeypatch.setenv("AI_AGENT_ORCHESTRATOR", "0")
     import app.services.prompt_library as pl
 
@@ -1636,7 +1635,6 @@ async def test_orchestrator_chat_writes_feedback_journal(api_client, monkeypatch
 @pytest.mark.asyncio
 async def test_orchestrator_chat_without_gpt_key_503(api_client, monkeypatch) -> None:
     """Без GPT-ключа — вежливая 503 с причиной, не 500/404."""
-    # Старый путь ИИ-агента: мост к движку оркестратора выключен.
     monkeypatch.setenv("AI_AGENT_ORCHESTRATOR", "0")
     from app.services.gpt_client import GptApiUnavailable
 

@@ -24,8 +24,6 @@ from functools import lru_cache
 from pathlib import Path
 import os
 
-# Переводчик формулировок (intent_rewrite) делает лишний вызов модели: сценарии ответов в тестах
-# его не ждут. Тесты самого переводчика включают его явно.
 os.environ.setdefault("ORCH_INTENT_REWRITE", "0")
 os.environ.setdefault("ORCH_INTENT_RETRIEVER", "0")
 
@@ -85,8 +83,6 @@ def _isolate_db_engine(monkeypatch, db_path: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def _isolate_settings_paths(tmp_path_factory, monkeypatch, request):
-    # Обработчики окна «ИИ-агент» в тестах идут старым путём: движок оркестратора, поднятый
-    # соседним тестом, иначе забирал фразу. Мост проверяют tests/agents/test_ai_agent_bridge.py.
     monkeypatch.setenv("AI_AGENT_ORCHESTRATOR", "0")
     # W1-fix п.7: гейт включён по умолчанию (False). Тест может явно
     # отключить через маркер no_harness_gate.

@@ -100,7 +100,6 @@ _TASK_MARKERS = ("задач", "план", "шаг", "нод", "кадр", "сц
 _OPEN_STARTS = frozenset({"открой", "откройте", "открыть"})
 _ASK_STARTS = _QUESTION_STARTS - {"можно", "нужно"}
 _IMPERATIVE_WORDS = (
-    # «перемонтируй», «доведи до конца» после уточнения чата склеивались с прошлой просьбой.
     "перемонтируй",
     "пересобери",
     "доведи",
@@ -180,8 +179,6 @@ _IMPERATIVE_WORDS = (
     "оживи",
     "опубликуй",
     "выложи",
-    # Разговорные и несовершенные формы: «давай уже картинки», «генери», «залей в тикток»,
-    # «дожми проект». Без них фраза шла к модели-классификатору, и та иногда брала её вопросом.
     "генери",
     "генерируй",
     "перегень",
@@ -243,16 +240,10 @@ _STATUS_PHRASES = (
 # Глаголы запуска, которых нет в _IMPERATIVE_WORDS: «прогони», «пусти», «запускай».
 _RUN_VERBS_RE = re.compile(r"(?<![а-я])(?:прогони|прогоняй|пусти|запускай|гони|продолжай)(?:те)?(?![а-я])")
 _IMPERATIVES = frozenset(_IMPERATIVE_WORDS + tuple(word + "те" for word in _IMPERATIVE_WORDS))
-# «Я ноду запускал!», «запустил, а он отработал 3 секунды»: рассказ о прошлом запуске —
-# вопрос о том, что случилось, а не просьба запустить ещё раз (была карточка запуска).
-# Срок разбора фразы моделью: дольше человек ждать не будет.
 CLASSIFY_DEADLINE_S = 25.0
 _PAST_RUN_RE = re.compile(
     r"(?<![а-я])(?:за|про)?(?:пускал|пустил|гонял|гнал)(?:а|и|ось)?(?![а-я])|(?<![а-я])отработал\w*"
 )
-# «Найди, где теряется стиль», «ищи, что случилось», «разберись, почему 3 секунды»: просьба
-# разобраться без слов о правке — вопрос с чтениями данных (быстрый путь), а не план модели:
-# планировщик думал минутами и ставил карточки запуска вместо разбора.
 _INVESTIGATE_RE = re.compile(
     r"(?<![а-я])(?:найди|найти|ищи|поищи|разберись|разбери|выясни|посмотри|глянь|объясни|пойми|"
     r"проверь|скажи|подскажи)(?:те)?(?![а-я])"
@@ -269,9 +260,6 @@ _MUTATING_HINT_RE = re.compile(
 )
 
 
-# «Найди, где теряется стиль», «ищи, что случилось», «разберись, почему 3 секунды»: просьба
-# разобраться без слов о правке — вопрос с чтениями данных (быстрый путь), а не план модели:
-# планировщик думал минутами и ставил карточки запуска вместо разбора.
 _INVESTIGATE_RE = re.compile(
     r"(?<![а-я])(?:найди|найти|ищи|поищи|разберись|разбери|выясни|посмотри|глянь|объясни|пойми|"
     r"проверь|скажи|подскажи)(?:те)?(?![а-я])"
@@ -289,17 +277,12 @@ _MUTATING_HINT_RE = re.compile(
 
 
 def is_chat_export(norm: str) -> bool:
-    """«Выгрузи переписку за неделю»: чтение одним действием, не задача планировщика.
-
-    Планировщик делал из выгрузки платный «удаляющий» шаг и упирался в экран.
-    """
     from app.services.action_layer.chat_export import export_params
 
     return export_params(norm) is not None
 
 
 def is_investigation(text: str) -> bool:
-    """Просьба найти причину без правок: отвечается по данным, не планом."""
     norm = " ".join((text or "").lower().replace("ё", "е").split())
     if not norm or _MUTATING_HINT_RE.search(norm) or _RUN_VERBS_RE.search(norm):
         return False
@@ -314,8 +297,6 @@ _NEGATIONS = frozenset({"не", "ни"})
 _NAME_IT_RE = re.compile(r"(?<![а-я])назови(?:те)?\s[^«\"]*[«\"]")
 
 
-# «Зопусти кортинки», «сгинирируй видосы», «чё с 9», «скок ещё ждать»: опечатки и разговорные
-# формы — чинить до классификатора и планировщика (планировщик отвечал «не понял»).
 _TYPOS = (
     (re.compile(r"(?<![а-я])зопуст"), "запуст"),
     (re.compile(r"(?<![а-я])запуск(?=ай(?![а-я]))"), "запуск"),
@@ -358,8 +339,6 @@ def fix_typos(text: str) -> str:
         if rx.search(low):
             low = rx.sub(good, low)
             out = low
-    # «Все проекты до монтажа доведи»: глагол в конце — переносим вперёд, как пишут планировщику.
-    # Только когда глагол в фразе один: «почини и перезапусти», «если нет — исправь» не трогаем.
     tokens = out.split()
     if len(tokens) >= 3:
         last = tokens[-1].lower().strip(".!?")
@@ -371,18 +350,12 @@ def fix_typos(text: str) -> str:
             and not tokens[-2].endswith((",", ":", ";"))
         ):
             out = " ".join([tokens[-1].strip(".!?"), *tokens[:-1]])
-    # «Запусти 5 и скажи, сколько это будет стоить»: цена и так в карточке запуска — вторую
-    # просьбу убираем, иначе планировщик отвечал «чат не умеет».
     if _RUN_THEN_PRICE_RE.search(out) and has_imperative(out):
         out = _RUN_THEN_PRICE_RE.sub("", out).strip(" ,.")
-        # «Запусти 5»: голое число после глагола — номер проекта.
         out = re.sub(r"^((?:запусти|продолжи|доведи|прогони)\s+)(\d{1,5})(?=\s|$)", r"\1проект \2", out)
-    # «Сделай 10 роликов про собак и запусти все»: сначала создание пакета (карточка), запуск —
-    # следующей фразой; вместе планировщик просил «шаблон и общий лимит».
     batch = _BATCH_THEN_RUN_RE.match(out)
     if batch:
         out = batch.group(1).strip(" ,.") + " (запуск новых проектов — отдельной просьбой после создания)"
-    # «Доведи все проекты до монтажа»: планировщик понимал только «запусти все проекты до …».
     return _ALL_RUN_RE.sub("запусти ", out)
 
 
@@ -401,11 +374,9 @@ def is_plain_question(text: str) -> bool:
     if not norm or has_imperative(norm) or _RUN_VERBS_RE.search(norm):
         return False
     tokens = _TOKEN_RE.findall(norm)
-    # «А в рублях сколько», «а с 7?», «и какой голос»: союз перед вопросом — тоже вопрос.
     while tokens and tokens[0] in ("а", "и", "ну", "так", "ок", "окей"):
         tokens = tokens[1:]
     asks = any(t in _ASK_STARTS for t in tokens[:4]) and len(tokens) <= 8
-    # «а с 7?», «а в 9?»: короткое продолжение после «а».
     asks = asks or (norm.startswith("а ") and 0 < len(tokens) <= 3)
     return norm.endswith("?") or (bool(tokens) and tokens[0] in _ASK_STARTS) or asks
 
@@ -540,20 +511,13 @@ _CLARIFY_RE = re.compile(
 _ANSWER_MAX_WORDS = 5
 
 
-# «А в рублях сколько?», «а с 7?», «а другие какие есть?»: вопрос продолжает прошлый ответ.
-# Без последних реплик ответ спрашивал «какую сумму перевести» и «какой проект».
 _DIALOG_TURNS = 4
 _FOLLOW_UP_RE = re.compile(r"^(?:а|и|ну|так)\s")
-# «Скинь ссылку на ролик», «где скачать видео»: ответ из итогового видео ноды «Монтаж», а не задача
-# (у задачи нода «Сборка» с «0 файлов», и чат отвечал, что ролика нет).
 _LINK_RE = re.compile(r"(?<![а-я])ссылк\w*|скачать\s+(?:готов\w*\s+)?(?:ролик|видео)|(?:где|как)\s+(?:скачать|посмотреть|найти)\s+(?:готов\w*\s+)?(?:ролик|видео)")
-# «Придумай 5 тем», «посоветуй тему для тикток»: совет текстом, план студии не нужен.
 _ADVICE_RE = re.compile(
     r"^(?:ну\s+|а\s+)?(?:придумай|посоветуй|подскажи|предложи|накидай|дай\s+идеи|какую\s+тему|какие\s+темы|"
     r"как\s+сделать\s+ролик|как\s+сделать\s+видео|как\s+набрать)"
 )
-# «Сделай подешевле», «как сэкономить»: без предмета — совет с ценами и моделями проекта,
-# а не «уточните, какую ноду удешевить».
 _CHEAPER_RE = re.compile(
     r"^(?:ну\s+|а\s+)?(?:сделай|сделать|можно|давай|хочу)?\s*(?:вс[её]\s+|это\s+|ролик\s+|проект\s+)?"
     r"(?:подешевле|дешевле|бюджетнее|экономнее)[?.!]*$"
@@ -562,7 +526,6 @@ _CHEAPER_RE = re.compile(
 
 
 def _fact_check(low: str) -> bool:
-    """«Проверь факты в тексте»: вопрос о сценарии, а не задача (импорт здесь — цикл с agents)."""
     from app.orchestrator.agents.question_context import _FACT_CHECK_RE
 
     return bool(_FACT_CHECK_RE.search(low))
@@ -573,7 +536,6 @@ _DIALOG_CHARS = 900
 
 
 def _recent_dialog(session_id: str, current: str) -> list[dict[str, str]]:
-    """Последние реплики сессии перед текущим вопросом, по порядку, для модели ответа."""
     conn = connect()
     try:
         rows = conn.execute(
@@ -599,11 +561,6 @@ def _recent_dialog(session_id: str, current: str) -> list[dict[str, str]]:
 
 
 def _follow_up_reads(text: str, dialog: list[dict[str, str]]) -> str:
-    """«А другие какие есть» после «какой голос»: факты читать по прошлому вопросу вместе с этим.
-
-    Без номера и коротко: «а с 7?» решает свой номер сам, а «а другие?» без прошлого вопроса
-    читало общий статус и отвечало «списка голосов в фактах нет».
-    """
     body = " ".join(str(text or "").split())
     words = body.split()
     if not words or len(words) > 7 or re.search(r"\d", body):
@@ -612,7 +569,6 @@ def _follow_up_reads(text: str, dialog: list[dict[str, str]]) -> str:
     if not (low.startswith(("а ", "и ", "а?", "ещё", "еще")) or any(w in low for w in ("други", "дешевл", "дорож", "из них"))):
         return body
     if "из них" in low or "обоих" in low:
-        # «А что дешевле из них доделать» после «что с 5» и «а с 7?»: номера из прошлых вопросов.
         nums: list[str] = []
         for m in dialog or []:
             if m.get("role") == "user":
@@ -625,26 +581,19 @@ def _follow_up_reads(text: str, dialog: list[dict[str, str]]) -> str:
     return f"{prev.rstrip(' ?.!')}? {body}"
 
 
-# «И пятый тоже» после «перерисуй третий», «и 7 туда же» после «запусти 5 и 6», «а ещё два про зебр»
-# после «сделай ролик про жирафов»: короткое продолжение прошлой ПРОСЬБЫ. Без склейки чат брал его
-# вопросом и отвечал подсказкой команды («перерисуй пятый кадр в проекте 10») вместо карточки.
 _CONTINUE_START_RE = re.compile(r"^(?:и|а|ещ[её]|плюс|также|так\s+же|тоже)(?![а-я])")
 _CONTINUE_WORD_RE = re.compile(r"(?<![а-я])(?:тоже|туда\s+же|так\s+же|также|ещ[её]|то\s+же\s+самое)(?![а-я])")
 _CONTINUE_MAX_WORDS = 7
-# Хвост с прошлой просьбой: его читают модель и планировщик; правила кодом его отрезают
-# (``strip_continuation``), иначе служебные слова попадали в промт кадра.
 CONTINUE_MARK = "(продолжение прошлой просьбы «"
 
 
 def strip_continuation(text: str) -> str:
-    """Слова человека без хвоста ``continued_request``."""
     body = str(text or "")
     cut = body.find(CONTINUE_MARK)
     return body[:cut].rstrip() if cut >= 0 else body
 
 
 def continued_request(previous: list[tuple[str, str]], reply: str) -> str | None:
-    """Короткое продолжение прошлой просьбы → просьба целиком для планировщика; иначе None."""
     text = " ".join(str(reply or "").lower().replace("ё", "е").split())
     words = _TOKEN_RE.findall(text)
     if (
@@ -666,7 +615,6 @@ def continued_request(previous: list[tuple[str, str]], reply: str) -> str | None
     )
     if not asks_work or is_plain_question(prev_norm):
         return None
-    # Номера прошлой просьбы — «N»: правила кодом не должны взять старый номер вместо нового.
     shape = re.sub(r"(?<!\d)\d{1,5}(?!\d)", "N", prev.strip().rstrip(".!"))
     return f"{reply.strip()} {CONTINUE_MARK}{shape}» — то же самое для нового)"
 
@@ -683,12 +631,10 @@ def answered_request(previous: list[tuple[str, str]], reply: str) -> str | None:
     ):
         return None
     if is_plain_question(reply) or is_status_question(reply):
-        # «Какой голос в озвучке» после уточнения чата — новый вопрос, а не ответ: иначе он
-        # склеивался с прошлой просьбой («…; уточнение: какой голос») в карточку смены голоса.
         return None
     (role_a, asked), (role_u, request) = previous[0], previous[1]
     if " ".join(request.lower().split()).rstrip(".!?") == " ".join(reply.lower().split()).rstrip(".!?"):
-        return None  # та же просьба ещё раз — не ответ на уточнение
+        return None
     if role_a != "assistant" or role_u != "user" or not _CLARIFY_RE.search(asked.strip()):
         return None
     return f"{request.strip().rstrip('.')}; уточнение: {reply.strip()}"
@@ -712,25 +658,18 @@ def cancel_or_undo(text: str) -> bool:
     return any(token.startswith("отмен") for token in tokens) and _undo_request(norm)
 
 
-# «Нужно 5 видео про кошек», «надо озвучку», «хочу голос Джорджа»: желание без вопроса — просьба.
-# Классификатор такие фразы иногда брал вопросом и отвечал «в каком проекте…».
 _WISH_TASK_RE = re.compile(
     r"^(?:ну\s+|а\s+|мне\s+|слушай,?\s+)*(?:нужн[оаыe]?|нужен|надо|хочу|хотелось\s+бы|хотим)\s+"
     r"(?!(?:ли\b|узнать|понять|спросить|посмотреть|уточнить|знать|чтобы\s+ты\s+(?:рассказал|объяснил)))"
 )
 
 
-# «Давай уже картинки делать», «го картинки», «погнали рисовать кадры»: просьба запустить дело студии.
-# «Давай посмотрим, что там» — не просьба: без слова о деле студии правило молчит.
 _LETS_TASK_RE = re.compile(
     r"(?<![а-я])(?:давай|давайте|го|погнали|поехали)(?![а-я])[^?]{0,40}?"
     r"(?:картин|кадр|видео|анимац|озвуч|голос|музык|монтаж|ролик|рисова|рисуй|генер|запуск|сценари|публик|выклад)"
 )
 
 
-# «Можно запустить картинки?», «не мог бы ты перерисовать кадр 4?», «а можно музыку потише сделать?»:
-# вежливая просьба с глаголом действия — задача, хотя в конце «?». «Можно узнать…», «можешь
-# сказать…», «можно ли» — вопрос, правило молчит.
 _POLITE_TASK_RE = re.compile(
     r"^(?:а\s+|ну\s+|слушай,?\s+)*(?:можно|можешь|можете|сможешь|не\s+мог(?:ла|ли)?\s+бы(?:\s+ты|\s+вы)?|"
     r"будь\s+добр\w*|будьте\s+добр\w*|пожалуйста)(?!\s+ли(?![а-я]))[,\s]+"
@@ -741,7 +680,6 @@ _POLITE_TASK_RE = re.compile(
 
 
 def polite_task(norm: str) -> bool:
-    """Вежливая просьба сделать («можно запустить…?», «не мог бы ты перерисовать…»)."""
     text = " ".join((norm or "").lower().replace("ё", "е").split())
     found = _POLITE_TASK_RE.search(text)
     if not found:
@@ -750,7 +688,6 @@ def polite_task(norm: str) -> bool:
     return verb not in _NOT_ACTION_WORDS
 
 
-# Слова на -ть/-и/-й, которые не глагол действия: «можно ли», «можешь мне», «можно какой-то».
 _NOT_ACTION_WORDS = frozenset(
     {"мне", "ли", "еще", "ещё", "сейчас", "тут", "там", "какой", "какие", "этой", "этот", "свой", "мой",
      "твой", "тебе", "ты", "вы", "быть", "есть", "стать", "знать", "видеть", "найти", "идти", "пойти"}
@@ -758,7 +695,6 @@ _NOT_ACTION_WORDS = frozenset(
 
 
 def wish_task(norm: str) -> bool:
-    """Просьба в форме желания («нужно …», «хочу …») без вопросительного знака."""
     text = " ".join((norm or "").lower().replace("ё", "е").split())
     return bool(_WISH_TASK_RE.search(text)) and not text.rstrip().endswith("?") and len(text.split()) >= 2
 
@@ -863,7 +799,6 @@ def classify_deterministic(text: str) -> ClassifyResult | None:
             deterministic=True,
             confidence=1.0,
         )
-    # «Что делает нода работа с гпт», «зачем нужна разбивка»: вопрос о роли, не задача.
     lead = [t for t in tokens if t not in {"а", "ну", "и", "так", "слушай"}]
     role_q = bool(lead) and lead[0] in _QUESTION_STARTS and bool(_ROLE_Q_RE.search(norm))
     if role_q or (_PAST_RUN_RE.search(norm) and not _RUN_VERBS_RE.search(norm)) or is_investigation(norm):
@@ -1093,7 +1028,6 @@ class MessageQueue:
                     and not decided.kill_switch
                     and _CHEAPER_RE.search(" ".join(text.lower().replace("ё", "е").split()))
                 ):
-                    # «Сделай подешевле»: «сделай» делало это задачей — а нужен совет с ценами проекта.
                     decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
                 task_id = self.supervisor.active_task(session_id)
                 if decided is not None and task_id is not None and cancel_or_undo(text):
@@ -1123,8 +1057,6 @@ class MessageQueue:
                         )
                         decided = decided.model_copy(update={"deterministic": False})
                     except TimeoutError:
-                        # Провайдер тянул классификатор по 3–4 минуты, чат стоял, ответы приходили
-                        # на чужие фразы. Не дождались — решаем по фразе: вопрос — ответ, иначе задача.
                         logger.warning("orch classify deadline {}s for session {}", CLASSIFY_DEADLINE_S, session_id)
                         question = is_status_question(text) or is_plain_question(text)
                         decided = ClassifyResult(
@@ -1162,8 +1094,6 @@ class MessageQueue:
                     ):
                         decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
                     if decided.mode is MessageMode.task and _FOLLOW_UP_RE.match(low) and is_plain_question(text):
-                        # «А в рублях сколько», «а с 7?»: продолжение прошлого ответа — вопрос с историей
-                        # диалога, а не задача (у планировщика истории нет, он просил «уточните сумму»).
                         decided = decided.model_copy(update={"mode": MessageMode.append, "tier": "fast"})
             await self.bus.publish(
                 session_id,
@@ -1400,7 +1330,6 @@ class MessageQueue:
             read_text = _follow_up_reads(text, dialog)
             messages = await self.context.messages(read_text, project_id, app, session_id)
             if read_text != text:
-                # Факты читались по прошлому вопросу, а спрашивает человек своими словами.
                 messages = [
                     {**m, "content": text} if m.get("role") == "user" and m.get("content") == read_text else m
                     for m in messages
@@ -1454,7 +1383,6 @@ class MessageQueue:
 
         verbatim = take_verbatim(session_id)
         if verbatim:
-            # Выгрузка переписки: готовый текст со ссылками на файлы, модель тут только теряла ссылки.
             await self._reply(session_id, verbatim, "verbatim")
             return
         try:
@@ -1480,8 +1408,6 @@ class MessageQueue:
             return
         from app.orchestrator.agents.summarizer import normalize_links, strip_order_prefix
 
-        # Первый провайдер мог успеть прислать куски (ошибку шлюза), а ответ дал запасной:
-        # куски берём, только если они и есть итоговый текст.
         parts = deltas if "".join(deltas) == str(response.text or "") else _token_pieces(response.text)
         # Сохранённый и итоговый текст — со ссылками без пробела после «(»: иначе они видны как текст.
         answer = normalize_links(str(response.text or ""))

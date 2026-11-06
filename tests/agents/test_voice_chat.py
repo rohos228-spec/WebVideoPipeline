@@ -1,5 +1,3 @@
-"""Голос озвучки из чата: вопрос — факт, «поменяй голос на мужской» — audio.set_voice."""
-
 from __future__ import annotations
 
 import pytest

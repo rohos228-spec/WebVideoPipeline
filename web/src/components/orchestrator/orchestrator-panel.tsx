@@ -325,7 +325,6 @@ export function OrchestratorPanel({ projectId }: Props) {
     enabled: projectId != null,
   });
   const [open, setOpen] = usePersistedState("vp-orchestrator-open", true);
-  // Служебные блоки движка оркестратора (автономия, траты, аварийный стоп) — поверх переписки.
   const [registrarOpen, setRegistrarOpen] = useState(false);
   const [rect, setRect] = usePersistedState<WindowRect>("vp-ai-agent-window-rect-v1", DEFAULT_RECT);
   const [isMaximized, setIsMaximized] = useState(false);
@@ -469,9 +468,7 @@ export function OrchestratorPanel({ projectId }: Props) {
   const abortRef = useRef<AbortController | null>(null);
   const userCancelRef = useRef(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  // Сообщения оркестратора без вопроса (разбор сбоя, «нода упала»): непрочитанные — под перепиской.
   const chatNotices = useChatNotices(projectId ?? null);
-  // Только свежие и не больше трёх: старые непрочитанные разборы иначе заслоняют переписку.
   const unreadNotices = chatNotices.notices
     .filter((n) => !n.read && n.created_at && Date.now() - Date.parse(n.created_at) < NOTICE_FRESH_MS)
     .slice(-NOTICE_SHOWN);

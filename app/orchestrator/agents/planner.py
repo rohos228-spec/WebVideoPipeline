@@ -397,14 +397,11 @@ def _system_prompt(rules: list[Chunk], block: str = "", catalog: str = "", nodes
 
 
 def _few_shot() -> tuple[str, ...]:
-    """Примеры «живая фраза → план» для синтеза (выключаются с ``ORCH_INTENT_RETRIEVER=0``)."""
     from app.orchestrator.agents.intent_retriever import enabled
 
     return FEW_SHOT if enabled() else ()
 
 
-# Проблемные формулировки из живых прогонов чата → верные планы. P — проект задачи. Это примеры
-# смысла, а не список допустимых фраз: так же разбирай любые другие слова с тем же намерением.
 FEW_SHOT: tuple[str, ...] = (
     "Примеры (P — project_id задачи; поля expected/risk/paid опущены для краткости):",
     '«кадр 3 не нравится, сделай по новой» → {"steps":[{"action":"montage.queue_ops","params":'

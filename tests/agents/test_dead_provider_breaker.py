@@ -1,5 +1,3 @@
-"""Выключатель мёртвого провайдера: после трёх «мёртвых» отказов подряд хоп пропускается."""
-
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +41,6 @@ def test_dead_provider_skipped_after_repeated_dead_errors():
     assert before >= DEAD_PROVIDER_AFTER
     transport.calls.clear()
     assert _ask(router).text == "ok"
-    # Мёртвый первый хоп больше не дёргается: ответ сразу от живого.
     assert first not in transport.calls
 
 
@@ -67,6 +64,5 @@ def test_all_dead_still_tries_chain():
             router._note_provider(hop.provider, "http 402")
     transport = _Transport(set())
     router.transport = transport
-    # Все помечены мёртвыми — цепочка пробуется целиком, без вечной блокировки.
     assert _ask(router).text == "ok"
     assert transport.calls

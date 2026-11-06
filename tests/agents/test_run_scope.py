@@ -96,7 +96,6 @@ def test_seed_multi_launch_queue_without_planner():
     assert plan and plan[0].action == "queue.enqueue_many"
     assert plan[0].params["project_ids"] == [2, 3, 5, 6, 7, 8, 9]
     assert plan[0].params["target_node_type"] == "videos"
-    # Несуществующий номер — решает планировщик (он скажет, что такого нет).
     assert seed_multi_launch("запусти проекты 2, 300 до видео", lambda: list(range(1, 34))) is None
     assert seed_multi_launch("запусти проект 5 до видео", lambda: list(range(1, 34))) is None
 

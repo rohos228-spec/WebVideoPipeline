@@ -1,10 +1,3 @@
-"""Выгрузка переписки чата «ИИ-агент» одним файлом: «скинь переписку за неделю».
-
-Руководитель присылал скриншоты ответов чата по одному. Здесь вся переписка за период из всех
-проектов (реплики человека и чата, план задачи, её статус и ошибка, время ответа) собирается в
-md для чтения и jsonl для разбора. Только чтение, без модели, бесплатно.
-"""
-
 from __future__ import annotations
 
 import json
@@ -50,7 +43,6 @@ def _plan_titles(plan_json: str | None) -> list[str]:
 
 
 async def fetch_rows(days: int, project_id: int | None) -> list[dict[str, Any]]:
-    """Реплики за период (новые последними) с задачей, к которой они относятся."""
     from app.db import session_scope
 
     since = _since(days)
@@ -193,7 +185,6 @@ _DAYS_RE = re.compile(r"(?:за\s+)?(\d{1,2})\s*(?:дн|день|дня|дней
 
 
 def export_params(norm: str) -> dict[str, Any] | None:
-    """«Выгрузи переписку за неделю» → {"days": 7}; не выгрузка → None."""
     if not _EXPORT_RE.search(norm):
         return None
     days = 7

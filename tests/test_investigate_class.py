@@ -1,10 +1,3 @@
-"""Класс «разберись / найди где / почему так»: быстрый путь по данным, без карточек запуска.
-
-Скриншоты руководителя 06.11: «у меня картинки без стиля пластилин, найди где он теряется» →
-«по этим данным не определилось»; «ну я запустил, он отработал 3 секунды, ищи что случилось» →
-общий отчёт; «промты картинок я говорю ноду запускал!» → карточка запуска за $1.
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -70,7 +63,6 @@ def test_llm_evidence_short_reply_and_window() -> None:
     assert ev["calls"] == 1 and ev["short_reply"] and ev["completion_tokens"] == 8
     text = llm_evidence_text(ev)
     assert "Вызовов модели в последнем запуске: 1" in text and "почти пустой" in text
-    # Без окна запуска — последняя пачка вызовов (разрыв больше 10 минут — другой запуск).
     assert llm_evidence(rows, None)["calls"] == 1
     assert llm_evidence([], None) is None
     assert "в журнале нет" in llm_evidence_text(None)
@@ -133,7 +125,7 @@ def test_findings_remember_and_fix_plan_from_them() -> None:
 
     findings.forget("s1")
     findings.remember("project.status", {"project_id": 26}, {"text_ru": "ок"}, session_id="s1")
-    assert findings.last("s1") is None  # статус без ожидания — не разбор
+    assert findings.last("s1") is None
     result = {
         "fix_options": [
             {"action": "prompt.edit_text", "params": {"project_id": 26, "node_key": "n_image_prompts", "append": "x"}, "title_ru": "Дописать промт", "phrase_ru": "допиши"},
@@ -157,7 +149,6 @@ def test_keyword_text_fixes_and_manual_run_fix() -> None:
     fix = _manual_run_fix(32, {"step": "script", "title": "Сценарий", "state": "ждёт"})
     assert fix["action"] == "step.run_step" and fix["params"] == {"project_id": 32, "step_code": "script"}
     assert fix["phrase_ru"] == "запусти сценарий проекта 32"
-    # Промты уже со стилем — чинить генерацию картинок, без ctx.
     fixes = asyncio.run(keyword_fixes(None, 26, {"keyword": "пластилин", "frames": 24, "with_prompt": 24, "missing": []}))
     assert [f["action"] for f in fixes] == ["step.run_step"] and fixes[0]["params"]["step_code"] == "img"
 
@@ -167,9 +158,9 @@ def test_bare_launch_after_fix_uses_suggested_phrase() -> None:
 
     findings.set_next("s2", "перезапусти промты картинок проекта 26")
     assert findings.launch_goal("а теперь запускай!", "s2") == "перезапусти промты картинок проекта 26"
-    assert findings.launch_goal("запускай", "s2") == "запускай"  # фраза одноразовая
+    assert findings.launch_goal("запускай", "s2") == "запускай"
     findings.set_next("s2", "перезапусти промты картинок проекта 26")
-    assert findings.launch_goal("запусти проект 7", "s2") == "запусти проект 7"  # не голое «запускай»
+    assert findings.launch_goal("запусти проект 7", "s2") == "запусти проект 7"
 
 
 def test_healthy_diag_means_nothing_to_fix() -> None:
@@ -185,7 +176,7 @@ def test_healthy_diag_means_nothing_to_fix() -> None:
     text = findings.last("s3")["healthy_text"]
     assert "чинить нечего" in text and "перезапусти картинки проекта 9" in text and "n_" not in text
     findings.remember("diag.node_failure", {"project_id": 9}, {**healthy, "picked": "последний запуск, упавших нод нет"}, session_id="s3")
-    assert findings.last("s3")["healthy_text"] is None  # ноду выбрал сам разбор — не «здорово»
+    assert findings.last("s3")["healthy_text"] is None
     broken = {**healthy, "errors": ["бюджет исчерпан"], "cause": {"code": "budget_cap"}}
     findings.remember("diag.node_failure", {"project_id": 9}, broken, session_id="s3")
     assert findings.last("s3")["healthy_text"] is None

@@ -1,11 +1,3 @@
-"""Последний разбор в чате: что нашли и чем это чинить — для «почини» и «теперь запускай».
-
-«Найди, где теряется стиль» → «почини»: раньше «почини» брало последнюю запись разбора из
-шагов задач, а быстрый путь вопросов шагов не пишет — чат чинил старую проверку (закадр ячейки
-вместо стиля). Здесь разбор запоминается в обоих путях вместе с вариантами исправления, которые
-отдало само действие (fix_options): «почини» берёт их, а не гадает.
-"""
-
 from __future__ import annotations
 
 import re
@@ -15,9 +7,7 @@ from typing import Any
 
 _SESSION: ContextVar[str | None] = ContextVar("orch_findings_session", default=None)
 _LAST: dict[str, dict[str, Any]] = {}
-# Действия-разборы: их результат с fix_options — то, что потом чинят.
 DIAG_ACTIONS = frozenset({"diag.node_failure", "diag.content_checks", "project.status", "node.output"})
-# Эти чтения — разбор, только если нашли, что чинить (статус без ожидания — не разбор).
 _ONLY_WITH_FIXES = frozenset({"project.status", "node.output"})
 _TTL_S = 6 * 3600
 
@@ -55,16 +45,9 @@ def remember(action: str, params: dict[str, Any], result: Any, session_id: str |
 
 
 def _healthy_text(action: str, result: dict[str, Any], fixes: list[dict[str, Any]]) -> str | None:
-    """Разбор ничего сломанного не нашёл: «почини» отвечает словами, а не платным повтором.
-
-    «Почему картинки не считаются по цене» на здоровом проекте → «почини» ставил запуск картинок
-    на $7: единственный вариант разбора — повтор ноды.
-    """
     if action != "diag.node_failure" or not result.get("found"):
         return None
     if str(result.get("picked") or "").startswith("последний запуск"):
-        # Ноду выбрал сам разбор за неимением упавших: здоровый последний запуск ничего не
-        # говорит о паузе проекта или ожидании человека — «чинить нечего» тут было бы ложью.
         return None
     cause = result.get("cause") if isinstance(result.get("cause"), dict) else {}
     if result.get("errors") or result.get("rejects") or str(cause.get("code") or "unknown") != "unknown":
@@ -72,7 +55,6 @@ def _healthy_text(action: str, result: dict[str, Any], fixes: list[dict[str, Any
     title = str(result.get("title") or "нода")
     pid = result.get("project_id")
     text = f"По разбору чинить нечего: нода «{title}» завершилась без ошибки, отклонённых ответов и ошибок нет."
-    # Без ключа ноды (n_images): служебные имена в причине итог прячет как «сырой» текст.
     if any(f.get("action") == "step.run_step" for f in fixes) and isinstance(pid, int):
         text += f" Если нужно пересобрать её результат — «перезапусти {title.lower()} проекта {pid}»."
     return text
@@ -90,7 +72,6 @@ def forget(session_id: str | None) -> None:
 
 
 def next_phrase(fixes: list[dict[str, Any]], applied: list[str]) -> str | None:
-    """Чем продолжить после починки: запуск из вариантов разбора, который ещё не применён."""
     for fix in fixes:
         if fix.get("action") == "step.run_step" and fix.get("phrase_ru") and "step.run_step" not in applied:
             return str(fix["phrase_ru"])
@@ -109,7 +90,6 @@ _BARE_LAUNCH = re.compile(
 
 
 def set_next(session_id: str | None, phrase: str | None) -> None:
-    """Чем продолжить после починки — для голого «запускай»."""
     if not session_id:
         return
     if phrase:
@@ -119,7 +99,6 @@ def set_next(session_id: str | None, phrase: str | None) -> None:
 
 
 def launch_goal(goal: str, session_id: str | None) -> str:
-    """«А теперь запускай» после «почини» — та фраза запуска, которую чат сам предложил."""
     phrase = _NEXT.get(session_id or "")
     if phrase and _BARE_LAUNCH.match(str(goal or "").lower().replace("ё", "е")):
         _NEXT.pop(session_id or "", None)

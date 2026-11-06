@@ -121,8 +121,6 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
         and len(planned_ids) == 1
         and not any(_changes(step) or step.action == "diag.content_checks" for step in plan)
     ):
-        # «Картинки без стиля, найди где теряется», «стиль пропал в промтах»: планировщик читал
-        # таблицу и ноды, а проверку стиля в промтах не ставил — ответ «подтвердить нельзя».
         check = PlanStep(
             action="diag.content_checks",
             params={"project_id": planned_ids.pop(), "step": "img_pr"},
@@ -131,7 +129,6 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
         return [check, *plan]
     if _WHERE.search(text) and re.search(r"промт|промпт", text) and len(planned_ids) == 1:
         if not any(_changes(step) for step in plan):
-            # «Где лежат промты, которые нагенерило»: планировщик звал выгрузку по чужой ноде (404).
             return [
                 PlanStep(
                     action="diag.content_checks",
@@ -141,7 +138,6 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
             ]
     if _PROMPTS.search(text):
         found = _PROJECT.search(text)
-        # В доке проекта номер не пишут («проверь промпты картинок»): проект — из плана.
         planned = {
             step.params.get("project_id") for step in plan if isinstance(step.params.get("project_id"), int)
         }
@@ -181,11 +177,8 @@ async def plan_fix_from_last(last: tuple[str, dict] | None) -> list[PlanStep] | 
         return None
     kept = [f for f in (params.get("_fix_options") or []) if isinstance(f, dict)]
     if kept:
-        # Варианты от самого разбора: точные правки — все, иначе первое исполнимое.
         usable = [f for f in kept if f.get("action") and f["action"] not in _READ_ONLY]
         exact = [f for f in usable if f.get("deterministic") or f.get("action") == "shot.edit_cell_voiceover"]
-        # Порядок разбора главнее: первым он ставит исправление найденной причины (стиль в промте),
-        # и только если оно само точечное — берём все точечные правки сразу.
         chosen = exact[:_MAX_EDITS] if usable and usable[0] in exact else usable[:1]
         if chosen:
             return [_fix_step(f, "Исправление по разбору") for f in chosen]
@@ -251,11 +244,6 @@ def failure_reads(
 
 
 def logs_with_diagnosis(plan: list[PlanStep]) -> list[PlanStep]:
-    """Разбор упавшей ноды сразу с ошибками журнала того же проекта.
-
-    Без этого итог разбора заканчивался советом «напишите «покажи ошибки в логах»», и человек
-    делал второй заход. Чтение журнала без модели и без денег.
-    """
     pids = [s.params.get("project_id") for s in plan if s.action == "diag.node_failure"]
     have = {s.params.get("project_id") for s in plan if s.action == "logs.tail"}
     extra = [
@@ -267,7 +255,6 @@ def logs_with_diagnosis(plan: list[PlanStep]) -> list[PlanStep]:
         for pid in dict.fromkeys(pids)
         if isinstance(pid, int) and pid not in have
     ]
-    # Журнал нужен до запуска: после платного шага он уже про новый запуск.
     at = next((i for i, step in enumerate(plan) if step.mutating), len(plan))
     return [*plan[:at], *extra, *plan[at:]]
 

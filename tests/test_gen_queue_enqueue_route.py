@@ -10,9 +10,7 @@ def test_gen_queue_enqueue_route_registered() -> None:
     assert "/sidebar-layout/gen-queue/enqueue" in paths
 
 
-
 async def test_enqueue_clears_auto_await_manual_start(monkeypatch):
-    """После рестарта startup_guard ставит «ждать ручной ▶»; постановка в очередь это ▶."""
     from contextlib import asynccontextmanager
     from types import SimpleNamespace
 

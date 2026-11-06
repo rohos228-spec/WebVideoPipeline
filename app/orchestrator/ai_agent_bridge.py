@@ -1,16 +1,3 @@
-"""Мост окна «ИИ-агент» к движку оркестратора: один чат студии.
-
-Окно «ИИ-агент» (``db_browser.orchestrator_chat_stream``) сначала отдаёт реплику оркестратору:
-понимание живых фраз, план из каталога действий, проверки, критик, бюджет, карточки
-подтверждения, разбор и починка нод. Ответ и карточка переводятся в формат окна
-(``reply`` и ``pending_confirm`` вида ``action`` с токеном ``orch:<change_id>``), так что
-дизайн и прежние функции окна не меняются.
-
-Если оркестратор не взялся (не понял, «чат пока не умеет», нет ответа, вложенные файлы) —
-реплика идёт прежним путём окна (один вызов GPT с правками кадров, кодом, ветками).
-Выключатель — ``AI_AGENT_ORCHESTRATOR=0``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -27,15 +14,11 @@ TURN_TIMEOUT_S = float(os.environ.get("AI_AGENT_ORCH_TIMEOUT_S", "240"))
 DECIDE_TIMEOUT_S = 165.0
 _IDLE_AFTER_REPLY_S = 2.5
 
-# Ответы, после которых реплику лучше отдать прежнему движку окна.
-# Только начало ответа: в разборе сценария про сов «не умеют» стояло в середине, и мост
-# отдавал готовый ответ старому пути.
 _NOT_HANDLED_RE = re.compile(
     r"^\s*(?:Не понял, что сделать|Этого чат пока не умеет\.?\s*$|Я не умею|Модель сейчас не отвечает)", re.I
 )
 _AUTO_PREFIX_RE = re.compile(r"^\[РЕЖИМ:[^\]]*\]\s*", re.S)
 _END_TYPES = {"task_done", "task_failed"}
-# Сессия -> seq просьбы, чей итог не успел к ответу окна.
 _LATE: dict[str, int] = {}
 STILL_WORKING_TEXT = (
     "Просьба ещё выполняется. Итог покажу со следующим сообщением, можно спросить «что с задачей»."
@@ -46,7 +29,6 @@ _NO_RE = re.compile(
     re.I,
 )
 _YES_RE = re.compile(r"^(?:да|ага|ок|окей|подтверждаю|подтверди|давай|го|запускай|покажи\s+карточку)[.!\s]*$", re.I)
-# Последние карточки по change_id: «да» после цепочки показывает открытую карточку кнопкой.
 _CARDS: dict[str, dict[str, Any]] = {}
 
 
@@ -57,12 +39,11 @@ def _remember(card: dict[str, Any]) -> None:
 
 
 def open_card(session_id: str) -> dict[str, Any] | None:
-    """Карточка, которую задача сессии ждёт сейчас (если окно её видело)."""
     from app.orchestrator.agents.runtime import get_runtime
 
     try:
         sup = get_runtime().supervisor
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     task_id = sup.active_task(session_id)
     change_id = sup._appr_open.get(task_id) if task_id is not None else None
@@ -70,16 +51,11 @@ def open_card(session_id: str) -> dict[str, Any] | None:
 
 
 async def waiting_card(session_id: str) -> dict[str, Any] | None:
-    """Открытая карточка сессии, в том числе пережившая перезапуск сервера.
-
-    Движок поднимает такую задачу из базы, а ``_CARDS`` живёт в памяти: окно не знало о карточке,
-    и каждая новая просьба вставала за ней в очередь на 4 минуты.
-    """
     from app.orchestrator.agents.runtime import get_runtime
 
     try:
         runtime = get_runtime()
-    except Exception:  # noqa: BLE001 — движок не поднят: прежний путь окна
+    except Exception:
         return None
     sup = runtime.supervisor
     try:
@@ -99,7 +75,7 @@ async def waiting_card(session_id: str) -> dict[str, Any] | None:
                     _remember(payload)
                     return payload
         return {"change_id": change_id or "", "title": str(row.get("goal") or "прошлая просьба")}
-    except Exception as exc:  # noqa: BLE001 — без карточки окно работает как раньше
+    except Exception as exc:
         logger.info("ai-agent bridge waiting card {}: {!r}", session_id, exc)
         return None
 
@@ -109,14 +85,12 @@ def enabled() -> bool:
 
 
 def session_for(project_id: int | None) -> str:
-    """Та же сессия, что у чата оркестратора в студии: история и карточки общие."""
     from app.services.orch_tenancy import scoped_session
 
     public = f"studio-p{int(project_id)}" if project_id else "studio-factory"
     return scoped_session(public)
 
 
-# Своё у окна «ИИ-агент»: правка кода и git (под админом), его кнопки брифинга и списка действий.
 _LEGACY_RE = re.compile(
     r"(?<![а-я])(?:в\s+коде|код[ае]?\s+(?:студии|программы|приложения)|исходник|git|гит|коммит|"
     r"запушь|пушни|push|pull\s*request|пулл?\s*реквест|\.py|\.tsx?)"
@@ -126,7 +100,6 @@ _LEGACY_RE = re.compile(
 
 
 def clean_text(message: str) -> tuple[str, bool]:
-    """Текст для оркестратора и флаг «можно ему отдавать». Вложения, код, брифинг — прежнему пути."""
     text = _AUTO_PREFIX_RE.sub("", message or "").strip()
     if "[Вложенные файлы:" in text or not text or _LEGACY_RE.search(text):
         return text, False
@@ -149,17 +122,14 @@ _PROJECT_TAIL_RE = re.compile(r";?\s*проект #(\d+)\s*$")
 
 
 def _action_steps(card: dict[str, Any]) -> list[dict[str, Any]]:
-    """Шаги, которые что-то меняют или стоят денег; чтения перед ними на карточке — шум."""
     steps = [s for s in card.get("steps") or [] if isinstance(s, dict)]
     acting = [s for s in steps if s.get("paid") or str(s.get("risk") or "none") != "none"]
     acting = acting or steps
-    # Следующая карточка плана несёт весь план: сделанные шаги уже позади.
     current = next((i for i, s in enumerate(acting) if s.get("action") == card.get("action")), 0)
     return acting[current:]
 
 
 def _step_lines(card: dict[str, Any]) -> tuple[list[str], str]:
-    """Тексты шагов без служебных ключей; общий проект — один раз, а не у каждого шага."""
     lines: list[str] = []
     projects: set[str] = set()
     for step in _action_steps(card):
@@ -177,7 +147,6 @@ def _step_lines(card: dict[str, Any]) -> tuple[list[str], str]:
 
 
 def card_title(card: dict[str, Any]) -> str:
-    """Строка карточки окна: что сделает, по шагам, цена и риск."""
     lines, project = _step_lines(card)
     steps = _action_steps(card)
     shown = [
@@ -185,7 +154,6 @@ def card_title(card: dict[str, Any]) -> str:
         for line, step in zip(lines[:8], steps[:8], strict=False)
     ]
     if len(shown) == 1:
-        # Один шаг: его текст и есть суть карточки, заголовок повторял бы его же.
         head = shown[0]
     else:
         head = str(card.get("title") or "").strip() or (lines[0].split(" — ")[0] if lines else "Действие")
@@ -219,7 +187,6 @@ _CAUSE_RE = re.compile(r"Нода «([^»]+)».*?Ошибка:\s*(.+)", re.DOTAL
 
 
 def failure_cause(summary: str) -> str:
-    """«Разберись почему упало и почини»: карточка говорит про запуск, причину надо сказать рядом."""
     found = _CAUSE_RE.search(summary)
     if not found:
         return ""
@@ -231,7 +198,6 @@ def failure_cause(summary: str) -> str:
 
 
 async def _collect(queue: asyncio.Queue, after_seq: int, timeout: float) -> dict[str, Any]:
-    """События сессии после ``after_seq``: последняя реплика, карточка, итог задачи."""
     reply, card, status, error = "", None, None, None
     cause = ""
     phases: list[str] = []
@@ -277,7 +243,6 @@ async def _collect(queue: asyncio.Queue, after_seq: int, timeout: float) -> dict
 
 
 async def _late_reply(session_id: str) -> str:
-    """Итог просьбы, которая не успела к прошлому ответу окна: покажем со следующим."""
     after = _LATE.get(session_id)
     if after is None:
         return ""
@@ -285,7 +250,7 @@ async def _late_reply(session_id: str) -> str:
 
     try:
         events = await get_runtime().bus.replay_from(session_id, after)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return ""
     text = ""
     for event in events:
@@ -303,7 +268,7 @@ async def _turn(session_id: str, text: str, project_id: int | None, app: Any) ->
 
     try:
         runtime = get_runtime()
-    except Exception:  # noqa: BLE001 — движок не поднят (ENGINE_STARTUP=0): прежний путь окна
+    except Exception:
         return None
     async with runtime.bus.subscription(session_id) as queue:
         ack = await runtime.queue.accept(session_id, text, None, project_id=project_id, app=app)
@@ -327,7 +292,6 @@ _NO_ADVICE_RE = re.compile(r"\n?Что можно сделать: Устрани
 
 
 def plain_errors(text: str) -> str:
-    """Отказ действия без кода ошибки: «оба слота пустые», а не «ActionCallError: HTTP 400: …»."""
     out = _RAW_ERROR_RE.sub("", text)
     out = _ERROR_DICT_RE.sub(lambda m: m.group(1), out)
     return _NO_ADVICE_RE.sub("", out).strip()
@@ -337,7 +301,6 @@ _CARD_WARNINGS = 3
 
 
 def done_payload(result: dict[str, Any]) -> dict[str, Any]:
-    """Ответ в формате окна «ИИ-агент» (``DbOrchestratorChatResult``)."""
     card = result.get("card")
     reply = plain_errors(str(result.get("reply") or ""))
     pending = [_card_item(card)] if card else []
@@ -351,7 +314,6 @@ def done_payload(result: dict[str, Any]) -> dict[str, Any]:
     if card and result.get("cause"):
         reply = f"{result['cause']}\n\n{reply}"
     if card:
-        # «Не поставлен в очередь: #6 — …»: без этой строки проект пропадал из ответа молча.
         warned = [plain_errors(str(w)) for w in card.get("warnings") or [] if str(w).strip() and str(w) not in reply]
         if warned:
             reply = "\n\n".join([reply, *warned[:_CARD_WARNINGS]]).strip()
@@ -368,7 +330,6 @@ def done_payload(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def card_action(card: dict[str, Any]) -> str:
-    """Что предлагала карточка, короткой фразой для ответа."""
     lines, _project = _step_lines(card)
     return "; ".join(lines[:3]) or str(card.get("title") or "действие карточки")
 
@@ -380,14 +341,13 @@ def _is_question(text: str) -> bool:
 
 
 async def drop_card(session_id: str, card: dict[str, Any]) -> None:
-    """Снять открытую карточку словами человека: то же, что кнопка «Отмена»."""
     from app.orchestrator.agents.runtime import get_runtime
     from app.services import orch_bridge
 
     change_id = str(card.get("change_id") or "")
     try:
         result = await get_runtime().supervisor.reject_approval(session_id, change_id=change_id or None)
-    except Exception as exc:  # noqa: BLE001 — карточка могла уже закрыться
+    except Exception as exc:
         logger.info("ai-agent bridge drop card {}: {!r}", change_id, exc)
         return
     decided = result.get("change_id") if isinstance(result, dict) else None
@@ -397,10 +357,6 @@ async def drop_card(session_id: str, card: dict[str, Any]) -> None:
 
 
 async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIterator[tuple[str, Any]]:
-    """События для SSE окна: ``("phase", текст)`` по ходу и ``("result", dict|None)`` в конце.
-
-    ``None`` в конце — оркестратор не взялся, окно идёт прежним путём.
-    """
     text, ok = clean_text(message)
     if not (enabled() and ok):
         yield "result", None
@@ -419,8 +375,6 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
             yield "result", done_payload({"reply": f"Отменил: {action}. Ничего не менял."})
             return
         if not _is_question(text):
-            # Новая просьба при открытой карточке вставала за ней в очередь: окно молчало
-            # 4 минуты и уходило в старый путь. Человек передумал — снимаем, ничего не сделано.
             await drop_card(session_id, waiting)
             dropped = f"Прошлую карточку сняла новая просьба, она не выполнялась: {action}."
     task = asyncio.create_task(_turn(session_id, text, project_id, app))
@@ -429,7 +383,7 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
         while not task.done():
             await asyncio.sleep(0.5)
         result = task.result()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("ai-agent bridge: orchestrator failed, legacy path: {!r}", exc)
         yield "result", None
         return
@@ -437,7 +391,6 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
         if not task.done():
             task.cancel()
     if result and result.get("status") == "timeout" and not result.get("card") and not result.get("reply"):
-        # Движок ещё работает над просьбой: старый путь сделал бы её второй раз.
         _LATE[session_id] = int(result.get("after_seq") or 0)
         payload = done_payload({"reply": STILL_WORKING_TEXT})
         payload["reply"] = "\n\n".join(x for x in (late, dropped, payload["reply"]) if x)
@@ -461,7 +414,6 @@ _AUTO_NEXT_LIMIT = 6
 
 
 def same_plan_free_step(approved: dict[str, Any] | None, following: dict[str, Any]) -> bool:
-    """Следующая карточка того же плана: бесплатный шаг не выше среднего риска, виден на прошлой."""
     if not approved or approved.get("task_id") != following.get("task_id"):
         return False
     if str(following.get("risk") or "") == "high" or str(following.get("plan_risk") or "") == "high":
@@ -475,7 +427,6 @@ def same_plan_free_step(approved: dict[str, Any] | None, following: dict[str, An
 
 
 async def decide(request: Any, project_id: int | None, token: str, approve: bool) -> dict[str, Any]:
-    """Кнопка карточки окна для карточки оркестратора: одобрить или отказать и дождаться итога."""
     from app.orchestrator.agents.runtime import get_runtime
     from app.services import orch_bridge
 
@@ -485,7 +436,7 @@ async def decide(request: Any, project_id: int | None, token: str, approve: bool
     if not approve:
         try:
             result = await runtime.supervisor.reject_approval(session_id, change_id=change_id)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.info("ai-agent bridge reject {}: {!r}", change_id, exc)
             return {"ok": True, "reply": "Отменено — ничего не менял.", "notes": []}
         decided = result.get("change_id") if isinstance(result, dict) else None
@@ -506,15 +457,12 @@ async def decide(request: Any, project_id: int | None, token: str, approve: bool
             if getattr(exc, "status", None) == 403 or "operator" in str(detail):
                 reply = "Подтвердить может только оператор студии: войдите в студию и нажмите ещё раз."
             elif isinstance(exc, (al_approval.ApprovalError, al_planner.StalePlan)):
-                # «Шаг не прошёл проверку: в очереди видео 1, заявлено 0» — причина, а не «устарела».
                 reply = "Не получилось: " + plain_errors(str(detail))
             else:
                 reply = "Эта карточка устарела — повторите просьбу в чате."
             logger.info("ai-agent bridge approve {}: {!r}", change_id, exc)
             return {"ok": False, "reply": reply, "notes": [], "error": str(detail)[:200]}
-        # Подписка живая: всё, что пришло после неё, — итог этого решения.
         result = await _collect(queue, 0, DECIDE_TIMEOUT_S)
-        # Шаги плана человек уже видел на карточке и подтвердил: бесплатный следующий не спрашиваем.
         approved = _CARDS.get(change_id)
         for _ in range(_AUTO_NEXT_LIMIT):
             following = result.get("card")

@@ -1,5 +1,3 @@
-"""Стадия намерения: разбор JSON модели, отсев id вне каталога, флаг, таймаут, каталог задачи."""
-
 from __future__ import annotations
 
 import asyncio
@@ -74,7 +72,6 @@ def test_parses_json_and_drops_unknown_ids(monkeypatch):
     tier, messages, kwargs = seen[0]
     assert tier == "fast" and kwargs["agent_role"] == "classifier"
     prompt = messages[1]["content"]
-    # Модель видит весь каталог и открытый проект.
     assert "publish.send" in prompt and "проект #10" in prompt
 
 
@@ -115,7 +112,6 @@ def test_boost_adds_only_allowed_ids_and_clears(monkeypatch):
     try:
         ids = [r["id"] for r in catalog.entries("что-то", 55)]
         assert ids == ["montage.queue_ops", "project.status"]
-        # Другой задаче чужие кандидаты не достаются.
         assert [r["id"] for r in catalog.entries("что-то", 56)] == ["project.status"]
     finally:
         clear_boost(55)
@@ -150,13 +146,11 @@ def test_few_shot_only_with_flag(monkeypatch):
     assert FEW_SHOT[1] in _system_prompt([], "", "CATALOG")
     monkeypatch.setenv("ORCH_INTENT_RETRIEVER", "0")
     assert FEW_SHOT[1] not in _system_prompt([], "", "CATALOG")
-    # Без каталога примеров нет вовсе.
     monkeypatch.setenv("ORCH_INTENT_RETRIEVER", "1")
     assert FEW_SHOT[1] not in _system_prompt([], "", "")
 
 
 def test_few_shot_actions_exist_in_catalog():
-    """Примеры не должны учить действиям, которых нет: каждый id из примеров есть в реестре."""
     import re
 
     from app.orchestrator.actions import whitelist
@@ -175,7 +169,6 @@ def test_few_shot_actions_exist_in_catalog():
     ["смени диктора на Сару", "сделай картинки для всех кадров", "кадр номер 6 какой то стремный переделай плиз"],
 )
 def test_wide_edit_rule_does_not_swallow_other_intents(goal):
-    """Правило «правка всех картинок» не перехватывает голос, запуск шага и правку одного кадра."""
     from app.orchestrator.agents.style_scope import wide_edit_target
 
     assert wide_edit_target(goal) is None
@@ -274,7 +267,6 @@ def test_short_continuation_of_request_becomes_task(prev, reply):
 
     goal = continued_request([("assistant", "ok"), ("user", prev)], reply)
     assert goal and classify_deterministic(goal).mode.value == "task"
-    # Правила кодом видят только слова человека, старые номера — «N».
     assert strip_continuation(goal) == reply
     assert "5" not in goal.split(reply, 1)[1] or reply.startswith("и 7")
 
@@ -292,7 +284,6 @@ def test_explained_empty_plan_has_no_not_understood_prefix():
     assert _EXPLAINS_RE.search("В проекте 33 нет кадров, поэтому запуск видео невозможен")
     assert _EXPLAINS_RE.search("В проекте #10 формат кадра уже такой, менять нечего")
     assert not _EXPLAINS_RE.search("Уточните, какой кадр перерисовать")
-
 
 
 def test_fix_and_rerun_drops_reset_of_same_step():

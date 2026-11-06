@@ -1798,7 +1798,6 @@ async def _apply_review_result(
             "; ".join(result.reasons) or "<no reason>",
         )
         try:
-            # Чат читает эту метку: без неё статус говорил «готов шаг», а проект стоял молча.
             from datetime import UTC, datetime
 
             from sqlalchemy.orm.attributes import flag_modified
@@ -1813,7 +1812,7 @@ async def _apply_review_result(
                 meta["auto_wait"] = mark
                 project.meta = meta
                 flag_modified(project, "meta")
-        except Exception:  # noqa: BLE001 — метка для чата не должна ломать воркер
+        except Exception:
             pass
         return False
     if result.decision is HITLDecision.approved:

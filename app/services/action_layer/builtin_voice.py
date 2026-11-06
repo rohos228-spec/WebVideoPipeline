@@ -1,10 +1,3 @@
-"""Голос озвучки из чата: «какой голос в озвучке», «поменяй голос на мужской».
-
-Голос хранится в ``meta.node_step_params.audio.elevenlabs_voice_id`` — туда же пишет панель
-ноды «Озвучка». Чат отвечал «в фактах не указано» и «смены голоса нет в действиях».
-Смена голоса не тратит деньги сама: новая озвучка — отдельным запуском шага.
-"""
-
 from __future__ import annotations
 
 from typing import Any
@@ -12,7 +5,6 @@ from typing import Any
 from app.services.action_layer.context import ActionCallError, ActionContext
 from app.services.action_layer.spec import RISK_LOCAL_SAFE, ActionSpec, Precondition
 
-# Пол по описанию каталога: «мужской» — первый мужской голос, кроме текущего.
 _FEMALE = frozenset(
     {"Xb7hH8MSUJpSbSDYk0k2", "EXAVITQu4vr4xnSDxMaL", "hpp4J3VqNfWAUOO0d1Us", "pFZP5JQG7iQjIQuC4Bku"}
 )
@@ -36,7 +28,7 @@ def voice_name(voice_id: str) -> str:
         ru = get_ru_voice_by_id(voice_id)
         if ru:
             return str(ru.get("name") or ru.get("title") or "русский голос из каталога")
-    except Exception:  # noqa: BLE001 — каталог русских голосов может быть не настроен
+    except Exception:
         pass
     return "свой голос (нет в каталоге студии)"
 
@@ -61,7 +53,6 @@ def voice_text(meta: Any) -> str:
 
 
 def pick_voice(want: str, current: str) -> dict[str, str] | None:
-    """«мужской» / «женский» / имя («Сара», «Brian») → голос каталога, отличный от текущего."""
     text = f" {str(want or '').lower().replace('ё', 'е')} "
     pool = voices()
     for v in pool:
@@ -145,7 +136,6 @@ def voice_specs(pid_schema: dict, pre_project: Precondition, pre_idle: Precondit
 
 
 def voice_keyword(text: str) -> str | None:
-    """Что назвал человек: имя голоса («Сара») или «мужской» / «женский» — для карточки и шага."""
     low = f" {str(text or '').lower().replace('ё', 'е')} "
     for v in voices():
         names = v["name"].lower().replace("(", " ").replace(")", " ").split()

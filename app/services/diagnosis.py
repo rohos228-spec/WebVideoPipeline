@@ -208,7 +208,6 @@ INCIDENT_OUTCOMES = {
 NOTIFY_ENV = "INCIDENT_TELEGRAM_TYPES"
 
 
-# Коды пробелов журнала словами: «body_not_available» попадал в ответ чата как есть.
 GAP_TEXT = {
     "body_not_available": "текст события не сохранился в журнале",
     "observer_error": "наблюдатель журнала сам дал сбой",

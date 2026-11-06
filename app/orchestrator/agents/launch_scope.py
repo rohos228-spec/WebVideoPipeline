@@ -234,11 +234,6 @@ def _queue_step(ask: LaunchAsk, drafted: PlanStep | None) -> PlanStep:
 
 
 def seed_multi_launch(goal: str, existing: Callable[[], list[int]]) -> list[PlanStep] | None:
-    """«Запусти проекты 2, 3, 5 до видео»: очередь без планировщика.
-
-    Планировщик отвечал «проектов 2 и 3 нет в списке» — номера есть в базе, а список
-    проектов ему показывают не всегда. Только когда все названные номера существуют.
-    """
     ask = launch_ask(goal)
     if ask is None or len(ask.project_ids) < 2:
         return None
@@ -254,7 +249,6 @@ def seed_multi_launch(goal: str, existing: Callable[[], list[int]]) -> list[Plan
 def drop_missing_projects(
     plan: list[PlanStep], existing: Callable[[], list[int]], notes: list[str] | None = None
 ) -> list[PlanStep]:
-    """«Запусти проекты 2, 300»: несуществующие номера убрать из очереди и сказать об этом."""
     try:
         known = set(existing())
     except Exception:
@@ -287,7 +281,6 @@ def drop_missing_projects(
         len(step.params.get("project_ids") or []) for step in out if step.action == "queue.enqueue_many"
     )
     if missing and queued <= 1:
-        # Остался один проект (или ни одного): окно параллели ему не нужно.
         out = [step for step in out if step.action != "queue.set_parallel"]
     return out
 

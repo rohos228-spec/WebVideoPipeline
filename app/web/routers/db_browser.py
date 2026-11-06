@@ -3186,7 +3186,6 @@ async def _execute_orchestrator_reply(
         if note:
             entry["note"] = note
     error = "; ".join(dict.fromkeys(errors)) or None
-    # Выгрузка переписки чата (chat.export) читает orch_messages: ответ старого пути — туда же.
     try:
         from app.orchestrator.ai_agent_bridge import session_for
         from app.orchestrator.queue import _insert_message
@@ -3196,7 +3195,7 @@ async def _execute_orchestrator_reply(
             legacy_reply = f"{legacy_reply}\nОшибка: {error}".strip()
         if legacy_reply:
             _insert_message(session_for(project.id), "assistant", legacy_reply[:4000], task_id=None, mode="legacy")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     # Контур самообучения: каждый диалог — в ops-журнал проекта.
     try:
@@ -3293,7 +3292,6 @@ async def orchestrator_chat(
     from app.services.gpt_client import GptApiUnavailable, get_gpt_client
 
     project = await _project(session, project_id)
-    # Один чат студии: сначала движок оркестратора, не взялся — прежний путь окна.
     async for kind, data in ai_agent_bridge.stream_turn(project.id, body.message, request.app):
         if kind == "result" and data is not None:
             return data
@@ -3335,8 +3333,6 @@ async def orchestrator_chat_stream(
     app = request.app
 
     async def _generator():
-        # Один чат студии: сначала движок оркестратора (понимание фраз, план, проверки, карточки).
-        # Не взялся — дальше прежний путь окна без изменений.
         with tenant_scope(captured_tenant):
             async for kind, data in ai_agent_bridge.stream_turn(project_id, body.message, app):
                 if kind == "phase":
@@ -3543,7 +3539,6 @@ async def orchestrator_confirm_action(
 
     project = await _project(session, project_id)
     if body.token.startswith(ai_agent_bridge.TOKEN_PREFIX):
-        # Карточка движка оркестратора: решение идёт через его одобрение (оператор, бюджет, план).
         return await ai_agent_bridge.decide(request, project.id, body.token, body.approve)
     pending = guard.take_pending(project.id, body.token)
     if pending is None:

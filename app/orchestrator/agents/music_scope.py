@@ -1,11 +1,3 @@
-"""«Перемонтируй с музыкой потише»: громкость музыки от текущей, без вопроса «сколько по шкале 0–100».
-
-Планировщик на такую просьбу отдавал пустой план с вопросом, а итог приклеивал «Этого чат
-пока не умеет» — хотя настройка сборки ``montage.set_assemble_params(bgm_level)`` есть.
-Здесь «потише» / «погромче» без числа — на треть тише / громче от громкости проекта, а
-«перемонтируй» / «пересобери» — ещё и монтаж. Подтверждение карточкой остаётся.
-"""
-
 from __future__ import annotations
 
 import re
@@ -13,19 +5,16 @@ from typing import Any
 
 from app.orchestrator.contracts import PlanStep
 
-# Ниже — уже почти не слышно: «потише» не выключает музыку.
 MIN_LEVEL = 5
 _MUSIC = re.compile(r"музык|музон|фонов\w* (?:трек|звук)|\bbgm\b")
 _QUIETER = re.compile(r"тише|потиш|приглуш|убав|поменьше|тихую|тихая|тихо\b")
 _LOUDER = re.compile(r"громче|погромч|прибав|побольше|громкую|громкая")
 _REMOUNT = re.compile(r"перемонт|пересобер|пересобр|смонтир|собери|монтаж")
-# Названо число («до 20», «на 30%») — точное значение ставит планировщик.
 _NUMBER = re.compile(r"\d")
 _PROJECT = re.compile(r"(?:проект\w*|#)\s*(\d{1,5})|(\d{1,5})\s*(?:-?м\s+)?проект")
 
 
 def volume_direction(goal: str) -> int:
-    """-1 — тише, +1 — громче, 0 — не про громкость музыки или названо число."""
     text = " ".join(str(goal or "").lower().replace("ё", "е").split())
     if not _MUSIC.search(text) or _NUMBER.search(_PROJECT.sub(" ", text)):
         return 0
@@ -37,7 +26,6 @@ def volume_direction(goal: str) -> int:
 
 
 def shifted_level(current: int, direction: int) -> int:
-    """«Потише» — примерно на треть тише, но не в ноль (ноль — это «без музыки»); «погромче» — на треть громче."""
     cur = max(0, min(100, int(current)))
     if direction < 0:
         return max(MIN_LEVEL, min(cur - 1, round(cur * 0.65))) if cur > MIN_LEVEL else cur

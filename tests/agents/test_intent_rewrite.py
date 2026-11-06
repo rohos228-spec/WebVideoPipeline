@@ -17,7 +17,7 @@ class _Router:
 _KW = {"run_id": "orch-test-1", "task_id": 1, "budget_scope": "internal"}
 
 
-import pytest  # noqa: E402
+import pytest
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +38,6 @@ def test_rewrite_none_and_garbage_ignored():
     assert asyncio.run(canonical_goal("ну такое", _Router("NONE"), _KW)) is None
     assert _clean("в кадре <N> сделай <что>") is None
     assert _clean("«музыку потише»") == "музыку потише"
-    # тот же текст — переводить нечего
     assert asyncio.run(canonical_goal("музыку потише", _Router("музыку потише"), _KW)) is None
 
 

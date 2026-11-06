@@ -1241,8 +1241,6 @@ def _with_ceiling(spec: ActionSpec) -> ActionSpec:
     return replace(
         spec,
         params_schema=schema,
-        # Своя оценка действия (например, «снять паузу» по тому, куда вернётся проект) остаётся,
-        # потолок ceiling_credits ложится поверх неё.
         estimator=lambda p, base=(spec.estimator or _unknown_start_cost): _ceiling_estimate(base(p), p),
         description_ru=spec.description_ru.replace(
             "Стоимость запуска неизвестна, поэтому план нельзя подтвердить.",

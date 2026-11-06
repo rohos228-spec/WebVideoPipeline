@@ -20,12 +20,10 @@ from app.services.action_layer.spec import RISK_READ, ActionSpec
 
 ACTION_ID = "diag.content_checks"
 _STEP = {"type": "string", "enum": list(cc.STEPS)}
-# «Найди, где теряется стиль пластилин»: слово из фразы ищем в каждом промте картинок.
 _KEYWORD = {"type": "string", "description": "слово стиля или детали, которое должно быть в промтах картинок"}
 
 
 async def keyword_in_prompts(pid: int, keyword: str) -> dict[str, Any]:
-    """В каких промтах картинок нет слова (по основе: «пластилин» найдёт «пластилиновый»)."""
     from sqlalchemy import select
 
     from app.models import Frame
@@ -44,7 +42,6 @@ async def keyword_in_prompts(pid: int, keyword: str) -> dict[str, Any]:
 
 
 async def keyword_fixes(ctx: ActionContext, pid: int, found: dict[str, Any]) -> list[dict[str, Any]]:
-    """Чем чинить потерю слова стиля: промт ноды промтов и перезапуск, или перегенерация картинок."""
     word = found["keyword"]
     if not found["with_prompt"]:
         return []
@@ -56,7 +53,7 @@ async def keyword_fixes(ctx: ActionContext, pid: int, found: dict[str, Any]) -> 
         try:
             detail = await _effective_project(ctx, pid)
             key = node_for_step(bi._meta(detail), await bi._node_runs(ctx, pid), "img_pr")
-        except Exception:  # noqa: BLE001 — без ключа ноды остаётся перезапуск промтов
+        except Exception:
             key = None
         out: list[dict[str, Any]] = []
         if key:

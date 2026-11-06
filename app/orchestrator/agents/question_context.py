@@ -77,8 +77,6 @@ _ABOUT = (
     "умеешь",
     "умеет",
     "можешь",
-    # «на каком мы этапе», «где застряло», «что мешает», «как починить»: без фактов модель
-    # отвечала «этап не указан» / «нет состояния проекта».
     "этап",
     "застрял",
     "мешает",
@@ -87,21 +85,16 @@ _ABOUT = (
     "сбо",
     "срочн",
     "проблем",
-    # «Сколько длится каждый кадр»: длительности с доски.
     "кадр",
-    # «Картинки уже сгенерил?»: число кадров с картинками и видео.
     "картин",
     "сгенер",
     "длит",
-    # «Какое разрешение у картинок»: генераторы и разрешения.
     "разрешен",
     "качеств",
     "настройк",
-    # «Какой формат видео, вертикальный?»: формат кадра с доски.
     "формат",
     "вертикал",
     "горизонтал",
-    # «Какой промт у картинок», «покажи промт кадра 2»: промты кадров с доски.
     "промт",
     "промпт",
 )
@@ -114,7 +107,6 @@ _NODE_FAILURE = (
     "разбер",
     "что не так",
     "в чем проблем",
-    # «Ищи что случилось», «он отработал 3 секунды, хотя это невозможно»: разбор последнего запуска.
     "что случил",
     "что произошл",
     "ищи",
@@ -129,7 +121,6 @@ _NODE_FAILURE = (
     "сломан",
     "ошиб",
     "не работ",
-    # «Я запустил, он отработал 3 секунды, ищи что случилось»: нода не упала, а сделала не то.
     "что случил",
     "что произош",
     "секунд",
@@ -154,9 +145,7 @@ FAILURE_RULE = (
 # ответ по смыслу шага, а не статус ноды — проверка содержания (diag.content_checks).
 _CHECK_VERB = ("провер", "сверь", "сверить", "сходит", "сходят", "совпада", "не потерял", "потерял")
 _CHECK_OBJECT = ("разбивк", "кадр", "закадр", "промт", "результат", "герои", "персонаж")
-# «Стиль пластилин», «без стиля аниме», «в стиле нуар»: само слово стиля из фразы.
 _STYLE_WORD_RE = re.compile(r"(?<![а-я])стил\w*\s+([а-яa-z][а-яa-z-]{2,})")
-# «Запустил промты» — не про стиль: только слово «стиль», не «запуСТИЛ».
 _STYLE_RE = re.compile(r"(?<![а-я])стил")
 CONTENT_TITLE = "Проверка результата по содержанию"
 CONTENT_RULE = (
@@ -167,14 +156,12 @@ CONTENT_RULE = (
 )
 
 
-# «Где лежат промты, которые нагенерило», «где посмотреть промты»: ответ — поле кадров, а не файлы.
 _WHERE_PROMPTS = re.compile(
     r"где\b.{0,40}(?:леж|посмотр|найти|хран|увидет|смотрет)|(?:леж|хран)\w*.{0,20}где"
 )
 
 
 _LOOK = ("темн", "светл", "ярк", "мрачн", "блекл", "тускл", "выцвет", "черно-бел", "серые", "бледн")
-# «Видео собралось?», «где готовое видео»: финальный ролик проекта и где его смотреть.
 _FINAL = (
     "собрал",
     "смонтир",
@@ -187,7 +174,6 @@ _FINAL = (
     "где ролик",
     "скачать видео",
     "скачать ролик",
-    # «Скинь ссылку на ролик», «длительность ролика»: ответ из итогового видео ноды «Монтаж».
     "ссылк",
     "длительность ролика",
     "длина ролика",
@@ -202,7 +188,6 @@ _FINAL_WHERE = (
 
 
 async def final_video_text(pid: int) -> str:
-    """Есть ли финальный ролик проекта, когда собран и где его смотреть в студии."""
     from pathlib import Path
 
     from sqlalchemy import select
@@ -231,12 +216,8 @@ async def final_video_text(pid: int) -> str:
 def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
     """Параметры diag.content_checks, если просят проверить результат шага; иначе None."""
     if _has(norm, ("картин", "изображ", "кадр")) and _has(norm, _LOOK):
-        # «Почему картинки тёмные»: тон картинок задают стиль и промты — проверка промтов
-        # покажет стиль проекта (нуар, пластилин), а не «причина неизвестна».
         return {"project_id": int(pid), "step": "img_pr"}
     if _STYLE_RE.search(norm) and _has(norm, ("картин", "промт", "изображ", "теря", "без стил", "пропал")):
-        # «Картинки без стиля пластилин, найди где он теряется»: стиль пишет вариант промта
-        # картинок, проверка промтов покажет кадры без стиля; само слово — в параметрах проверки.
         params = {"project_id": int(pid), "step": "img_pr"}
         word = _STYLE_WORD_RE.search(norm)
         if word:
@@ -249,7 +230,6 @@ def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
     if (_has(norm, ("разбивк",)) and _has(norm, ("почему", "сколько", "откуда")) and "кадр" in norm) or (
         _has(norm, ("откуда столько", "почему столько", "почему так много")) and "кадр" in norm
     ):
-        # «Почему разбивка дала 28 кадров»: состав кадров и сколько просил сценарий.
         return {"project_id": int(pid), "step": "split"}
     if not (_has(norm, _CHECK_VERB) and _has(norm, _CHECK_OBJECT)) or _NODE_RE.search(norm):
         # Названа нода — «проверь результат n_excel_gpt_1» читает её выход (node.output).
@@ -265,7 +245,6 @@ def content_check_params(norm: str, pid: int) -> dict[str, Any] | None:
 
 
 _SPEND = (
-    # «Сколько ушло на озвучку», «на что уходит денег».
     "ушло на",
     "ушли на",
     "уходит",
@@ -284,7 +263,6 @@ _SPEND = (
     "доллар",
     "списан",
     "списал",
-    # «где самый дорогой проект», «какой проект дешевле всех»: траты по проектам.
     "дорог",
     "дешев",
     "$",
@@ -346,27 +324,20 @@ _OTHER_NUMBER_RE = re.compile(
 )
 # «сколько ушло денег на 12», «что в 12?»: голый номер в конце фразы — проект, если такой есть.
 _TAIL_NUMBER_RE = re.compile(r"(?<![\w#])(?:на|по|у|в|с|со|про)\s+(\d{1,5})\s*[?.!]*$")
-# «почему 13 встал», «продолжи 13»: в режиме «вся фабрика» единственное голое число — номер
-# проекта, если рядом нет единиц (кадров, секунд, денег, штук).
 _BARE_NUMBER_RE = re.compile(r"(?<![\w#.,$])(\d{1,5})(?![\w.,%$])(?!\s*(?:кадр|сек|мин|час|шаг|раз|штук|"
     r"рол|видео|картин|сцен|доллар|долл|руб|бакс|\$|%|x|х\b))")
-# «что с 46 проектом», «в 4-м проекте»: номер перед словом «проект».
 _BEFORE_NUMBER_RE = re.compile(r"(?<![\w#.,])(\d{1,5})(?:-?(?:м|й|ом|ым|ой))?\s+проект")
 _NUMBER_IN_GROUP_RE = re.compile(r"\d{1,5}")
 MISSING_TITLE = "Такого проекта нет"
-# «Какой голос», «какой диктор», «кто озвучивает»: голос ноды «Озвучка».
 _VOICE_Q = ("голос", "диктор", "озвучива", "кто озвуч", "чей голос")
-# «Какие настройки у монтажа», «какая громкость музыки», «субтитры включены?»: параметры сборки.
 _MONTAGE_Q = ("настройк", "громк", "субтит", "музык", "хвост", "первые секунд", "монтаж", "сборк")
 MONTAGE_TITLE = "Настройки монтажа"
-# «Проверь факты в тексте», «всё ли верно в сценарии», «нет ли ошибок в фактах».
 FACT_CHECK_TITLE = "Сценарий для проверки фактов"
 _FACT_CHECK_RE = re.compile(
     r"(?:провер\w*|сверь|верн\w*|правд\w*|ошибк\w*|достоверн\w*|фактчек\w*)[^.?!]{0,40}(?:факт\w*|сценари\w*|текст\w*)"
     r"|(?:факт\w*|сценари\w*|текст\w*)[^.?!]{0,30}(?:верн\w*|правд\w*|достоверн\w*|ошибк\w*|провер\w*)"
     r"|фактчек"
 )
-# «Сделай подешевле»: способы, которые чат умеет сам, — с фразами для них.
 CHEAPER_TEXT = (
     "Дороже всего обычно видео, затем картинки, озвучка дешевле. Способы из чата: модель видео "
     "подешевле («поменяй модель видео на подешевле»); модель картинок подешевле («поставь картинки "
@@ -374,7 +345,6 @@ CHEAPER_TEXT = (
     "нужных; не перегенерировать то, что уже готово («сделай недостающие» вместо «сделай заново»). "
     "Назови конкретные суммы из оценок шагов, если они есть, и предложи 2–3 способа с фразами."
 )
-# «Какое разрешение у картинок», «в каком качестве видео»: генераторы и разрешения проекта.
 _RESOLUTION_Q = ("разрешен", "качеств", "генератор", "2k", "4k", "720", "1080")
 
 
@@ -398,7 +368,6 @@ def montage_settings_text(meta: Any) -> str:
         "Монтаж (сборка ролика): " + "; ".join(parts) + ". Менять можно фразами: «музыку потише», "
         "«включи субтитры», «хвост 2 секунды»; переходов, логотипа и размера субтитров в настройках нет."
     )
-# Своё значение у каждого вопроса: вопросы разных сессий идут параллельно.
 _MISSING: contextvars.ContextVar[str | None] = contextvars.ContextVar("orch_missing_projects", default=None)
 # Образец команды в правиле ответа: тест сверяет, что чат принимает её как задачу.
 EXAMPLE_COMMAND = "запусти промты картинок в проекте 6"
@@ -539,7 +508,6 @@ class Fact:
     ok: bool = True
 
 
-# Живые опечатки: «промпты картинак», «картинкам» в вопросах не узнавались.
 _TYPOS = (
     (re.compile(r"промпт"), "промт"),
     (re.compile(r"\bprompt"), "промт"),
@@ -629,8 +597,6 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
 
     export = export_params(norm)
     if export is not None:
-        # «Выгрузи переписку за неделю»: вся переписка чата одним файлом (руководителю вместо
-        # скриншотов). По умолчанию все проекты; «этого проекта» / «проекта N» — один.
         if named or _has(norm, ("этого проекта", "по проекту", "этому проекту", "текущ")):
             if pid is not None:
                 export["project_id"] = int(pid)
@@ -674,15 +640,12 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
         # или герои в промтах могли не сходиться.
         reads = [("diag.content_checks", checks), ("project.status", {"project_id": int(pid)})]
         if checks.get("step") == "img_pr" and _has(norm, ("теря", "пропал", "без стил", "нет стил")):
-            # «Где теряется стиль»: промты могут быть со стилем — тогда теряет генерация картинок
-            # (модель, рефы). Разбор ноды картинок показывает её модель и последний запуск.
             reads.append(("diag.node_failure", {"project_id": int(pid), "step": "img"}))
         return _allowed(reads)
     from app.orchestrator.agents.read_plan import read_step
 
     overview = read_step(text)
     if overview and overview["params"].get("status") == "attention":
-        # «Где ошибки по проектам»: окно открыто в проекте, но спрашивают про все.
         return _allowed([("projects.overview", dict(overview["params"]))])
     nodes = list(dict.fromkeys(_NODE_RE.findall(norm)))[:2]
     cost_q = bool(_cost_step(norm)) and (_has(norm, _SPEND) or _has(norm, ("сколько",)))
@@ -691,7 +654,6 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     )
     asked = nodes or _has(norm, _ABOUT) or _has(norm, _BLOCKED) or cost_q or node_failure
     if not asked and not wants_data_report(text) and project_id is None:
-        # Проект открыт или назван («а с 7?»): состояние читаем всегда — иначе «данных нет».
         return []
     logs = _has(norm, _LOGS) or _has(norm, _FAILURE) or node_failure
     reads: list[tuple[str, dict[str, Any]]] = []
@@ -706,24 +668,20 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             if nodes:
                 failure["node_key"] = nodes[0]
             elif _cost_step(norm):
-                # «Промты картинок отработали за 3 секунды»: нода названа шагом, а не ключом.
                 failure["step"] = _cost_step(norm)
             reads.append(("diag.node_failure", failure))
         cheaper = _has(norm, ("подешевле", "дешевле", "сэконом", "бюджетнее", "экономнее", "потратить меньше"))
         if _has(norm, _RESOLUTION_Q) or cheaper:
             reads.append(("montage.get_cost_basis", {"project_id": pid}))
         if cheaper and not _has(norm, ("из них",)):
-            # «Сделай подешевле»: что стоит дороже всего и на что заменить — оценки шагов.
             reads.extend(
                 ("step.get_run_cost_basis", {"project_id": pid, "step_code": code}) for code in ("img", "video", "audio")
             )
         prompt_q = _has(norm, ("промт", "промпт"))
         if _has(norm, _FRAMES) or prompt_q or _has(norm, ("видео", "картинк", "картинок")):
-            # «Что с видео»: число готовых видео и очередь — на доске, в статусе проекта их нет.
             # «Сколько кадров в проекте 4»: в статусе числа кадров нет, модель отвечала «в данных нет».
             board: dict[str, Any] = {"project_id": pid}
             if prompt_q:
-                # «Какой промт у картинок»: промты названного кадра или первых трёх.
                 from app.orchestrator.agents.frame_scope import frame_number
 
                 number = frame_number(norm)
@@ -746,7 +704,6 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
             reads.append(("projects.overview", _overview(norm)))
         if _has(norm, _BLOCKED):
             reads.append(("media.list_unknown_outcomes", {"project_id": pid}))
-        # «Сколько будет стоить запустить проекты 5 и 6»: оценка по каждому названному, не по открытому.
         from app.orchestrator.agents.launch_scope import _ids as _launch_ids
 
         named = _launch_ids(norm)
@@ -757,9 +714,7 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
                 for one in cost_ids
             )
         elif _has(norm, _FINISH_COST) or (_has(norm, ("сколько",)) and _has(norm, ("стоит", "стоить", "обойд"))):
-            # «Сколько будет стоить доделать»: оценка оставшихся платных шагов (картинки, видео, озвучка).
             for one in cost_ids:
-                # Несколько проектов: название в заголовке факта, без отдельного статуса (общий предел фактов).
                 extra = {"_named": True} if len(cost_ids) > 1 else {}
                 reads.extend(
                     ("step.get_run_cost_basis", {"project_id": one, "step_code": code, **extra})
@@ -775,7 +730,6 @@ def plan_reads(text: str, project_id: int | None) -> list[tuple[str, dict[str, A
     if _has(norm, _SPEND):
         reads.append(("spend.summary", {}))
     if _has(norm, _FINISH_COST) or _has(norm, ("дешевл", "дорож", "стоит", "стоить", "обойд")):
-        # «Что дешевле из них доделать (проекты 5, 7)»: оценка по каждому названному проекту.
         from app.orchestrator.agents.launch_scope import _ids as _launch_ids
 
         named = _launch_ids(norm)[:5]
@@ -857,7 +811,6 @@ def _node_code(code: str) -> tuple[str, str]:
     return (m.group(1), m.group(2)) if m else (base, "")
 
 
-# «Что такое автозапуск», «что значит инцидент»: понятия студии простыми словами.
 _CONCEPT_Q = re.compile(r"что\s+(?:такое|значит|это|за)|зачем|как\s+работает|для\s+чего|объясни")
 _CONCEPTS = (
     (("автозапуск", "автопродвиж", "авто режим", "автоматическ"),
@@ -923,8 +876,6 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-# Чтения, чей ответ идёт в чат дословно, без модели: ссылки на файлы модель теряла
-# («ссылка не передана»), а переписывать готовый текст ей нечего.
 VERBATIM_READS = frozenset({"chat.export"})
 _VERBATIM: dict[str, str] = {}
 
@@ -1031,7 +982,6 @@ class QuestionContext:
     async def _one(self, action: str, params: dict[str, Any], app: Any) -> Fact:
         title = _TITLES.get(action, action)
         if action in ("step.get_run_cost_basis", "project.status") and params.get("project_id"):
-            # «Сколько стоит запустить 5 и 6»: без номера в заголовке модель не знала, чья оценка.
             kind = {"img": "картинки", "video": "видео", "audio": "озвучка"}.get(str(params.get("step_code")), "")
             name = ""
             if params.get("_named"):
@@ -1040,7 +990,7 @@ class QuestionContext:
 
                     found = own_projects(None, [int(params["project_id"])])
                     name = f" «{found[0][1]}»" if found and found[0][1] else ""
-                except Exception:  # noqa: BLE001 — без названия заголовок всё равно с номером
+                except Exception:
                     name = ""
             title = f"{title} — проект #{params['project_id']}{name}" + (f", {kind}" if kind else "")
         try:
@@ -1080,7 +1030,6 @@ class QuestionContext:
     async def gather(
         self, text: str, project_id: int | None, app: Any = None, session_id: str | None = None
     ) -> list[Fact]:
-        # Разборы этого пути («найди где теряется стиль») запоминаются для «почини».
         from app.orchestrator.agents import findings
 
         token = findings.bind(session_id)
@@ -1125,8 +1074,6 @@ class QuestionContext:
             route = _has(_norm(text), _ROUTE)
             options = _has(_norm(text), _OPTIONS)
             if role:
-                # «Что делает нода работа с гпт», «зачем нужна нода персонажи»: назначение по типу,
-                # иначе чат отвечал «в данных не описано».
                 by_key = {str(row["key"]): row for row in rows}
                 roles = [
                     f"«{by_key[k].get('label') or by_key[k].get('type_ru')}» ({k}): {NODE_ROLE_RU[by_key[k]['type']]}"
@@ -1211,7 +1158,6 @@ class QuestionContext:
             return None
         items = [item for item in items or [] if isinstance(item, dict)]
         known = {int(item["id"]) for item in items if str(item.get("id", "")).isdigit()}
-        # «А со 2?»: номер в конце важнее названий «2 факта о котах», «2 факта о совах».
         tail_first = _TAIL_NUMBER_RE.search(_norm(text))
         if tail_first and int(tail_first.group(1)) in known:
             return int(tail_first.group(1))
@@ -1243,12 +1189,10 @@ class QuestionContext:
         if project_id is None:
             project_id = await self._named_project(text)
         elif _OTHER_NUMBER_RE.search(norm) or _BEFORE_NUMBER_RE.search(norm):
-            # Открыт #14, а спрашивают «что с проектом 6?» / «что с 6 проектом»: читаем названный.
             named = await self._named_project(text)
             project_id = named if named is not None else project_id
         facts = await self.gather(text, project_id, app, session_id)
         if project_id is not None and _FACT_CHECK_RE.search(norm):
-            # «Проверь факты в тексте»: сам сценарий проекта, иначе модель просила «пришлите текст».
             try:
                 script = await self._script(int(project_id))
             except Exception as exc:
@@ -1257,7 +1201,6 @@ class QuestionContext:
             if script:
                 facts = [Fact("project.script", FACT_CHECK_TITLE, script), *facts]
         if project_id is not None and _has(norm, _VOICE_Q):
-            # «Какой голос в озвучке»: чат отвечал «в фактах не указано, назовите проект».
             try:
                 facts = [Fact("audio.voice", "Голос озвучки", await self._voice(int(project_id))), *facts]
             except Exception as exc:
@@ -1277,7 +1220,6 @@ class QuestionContext:
 
         gap = known_gap_text(text)
         if gap:
-            # «Какой сид», «субтитры побольше»: прямо сказать, что такой настройки нет и что вместо.
             facts = [Fact("studio.gap", "Чего в студии нет", gap), *facts]
         if _has(norm, ("подешевле", "сэконом", "бюджетнее", "экономнее", "потратить меньше")):
             facts = [Fact("advice.cheaper", "Как сделать дешевле", CHEAPER_TEXT), *facts]
@@ -1291,7 +1233,6 @@ class QuestionContext:
 
 
 def _missing_projects(text: str, known: set[int]) -> str | None:
-    """«Что с 46 проектом», а проектов 33: прямой ответ «такого нет» вместо «данных нет»."""
     if not known:
         return None
     norm = _norm(text)
@@ -1327,9 +1268,7 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
     lines = list(ANSWER_RULES)
     if not facts:
         if project_id is not None:
-            # Без фактов модель не знала, что открыт проект, и просила «назовите номер проекта».
             lines.append(f"Человек сейчас в проекте #{project_id}: номер проекта не спрашивай.")
-        # «Какая сегодня дата», «который час»: без фактов модель отвечала «дата не указана».
         lines.append(f"[Сейчас] {_now_utc()} UTC; в Москве на 3 часа больше.")
         return "\n".join(lines)
     done = next((fact for fact in facts if fact.action == "chat.changes" and fact.ok), None)
@@ -1342,11 +1281,8 @@ def system_prompt(facts: list[Fact], project_id: int | None) -> str:
     if any(fact.action == "diag.content_checks" and fact.ok for fact in facts):
         lines.append(CONTENT_RULE)
     if project_id is not None:
-        # «Номер проекта в фактах не указан»: модель не видела, что чат открыт в проекте.
         lines.append(f"Человек сейчас в проекте #{project_id}: номер проекта не спрашивай и не пиши, что он не указан.")
     lines.append("Факты:" if project_id is None else f"Факты о проекте #{project_id}:")
-    # «Ошибки за последний час», «стоит уже час»: без текущего времени модель отвечала
-    # «определить нельзя: текущее время в фактах не указано».
     lines.append(f"[Сейчас] {_now_utc()} UTC — по нему считай «за последний час», «сегодня», «давно».")
     used = 0
     for fact in facts:

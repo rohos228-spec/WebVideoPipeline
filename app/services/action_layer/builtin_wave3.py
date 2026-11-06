@@ -337,7 +337,6 @@ async def _set_auto_mode(ctx, params):
     got = bool((data or {}).get("auto_mode"))
     if got != want:
         raise ActionCallError(409, f"автопродвижение не переключилось (сейчас {got})")
-    # «Выключи автозапуск»: итог был «Готово: Автопродвижение проекта: включить или выключить».
     text = (
         f"Автозапуск проекта #{pid} включён: студия сама пойдёт по шагам, платные шаги тратят деньги."
         if got
@@ -372,18 +371,10 @@ async def _listed_status(ctx, project_id: int) -> str | None:
     return None
 
 
-# Медиа-шаги: цена зависит от числа кадров и тарифа — оценки нет. Текстовые шаги ограничены
-# лимитом текстов проекта, он и есть верхняя граница.
 _MEDIA_NODE_TYPES = frozenset({"images", "videos", "audio", "music", "assemble", "publish", "sfx_gen"})
 
 
 def _resume_cost(p: dict) -> CostEstimate:
-    """«Сними паузу»: раньше всегда «стоимость неизвестна» — и подтвердить было нельзя.
-
-    ``_resume`` заполняет план из проекта: откуда снимается пауза, включено ли автопродвижение,
-    лимит текстов. Возврат в готовность без автопродвижения — бесплатно; текстовый шаг — не
-    дороже лимита текстов; медиа-шаг — по-прежнему неизвестно.
-    """
     from app.models import ProjectStatus
     from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE, READY_TO_NODE_TYPE, RUNNING_TO_NODE_TYPE
     from app.services.action_layer.builtin_insight import _step_ru

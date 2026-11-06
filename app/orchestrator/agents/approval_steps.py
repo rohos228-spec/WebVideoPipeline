@@ -148,7 +148,6 @@ def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, n
         shown[name] = f"«{node_key_ru(key, labels)}»"
     ops_text = _ops_text(shown.pop("ops", None))
     if {"kind", "a_frame", "b_frame"} <= set(shown) and shown.get("kind") in ("image", "video"):
-        # Обмен слотами: «вид картинки; кадр 1; шот 1; кадр 2» → «картинки кадров 1 и 2 местами».
         what = "картинки" if shown["kind"] == "image" else "видео"
         ops_text = f"{what} кадров {shown['a_frame']} и {shown['b_frame']} местами"
         for key in ("kind", "a_frame", "b_frame", "a_shot", "b_shot"):
@@ -171,7 +170,6 @@ def _params_text(params: dict[str, Any], labels: dict[str, str] | None = None, n
     return "; ".join(parts)
 
 
-# Правки очереди кадра по-человечески: карточка писала только «проект #9», без кадра и сути.
 _OP_RU = {
     "image_regen": "картинка кадра {n} заново",
     "image_regen_prompt": "новый промт картинки кадра {n}",

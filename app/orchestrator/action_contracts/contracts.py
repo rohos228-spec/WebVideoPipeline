@@ -412,7 +412,6 @@ _CHAT_V1_ROWS: tuple[tuple[str, RiskName, bool, bool, bool], ...] = (
     ("report.nodes", "none", True, False, False),
     ("report.projects", "none", True, False, False),
     ("report.gpt_data", "none", True, False, False),
-    # Выгрузка переписки чата одним файлом: чтение, без модели и трат.
     ("chat.export", "none", True, False, False),
     ("node.describe", "none", True, False, False),
     ("node.list_models", "none", True, False, False),

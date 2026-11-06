@@ -73,7 +73,6 @@ function HomePageInner() {
     return () => window.removeEventListener("studio-select-project", onSelectProject);
   }, [setSelectedProjectId]);
 
-  // Кнопка «Оркестратор» с другой страницы ведёт на /?chat=open: открыть окно «ИИ-агент».
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("chat") !== "open") return;

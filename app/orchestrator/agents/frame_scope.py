@@ -1,11 +1,3 @@
-"""Промт одного кадра из чата: «покажи промт второго кадра», «поменяй промт кадра 3 на сову в снегу».
-
-Планировщик на «покажи промт» звал отчёт работы с GPT (там промтов нет), а на «поменяй промт
-кадра 3 на …» отвечал «промт пока не изменился» и советовал ту же фразу другими словами.
-Здесь план без модели: показать — чтение доски монтажа, сменить — правка в очередь кадра
-(``image_regen_prompt``): новая картинка по новому промту появится после применения очереди.
-"""
-
 from __future__ import annotations
 
 import re
@@ -68,7 +60,6 @@ def _one_number(raw: str) -> int | None:
 
 
 def frame_numbers(text: str) -> list[int]:
-    """Все названные кадры: «кадры 2, 5 и 7», «кадры со 2 по 4», «второй и третий кадр»."""
     span = _FRAME_RANGE.search(text)
     if span:
         low = int(span.group(1) or span.group(3))
@@ -96,10 +87,6 @@ _GPT_DATA = re.compile(r"сцен|персонаж|геро[йеия]|гпт|gpt
 
 
 def board_not_report(plan: list[PlanStep], goal: str) -> list[PlanStep]:
-    """«Сколько длится каждый кадр», «сколько кадров и можно ли больше»: доска, а не отчёт GPT.
-
-    Планировщик звал ``report.gpt_data`` и чат отвечал ссылкой на xlsx «сцен 0, персонажей 0».
-    """
     text = _norm(goal)
     if not plan or _REPORT_WORDS.search(text) or _GPT_DATA.search(text) or "кадр" not in text:
         return plan
@@ -165,7 +152,6 @@ def frame_prompt_plan(goal: str, project_id: int | None) -> list[PlanStep] | Non
     return None
 
 
-# «Перезапусти видео кадра 2», «перегенери видео 3 кадра», «видео кадра 5 кривое, переделай».
 _VIDEO_REDO = re.compile(
     r"(?<![а-я])(?:перезапуст\w*|перегенер\w*|переделай|переделать|сгенер\w*\s+заново|сделай\s+заново|"
     r"запусти\s+заново|запусти\s+снова|перерисуй|переанимир\w*|кривое|кривой)(?![а-я])"
@@ -174,7 +160,6 @@ _VIDEO_WORD = re.compile(r"(?<![а-я])(?:видео|видос\w*|анимац�
 
 
 def video_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
-    """Видео одного кадра заново — правка ``video_regen`` в очередь кадра (планировщик: «не умеет»)."""
     text = _norm(goal)
     if not _VIDEO_WORD.search(text) or not _VIDEO_REDO.search(text) or _PROMPT.search(text):
         return None
@@ -203,7 +188,6 @@ _IMAGE_REDO = re.compile(
     r"(?<![а-я])(?:переделай|переделать|перегенер\w*|перерисуй|сгенер\w*\s+заново|сделай\s+заново|"
     r"нарисуй\s+заново|кривой|кривая|кривое|некрасив\w*|плох\w*)(?![а-я])"
 )
-# Что именно поменять («сделай сову белой», «убери кровь») — это правка промта, её ведёт планировщик.
 _IMAGE_WISH = re.compile(r"(?<![а-я])(?:сделай\s+(?!заново)\w+|убери|добавь|замени|поменяй|чтобы|на\s+[а-я]+)(?![а-я])")
 
 
@@ -218,11 +202,6 @@ _FRAME_PHRASE = re.compile(
 
 
 def frame_fix_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
-    """«В кадре 2 сделай сову белой», «на 3 кадре убери кровь»: исправление картинки одного кадра.
-
-    Правка в очередь кадра (``image_regen_correction``) с текстом просьбы; планировщик то ставил
-    её, то отвечал готовой командой вместо карточки.
-    """
     text = _norm(goal)
     if _VIDEO_WORD.search(text) or _PROMPT.search(text) or "?" in text:
         return None
@@ -266,7 +245,6 @@ def frame_fix_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
 
 
 def image_frame_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
-    """«Кадр 4 переделай», «кит на 2 кадре кривой, перегенери»: картинка кадра заново (``image_regen``)."""
     text = _norm(goal)
     if _VIDEO_WORD.search(text) or _PROMPT.search(text) or not _IMAGE_REDO.search(text):
         return frame_fix_plan(goal, project_id)
@@ -310,10 +288,6 @@ _SWAP = re.compile(
 
 
 def swap_frames_plan(goal: str, project_id: int | None) -> list[PlanStep] | None:
-    """«Поменяй местами кадры 1 и 2»: обмен картинками (и видео, если просят) — ``montage.swap_slots``.
-
-    Планировщик то ставил обмен картинками, то переспрашивал «картинки или видео?».
-    """
     text = _norm(goal)
     found = _SWAP.search(text)
     if not found:
@@ -352,7 +326,6 @@ def swap_frames_plan(goal: str, project_id: int | None) -> list[PlanStep] | None
     return steps
 
 
-# «Примени очередь», «примени правки монтажа», «запусти очередь правок»: применение очереди доски.
 _APPLY_QUEUE = re.compile(
     r"^(?:давай\s+|ну\s+)?(?:примени|применить|запусти|выполни|прогони|накати)\s+(?:всю\s+|все\s+)?"
     r"(?:очередь(?:\s+правок)?(?:\s+монтажа)?|правки\s+(?:очереди|монтажа|доски)|очередь\s+доски)"
@@ -385,7 +358,7 @@ async def apply_queue_plan(goal: str, project_id: int | None) -> list[PlanStep] 
     ops = pending_board_ops(meta)
     img, vid = _counts(ops)
     if img + vid == 0:
-        return None  # очереди нет: пусть ответит планировщик честно
+        return None
     frames = sorted({int(o["frame_number"]) for o in ops if o.get("frame_number")})
     return [
         PlanStep(

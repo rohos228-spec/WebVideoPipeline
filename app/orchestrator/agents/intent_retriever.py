@@ -1,29 +1,3 @@
-"""Стадия намерения: понять свободную фразу и выбрать подходящие действия из ВСЕГО каталога.
-
-Зачем. Каталог для планировщика собирал лексический предфильтр (``planner_catalog.select_catalog``:
-стемы, словарь синонимов, ~24 действия). Новая формулировка, разговорный оборот или другой
-порядок слов промахивались мимо нужного действия — и планировщик честно отвечал «уточните»
-или «не умею», хотя действие есть. Здесь быстрая модель видит компактный список всех
-доступных чату действий (id и название) и возвращает строгий JSON:
-
-    {"intent_summary_ru": "перерисовать картинку кадра 2",
-     "candidate_action_ids": ["montage.queue_ops", "montage.get_board"],
-     "extracted_entities": {"frame_numbers": [2], "project_ids": [], "values": {}},
-     "confidence": 0.9,
-     "needs_clarification": null}
-
-Контракт со следующей стадией (синтез плана, ``planner.LLMPlanner``):
-- ``candidate_action_ids`` добавляются к лексической выборке (она остаётся мягким усилением,
-  а не жёстким фильтром) — см. ``action_catalog.boost_task``;
-- смысл и данные просьбы уходят планировщику в контекст (:func:`context_note`);
-- ``needs_clarification`` модели намерения человеку сразу не показывается: решает планировщик,
-  а при пустом плане — ремонт с расширенным каталогом (``supervisor``).
-
-Безопасность не меняется: id вне каталога отбрасываются здесь же, план после планировщика
-проходит те же проверки (каталог, схема, критик, карточка подтверждения, бюджет, kill-switch).
-Выключатель: ``ORCH_INTENT_RETRIEVER=0`` — прежний путь без этой стадии.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -43,11 +17,9 @@ _TITLE_CHARS = 70
 
 
 def enabled() -> bool:
-    """Флаг стадии: ``ORCH_INTENT_RETRIEVER`` (по умолчанию включена)."""
     return os.environ.get("ORCH_INTENT_RETRIEVER", "1") != "0"
 
 
-# Счётчики для логов: доля уточнений, ремонтов и успехов (сбрасываются с процессом).
 METRICS: Counter[str] = Counter()
 
 
@@ -68,7 +40,6 @@ def count(name: str) -> None:
 
 @dataclass
 class Intent:
-    """Результат стадии намерения (поля — как в JSON модели, уже проверенные)."""
 
     summary: str = ""
     candidates: list[str] = field(default_factory=list)
@@ -110,7 +81,6 @@ _SYSTEM = """Ты — стадия понимания просьб в чате �
 
 
 def catalog_lines(specs: list[Any]) -> str:
-    """Компактный каталог для стадии намерения: «id — название [платно]»."""
     rows = []
     for spec in sorted(specs, key=lambda s: s.id):
         title = " ".join(str(getattr(spec, "title_ru", "") or "").split())[:_TITLE_CHARS]
@@ -189,7 +159,6 @@ async def retrieve_intent(
     project_id: int | None = None,
     dialog: str = "",
 ) -> Intent | None:
-    """Стадия намерения для ``goal``; ``None`` — стадия выключена, сбой или долго (идём без неё)."""
     if not enabled() or router is None or not str(goal or "").strip() or not specs:
         return None
     from app.orchestrator.agents.llm_call import router_call
@@ -222,7 +191,7 @@ async def retrieve_intent(
             ),
             TIMEOUT_S,
         )
-    except Exception as exc:  # noqa: BLE001 — без стадии намерения план строится как раньше
+    except Exception as exc:
         logger.info("orch intent skipped: {} after {:.1f}s", type(exc).__name__, time.monotonic() - started)
         count("intent_failed")
         return None
@@ -238,7 +207,6 @@ async def retrieve_intent(
 
 
 def context_note(intent: Intent) -> str:
-    """Строка контекста для планировщика: смысл просьбы и данные из неё."""
     parts = []
     if intent.summary:
         parts.append(f"Смысл просьбы (стадия понимания): {intent.summary}.")
@@ -259,5 +227,4 @@ _ASK_WORDS = re.compile(r"уточн|какой|какую|какие|в как�
 
 
 def is_clarify(reason: str) -> bool:
-    """Пустой план с вопросом — тупик, который чинит ремонт."""
     return bool(_ASK_WORDS.search(str(reason or "").lower()))

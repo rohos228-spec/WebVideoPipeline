@@ -1054,7 +1054,6 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
     label = _PARAM_LABELS.get(key, key)
     if isinstance(value, bool):
         if key in _TOGGLE_KEYS:
-            # «Выключи субтитры»: карточка была пустой — «проект #4» без сути правки.
             return f"{label}: {'включить' if value else 'выключить'}"
         return label if value else ""
     if isinstance(value, dict):
@@ -1139,7 +1138,6 @@ def param_parts_ru(params: dict | None, facts: dict | None = None) -> list[str]:
         txt = _param_text(key, value, facts)
         target = (params or {}).get("target_node_type")
         if key == "mode" and value == "until_node" and isinstance(target, str) and target:
-            # «режим до ноды» не говорил, до какой: карточка «запусти 5 6 7 до картинок».
             from app.services.node_edit import TYPE_RU
 
             txt = f"до ноды «{TYPE_RU.get(target, target)}»"

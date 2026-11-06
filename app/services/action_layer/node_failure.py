@@ -336,12 +336,6 @@ def metrics_line(data_dir: Path | str, node_key: str) -> dict[str, Any] | None:
 
 
 def llm_evidence(rows: list[dict], nr: dict | None) -> dict[str, Any] | None:
-    """Вызовы модели последнего запуска ноды по журналу llm_calls (без файлов на диске).
-
-    ``rows`` — вызовы этой ноды, старые → новые: created_at, duration_ms, prompt_tokens,
-    completion_tokens, result, error_kind, model. Окно запуска — started_at/finished_at ноды;
-    без него берём последнюю пачку вызовов (разрыв больше 10 минут — другой запуск).
-    """
     if not rows:
         return None
     start = _ts_of((nr or {}).get("started_at")) if nr else 0.0
@@ -396,7 +390,6 @@ def llm_evidence_text(ev: dict[str, Any] | None) -> str:
 
 
 async def _llm_rows(pid: int, keys: list[str]) -> list[dict]:
-    """Вызовы модели проекта по ключу ноды или её типу (в журнале бывает и то, и другое)."""
     try:
         from sqlalchemy import select
 
@@ -410,7 +403,7 @@ async def _llm_rows(pid: int, keys: list[str]) -> list[dict]:
                 .limit(60)
             )
             rows = list(res.scalars().all())
-    except Exception:  # noqa: BLE001 — журнал вызовов не должен ронять разбор
+    except Exception:
         return []
     return [
         {
@@ -726,7 +719,6 @@ _QUICK_RUN_S = 15
 
 
 def run_seconds(nr: dict | None) -> float | None:
-    """Длительность запуска ноды по started_at / finished_at; None, если не видно."""
     if not nr:
         return None
     start, end = _ts_of(nr.get("started_at")), _ts_of(nr.get("finished_at"))
@@ -744,7 +736,6 @@ def format_seconds(value: float) -> str:
 
 
 def node_for_step(meta: dict, node_runs: list[dict], step: str) -> str | None:
-    """Нода холста по коду шага («img_pr»): последняя запущенная из таких, иначе первая."""
     keys = [
         str(n["id"])
         for n in bi._canvas_nodes(meta)
@@ -875,7 +866,6 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     if key is None:
         key, how = pick_node(meta, runs, data_dir)
     if key is None and runs:
-        # Упавших нет, а спрашивают «что случилось»: разбираем последний запуск.
         last = max((r for r in runs if r.get("node_key")), key=_when, default=None)
         if last is not None and _when(last) > 0:
             key, how = str(last["node_key"]), "последний запуск, упавших нод нет"
@@ -950,7 +940,6 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     if how != "названа в просьбе":
         lines.append(f"Нода выбрана сама: {how}.")
     if nr and int(nr.get("attempts") or 0) > 1:
-        # Счётчик повторов: у готовой ноды он 0, и чат отвечал «запусков не было».
         lines.append(f"Повторов запуска: {int(nr.get('attempts') or 0)}.")
     took = run_seconds(nr)
     ended = str((nr or {}).get("finished_at") or "")[:16].replace("T", " ")

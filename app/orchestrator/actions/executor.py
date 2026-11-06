@@ -903,7 +903,6 @@ _BASIS_FIELDS = {
 
 
 def pending_board_ops(meta: Any) -> list[dict]:
-    """Очередь правок доски монтажа: ``meta["montage_board"]["pending_ops"]`` (старые проекты — ``meta["pending_ops"]``)."""
     if not isinstance(meta, dict):
         return []
     board = meta.get("montage_board") if isinstance(meta.get("montage_board"), dict) else {}
@@ -912,11 +911,6 @@ def pending_board_ops(meta: Any) -> list[dict]:
 
 
 def _queued_counts(params: dict, meta: Any) -> dict:
-    """Заявленные max_*_ops не ниже того, что уже лежит в очереди выбранных кадров.
-
-    В очереди осталась правка видео с прошлой просьбы, план заявил «видео 0», и применение
-    отказало («в очереди видео 1, заявлено 0»). Человек на карточке видит настоящий объём.
-    """
     from app.services.action_layer.builtin_montage_more import _counts, _select
 
     ops = pending_board_ops(meta)
@@ -967,7 +961,6 @@ async def _fill_media_basis(name: str, params: dict) -> dict:
 
 
 async def _fill_resume(params: dict) -> dict:
-    """project.resume: откуда снимается пауза, автопродвижение и лимит текстов — для оценки цены."""
     pid = params.get("project_id")
     if not isinstance(pid, int) or isinstance(pid, bool):
         return params
@@ -982,7 +975,7 @@ async def _fill_resume(params: dict) -> dict:
         came_from = meta.get("paused_from_status") or fs.get("last_running") or project.status.value
         try:
             budget = float(budget_from_meta(meta) or 0)
-        except Exception:  # noqa: BLE001 — без лимита оценка просто «неизвестно»
+        except Exception:
             budget = 0.0
         auto = bool(project.auto_mode)
         await session.rollback()

@@ -442,12 +442,8 @@ def character_findings(frames: list[dict], registry: dict[str, str]) -> list[dic
     return findings[:_MAX_FINDINGS]
 
 
-# ---------- стиль в промтах картинок ----------
-
-# Семейства стиля: слова, по которым видно стиль в тексте промта (англ. и рус.).
 STYLE_FAMILIES: dict[str, tuple[str, ...]] = {
     "пластилин": ("plasticine", "claymation", "clay ", "clay-", "plastilin", "пластилин"),
-    # Не «felt»: по-английски это ещё и «почувствовал».
     "вязаный": ("knitted", "textile", "felted", "вязан", "войлок"),
     "нуар": ("noir", "archival", "watercolor grunge", "trash polka", "нуар"),
 }
@@ -459,7 +455,6 @@ def style_families(text: str) -> set[str]:
 
 
 def expected_style(project: Any) -> str | None:
-    """Стиль проекта по настройкам: meta-ключ стиля, вариант промта картинок, мастер-промт."""
     try:
         from app.services.img_pr_style import _local_variant_name, resolve_project_img_style
 
@@ -467,14 +462,13 @@ def expected_style(project: Any) -> str | None:
         blob = " ".join(
             x for x in (resolve_project_img_style(project) or "", _local_variant_name(project, meta)) if x
         )
-    except Exception:  # noqa: BLE001 — проверка стиля не должна ронять проверку шага
+    except Exception:
         return None
     found = style_families(blob)
     return next(iter(found)) if len(found) == 1 else None
 
 
 def style_state(rows: list[dict], expected: str | None) -> dict[str, Any] | None:
-    """Какой стиль ждём и в скольких промтах он есть: для ответа «стиль на месте»."""
     prompts = [r for r in rows if str(r.get("prompt") or "").strip()]
     if not prompts:
         return None
@@ -498,12 +492,6 @@ def style_state(rows: list[dict], expected: str | None) -> dict[str, Any] | None
 
 
 def style_findings(rows: list[dict], expected: str | None) -> list[dict]:
-    """Кадры, в промте которых нет стиля проекта.
-
-    ``rows`` — ``[{"number", "uuid", "prompt"}]`` только кадров со своим промтом. Стиль —
-    из настроек проекта, иначе стиль большинства промтов. Если стиля не видно нигде —
-    молчим: по одним данным нельзя сказать, какой он должен быть.
-    """
     prompts = [r for r in rows if str(r.get("prompt") or "").strip()]
     if not prompts:
         return []
@@ -622,7 +610,6 @@ async def run_checks(session: Any, project: Any, step: str, *, with_vo: bool = T
     if step == "split" and frames:
         parents = [fr for fr in frames if (fr.voiceover_text or "").strip()]
         findings += count_findings(len(parents), requested_frame_count(project))
-        # «Почему разбивка дала 28 кадров»: сколько из них с закадром, а сколько доп. шотов.
         counts = {"frames": len(frames), "with_vo": len(parents), "requested": requested_frame_count(project)}
         if meta.get("split_degraded_no_llm"):
             findings.append(
@@ -663,7 +650,6 @@ async def run_checks(session: Any, project: Any, step: str, *, with_vo: bool = T
         report["style"] = style_state(own, want)
         sizes = sorted(len(str(r["prompt"]).strip()) for r in own if str(r.get("prompt") or "").strip())
         if sizes:
-            # «Почему промты такие короткие»: длины видны, без них чат отвечал «данных нет».
             report["prompt_sizes"] = {
                 "min": sizes[0],
                 "median": sizes[len(sizes) // 2],
@@ -794,7 +780,6 @@ def fix_options(report: dict[str, Any], project_id: int) -> list[dict[str, Any]]
                 )
                 rerun = True
         elif check == "prompt_style":
-            # Повтор с тем же вариантом даст тот же промт без стиля: сначала вариант, потом пересборка.
             out.append(
                 {
                     "action": None,

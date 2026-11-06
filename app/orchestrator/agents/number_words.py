@@ -1,9 +1,3 @@
-"""«Кадры три и четыре», «перерисуй кадр номер десять», «создай два ролика» → цифры для правил кодом.
-
-Правила (``frame_scope``, ``style_scope``, ``launch_scope``) ищут номера цифрами; числа словами
-проходили мимо и попадали не в то правило («три и четыре поменяй местами» → правка всех картинок).
-"""
-
 from __future__ import annotations
 
 import re
@@ -18,5 +12,4 @@ _WORD_RE = re.compile(r"(?<![а-яё])(" + "|".join(sorted(_CARDINALS, key=len, 
 
 
 def words_to_digits(text: str) -> str:
-    """Числительные «один»…«двадцать» отдельными словами → цифры; остальное без изменений."""
     return _WORD_RE.sub(lambda m: str(_CARDINALS[m.group(1).lower()]), str(text or ""))

@@ -859,7 +859,6 @@ def failed_edit_text(goal: str) -> str:
 
 
 def _failed_just_before(task_id: Any) -> str:
-    """Просьба прямо перед этой, если её правка упала: откат иначе вернул бы другую, старую правку."""
     if task_id is None:
         return ""
     from sqlalchemy import text as sql

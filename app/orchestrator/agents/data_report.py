@@ -123,10 +123,8 @@ _FRAME_ORD = re.compile(r"(перв|втор|трет|четверт|пят|ше
 
 
 def frame_numbers(low: str) -> list[int]:
-    """Номера кадров из просьбы: «кадр 3», «3 кадра», «третьего кадра»."""
     out = [int(a or b) for a, b in _FRAME_NUM.findall(low)]
     out += [_FRAME_ORDINALS[m] for m in _FRAME_ORD.findall(low)]
-    # «первых трёх кадров» — диапазон, а не кадр 3.
     if re.search(r"(?:перв\w*|последн\w*)\s+(?:\d+|дв|тр|четыр|пят)\w*\s+кадр", low):
         return []
     return sorted(set(n for n in out if n > 0))[:10]

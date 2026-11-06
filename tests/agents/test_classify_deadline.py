@@ -1,5 +1,3 @@
-"""Медленный классификатор не держит чат: по сроку чат сам решает по фразе."""
-
 from __future__ import annotations
 
 import asyncio
@@ -8,9 +6,9 @@ import pytest
 
 pytest.importorskip("app.orchestrator.actions")
 
-from app.orchestrator import queue as orch_queue  # noqa: E402
-from app.orchestrator.agents.runtime import build_runtime, set_runtime  # noqa: E402
-from tests.agents.mocks import FixedPlanner, MockActions, MockValidators, ScriptedRouter  # noqa: E402
+from app.orchestrator import queue as orch_queue
+from app.orchestrator.agents.runtime import build_runtime, set_runtime
+from tests.agents.mocks import FixedPlanner, MockActions, MockValidators, ScriptedRouter
 
 
 class _SlowRouter(ScriptedRouter):

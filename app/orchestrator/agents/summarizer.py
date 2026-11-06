@@ -20,7 +20,6 @@ APPROVAL_EXPIRED_TEXT = "Подтверждение не дали вовремя
 APPROVAL_STALE = "approval_stale"
 APPROVAL_STALE_TEXT = "Сервер перезапускался, карточка устарела — повторите просьбу. Ничего не изменено."
 NOT_UNDERSTOOD = "Не понял, что сделать."
-# Причина пустого плана, которая объясняет состояние проекта, а не непонимание просьбы.
 _EXPLAINS_RE = re.compile(
     r"(?<![а-я])(?:нет\s+(?:кадр|картин|видео|озвуч|сценари|проект|ролик|файл|готов)|невозможен|невозможно|"
     r"сначала\s+нужно|сначала\s+надо|уже\s+(?:стоит|запущен|ид[её]т|готов|включ|выключ|такой|такая)|"
@@ -139,7 +138,6 @@ def delete_refusal_text(goal: str) -> str:
     return DELETE_REFUSED if _DELETE_VERB.search(text) and _BOARD_THING.search(text) else ""
 
 
-# Просьбы, которых студия не умеет вовсе: прямой ответ и что можно вместо, а не «уточните кадры».
 _KNOWN_GAPS = (
     (re.compile(r"переход\w*|склейк\w*\s+плавн|плавн\w*\s+склейк"),
      "Переходов между кадрами в монтаже нет: кадры склеиваются встык. Можно сменить музыку или хвост "
@@ -193,7 +191,6 @@ def missing_action_text(reason: str, goal: str = "") -> str:
     if _NO_FRAME_DELETE.search(reason or ""):
         return FRAME_DELETE_HINT
     if _DELETE_PROJECT.search(goal or ""):
-        # «Удали проект»: планировщик писал «удаление недоступно действий» — подсказка, где удалить.
         return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
     if not _MISSING_ACTION.search(reason or ""):
         return ""
@@ -503,7 +500,6 @@ class TaskFacts:
     steps: list[StepNote] = field(default_factory=list)
     # Пустой план с готовым ответом кода («возвращать нечего»): просьбу поняли, «не понял» не пишем.
     answered: bool = False
-    # «Не поставлен в очередь: #12 — …»: проекты, убранные кодом до карточки, — и в итоге тоже.
     note: str = ""
 
 
@@ -515,7 +511,6 @@ def explain_failure(exc: BaseException) -> str:
     text = str(exc).strip()
     if name == "RouterExhausted":
         if re.search(r"[一-鿿]", text):
-            # Ошибка шлюза по-китайски («ключ не пускает модель») человеку не показываем.
             text = "провайдер не пустил модель по ключу"
         return "Модель сейчас не отвечает: все провайдеры недоступны" + (f" ({text[:200]})." if text else ".")
     if name in {"FixtureMiss", "RouterError"}:
@@ -530,10 +525,6 @@ _RAW_MESSAGE = re.compile(r"['\"]message['\"]\s*:\s*['\"]([^'\"]+)['\"]")
 
 
 def human_error(error: str | None) -> str:
-    """«ActionCallError: HTTP 404: {'code': ..., 'message': 'Ноды нет'}» → «Ноды нет».
-
-    Сырой текст исключения попадал в чат как есть («готово, но данных шаги не вернули…»).
-    """
     text = str(error or "").strip()
     if not text:
         return ""
@@ -746,8 +737,6 @@ def _board_text(body: dict[str, Any]) -> str:
     stale = body.get("stale_videos") or []
     if stale:
         lines.append(f"Устаревших видео {len(stale)}: их нужно пересобрать.")
-    # «Покажи промт второго кадра»: промты названных кадров целиком — сразу после числа кадров,
-    # чтобы не срезались лимитом факта.
     prompt_lines: list[str] = []
     for row in body.get("prompts") or []:
         if not isinstance(row, dict):
@@ -1308,8 +1297,6 @@ def deterministic_text(facts: TaskFacts) -> str:
         reason = reason.strip()
         reason = reason if reason and not raw_reason(reason) else ""
         if (facts.answered or _EXPLAINS_RE.search(reason)) and reason:
-            # «В проекте нет кадров, сначала разбивка»: просьбу поняли, мешает состояние проекта —
-            # без «Не понял, что сделать» и без общей подсказки.
             return "\n".join(line for line in (reason, (head + note).strip()) if line)
         # Причина с готовым примером уже говорит, что написать: вторая подсказка лишняя.
         hint = "" if "например" in reason else NOT_UNDERSTOOD_HINT
@@ -1561,16 +1548,10 @@ def _ask_words(text: str) -> tuple[set[str], set[str]]:
 
 
 def same_ask(quoted: str, goal: str) -> bool:
-    """«Покажи ошибки в журнале проекта 4» и «покажи ошибки в логах по проекту 4» — одна просьба.
-
-    Номера должны совпасть (совет про другой проект — не повтор); если в просьбе номера нет,
-    цитата может его добавить. Слова сравниваются по основам.
-    """
     if _squash(quoted) == _squash(goal):
         return True
     qn, qs = _ask_words(quoted)
     gn, gs = _ask_words(goal)
-    # Без номера в просьбе проект берётся из окна: «…в проекте 4» — та же просьба.
     if (gn and qn != gn) or not qs or not gs:
         return False
     return len(qs & gs) / len(qs | gs) >= 0.6
@@ -1651,7 +1632,6 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
     used = 0
     from app.orchestrator.agents.question_context import _now_utc
 
-    # «Ошибки за последний час», «стоит уже час»: без часов итог писал «время в фактах не указано».
     pids = {n.project_id for n in facts.steps if isinstance(n.project_id, int) and n.project_id > 0}
     pid = next(iter(pids)) if len(pids) == 1 else None
     if pid is not None:
@@ -1660,9 +1640,6 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
         "Факты, прочитанные шагами задачи:",
         f"[Сейчас] {_now_utc()} UTC — по нему считай «за последний час», «сегодня», «давно».",
     ]
-    # «Найди, где теряется стиль»: план из десяти чтений, проверка стиля шла десятой и в ответ
-    # не попадала (брались первые 8 шагов, большой отчёт съедал весь объём). Разборы и
-    # проверки — первыми, длинный факт обрезается, а не выбрасывает всё после себя.
     ordered = sorted(facts.steps, key=lambda n: _FACT_PRIORITY.get(n.action, 2))
     for note in ordered[:_STEP_LIMIT]:
         body = (
@@ -1764,8 +1741,6 @@ class TaskSummarizer:
 
 
 def summary_effort(default: str | None) -> str | None:
-    """Итог пересказывает прочитанные факты: глубокое размышление не нужно (замер 06.11: high 11–16 с,
-    low около 5 с на тот же ответ). План и критик остаются на полной силе. ``ORCH_SUMMARY_EFFORT``."""
     import os
 
     value = os.environ.get("ORCH_SUMMARY_EFFORT", "low").strip().lower()

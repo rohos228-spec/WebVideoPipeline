@@ -259,9 +259,7 @@ async def sync_run_snapshot_from_canvas_graph(
     return True
 
 
-
 def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | None) -> dict[str, Any]:
-    """Мета проекта с холстом: свой холст проекта, иначе схема, по которой он идёт."""
     out = dict(meta) if isinstance(meta, dict) else {}
     if graph and graph.get("nodes") and not canvas_graph_from_meta(out):
         out["canvas_graph"] = build_canvas_graph_payload(
@@ -273,14 +271,12 @@ def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | No
 
 
 async def effective_project_meta(session: AsyncSession, project: Project) -> tuple[dict[str, Any], str | None]:
-    """Старый проект без своего холста видит ноды схемы прогона, как на канвасе студии."""
     graph = await resolve_effective_graph(session, project)
     meta = project.meta if isinstance(project.meta, dict) else {}
     return with_effective_graph(meta, graph), (graph or {}).get("source")
 
 
 async def materialize_project_graph(session: AsyncSession, project: Project) -> bool:
-    """Первая правка ноды: проект получает свою копию схемы, общая не меняется."""
     meta = project.meta if isinstance(project.meta, dict) else {}
     if canvas_graph_from_meta(meta):
         return False

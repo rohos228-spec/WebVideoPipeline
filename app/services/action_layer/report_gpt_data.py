@@ -667,8 +667,6 @@ async def report_gpt_data(ctx: ActionContext, params: dict) -> dict:
     gpt_keys = [str(n["id"]) for n in bi._canvas_nodes(meta) if rg.is_gpt_node(n)]
     want = resolve_node(str(params.get("node_key") or "").strip(), gpt_keys)
     if want and want not in gpt_keys and want in {str(n["id"]) for n in bi._canvas_nodes(meta)}:
-        # Названа нода проекта, но не «Работа с GPT» (n_image_prompts): её данные тоже в кадрах —
-        # отдаём кадры всех нод, а не 404 «нет такой ноды», которым кончался ответ.
         want = None
     if want and want not in gpt_keys:
         known = ", ".join(f"«{labels.get(k, k)}» ({k})" for k in gpt_keys) or "нет"
@@ -833,7 +831,6 @@ async def report_gpt_data(ctx: ActionContext, params: dict) -> dict:
         if len(scenes) > fmt.CHAT_SCENES:
             parts.append(f"- и ещё {len(scenes) - fmt.CHAT_SCENES} (в файле).")
     if only and clean_rows and len(clean_rows) <= 3:
-        # Пара кадров — тексты целиком, а не обрезки по 90 знаков в таблице.
         for r in clean_rows:
             parts.append("")
             parts.append(f"Кадр {r.get('frame')}:")

@@ -171,7 +171,6 @@ ALL_PROPOSALS_HEAD = (
 )
 
 
-# «Работа с гпт»: подпись ноды латиницей («GPT»), а люди пишут кириллицей — без этого нода не находилась.
 _TRANSLIT = re.compile(r"(?<![а-я])(?:чат)?[гж]пт(?![а-я])")
 
 
@@ -425,7 +424,6 @@ def model_options_text(meta: Any, key: str) -> str:
             best = ", самая дешёвая" if option["id"] in cheapest else ""
             lines.append(f"- {option['id']} ({option['label']}): текущая{best}, {option['price_ru']}")
             continue
-        # Та же цена, что у текущей, — не экономия: «поставь подешевле» меняло модель без выгоды.
         mark = _COST_RU.get(cost, cost) + (", самая дешёвая" if option["id"] in cheapest and cost == "cheaper" else "")
         action = _SET_ACTION.get(cost, "node.set_model_costly")
         if previous is not None and ne.canonical_model_id(option["id"]) == previous:
@@ -697,7 +695,6 @@ async def load_frames(project_id: int) -> Any:
 
 
 _MAX_PROJECTS = 30
-# Поиск проекта по номеру и названию: все проекты, не 30 последних («а со 2?» отвечало «сведений нет»).
 _LOOKUP_PROJECTS = 1000
 PROJECTS_HEAD = (
     "Проекты фабрики (project_id: название, статус). project_id бери только отсюда; "
@@ -789,8 +786,6 @@ def projects_text(items: list[dict[str, Any]], text: str) -> str:
         return ""
     lines = [PROJECTS_HEAD]
     shown = list(items[:_MAX_PROJECTS])
-    # «Запусти проекты 2, 3, 5»: старые проекты вне 30 последних — тоже в список, иначе
-    # планировщик отвечал «проектов 2 и 3 нет».
     seen = {item["id"] for item in shown}
     asked = set(numbered_projects(items, text))
     shown.extend(item for item in items[_MAX_PROJECTS:] if item["id"] in asked and item["id"] not in seen)

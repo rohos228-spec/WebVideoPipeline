@@ -128,7 +128,6 @@ async def _get_board(ctx: ActionContext, params: dict) -> dict:
     meta = board.get("meta") or {}
     return {
         "frame_count": board.get("frame_count", len(frames)),
-        # «Какой формат видео, вертикальный?»: формат кадра проекта.
         "frame_aspect": board.get("frame_aspect"),
         "frames": [
             {
@@ -140,13 +139,11 @@ async def _get_board(ctx: ActionContext, params: dict) -> dict:
                 # «Картинка для кадра 1 появилась?»: без этого чат отвечал «данных нет».
                 "has_image": bool(f.get("image_shot1_url") or f.get("image_shot2_url")),
                 "has_video": bool(f.get("video_shot1_url") or f.get("video_shot2_url")),
-                # «Сколько длится каждый кадр»: длительность по закадру.
                 "duration_seconds": f.get("duration_seconds"),
             }
             for f in frames[:_MAX_FRAMES_IN_RESULT]
         ],
         "frames_truncated": len(frames) > _MAX_FRAMES_IN_RESULT,
-        # «Покажи промт второго кадра»: промты только названных кадров, иначе ответ «не указан».
         "prompts": [
             {
                 "number": f.get("number"),

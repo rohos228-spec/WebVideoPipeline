@@ -161,7 +161,6 @@ _OVERVIEW_GROUPS = ("running", "attention", "queue")
 
 
 def _human_gap(fact: object) -> object:
-    """Старые инциденты в базе хранят «Не хватает доказательств: body_not_available» — словами."""
     if not isinstance(fact, str) or "Не хватает доказательств: " not in fact:
         return fact
     from app.services.diagnosis import gap_text
@@ -569,8 +568,6 @@ def _model_for(
     mid, channel = read_node_model_fields(node)
     explicit = bool(mid)
     if not explicit and eff in _IMAGE_TYPES and image_generator:
-        # Нода без своей модели идёт на генераторе проекта (как шаг картинок), а не на модели
-        # каталога «по умолчанию»: чат называл три разные модели на один вопрос.
         from app.orchestrator.agents.project_nodes import _project_image_model
 
         return _project_image_model(image_generator)
@@ -825,7 +822,6 @@ def _row_status(row) -> str:
 
 
 async def _prompts_in_frames(pid: int, node_type: str) -> tuple[int, int] | None:
-    """Сколько кадров с промтом у нод промтов картинок / анимации: (с промтом, всего)."""
     from sqlalchemy import func, select
 
     from app.models import Frame
@@ -879,7 +875,6 @@ def _pause_info(status: str, meta: dict) -> dict:
     fs = _step_failure(meta)
     recorded = meta.get("auto_paused_reason")
     wait = meta.get("auto_wait") if isinstance(meta.get("auto_wait"), dict) else None
-    # Метка живёт, пока статус тот же: после ручного ▶ статус меняется и метка устаревает сама.
     human = _human_wait_ru(str(wait.get("reason") or "")) if wait and str(wait.get("status")) == status else None
     stop = bool(meta.get("user_stop") or meta.get("mass_lane_user_stop"))
     await_start = bool(meta.get("auto_await_manual_start"))
@@ -959,8 +954,6 @@ def _pause_lines(pause: dict, fs: dict | None) -> list[str]:
     if pause.get("await_human"):
         lines.append(f"Автопродвижение стоит: {pause['await_human']}. Сам проект не на паузе.")
     if pause.get("await_manual_start") and not pause.get("paused"):
-        # После перезапуска сервера воркер ничего не стартует сам (startup_guard): чат отвечал
-        # «причина задержки в данных не указана», а проект просто ждал ▶.
         lines.append(
             "Автопродвижение ждёт ручного ▶: после перезапуска сервера воркер сам шаги не стартует. "
             "Нажмите ▶ у проекта или скажите «запусти <шаг>» — запуск через чат снимает ожидание."
@@ -1026,7 +1019,6 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
     lines.append(f"Готово шагов: {done} из {len(steps)}.")
     lines += _pause_lines(pause, fs)
     if (pause.get("await_human") or (pause.get("await_manual_start") and not pause["paused"])) and nxt:
-        # «Почини» после «почему стоит»: запустить следующий шаг вручную — это снимает ожидание ▶.
         fix = _manual_run_fix(pid, nxt)
         if fix:
             out["fix_options"] = [fix]
@@ -1040,7 +1032,6 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
         out["generation_active"] or running or failed or pause["user_stop"] or pause["reason"]
     )
     if idle:
-        # «Почему он стоит»: шаг готов, ошибок нет — чат отвечал «в данных не указано».
         if not out["auto_mode"]:
             lines.append(
                 f"Почему стоит: автозапуск шагов выключен, следующий шаг «{nxt['title']}» ждёт ручного "
@@ -1098,8 +1089,6 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
             )
     filled = await _prompts_in_frames(pid, str((node or {}).get("type") or (nr or {}).get("node_type") or ""))
     if filled is not None:
-        # «Где посмотреть, что выдала нода промтов»: файлов у неё нет, результат — поле кадров;
-        # чат отвечал «файлов 0, посмотреть не получится».
         card["frames_with_prompt"] = filled
         files_line = (
             f"Результат ноды записан не в файлы, а в кадры: промт есть у {filled[0]} из {filled[1]} кадров. "
@@ -1358,7 +1347,6 @@ def _spend_line(head: str, window: dict) -> str:
 
 _TOP_SPEND = 5
 _WEEK_DAYS = 7
-# «На что больше всего уходит денег»: статьи трат по источнику записи журнала.
 _SPEND_ITEMS = (
     ("orch_llm", None, "чат-помощник (модель)"),
     ("native_call", None, "текстовые шаги конвейера (GPT)"),
@@ -1388,7 +1376,6 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     try:
         async with _sessions()() as s:
             today = _spend_window((await s.execute(text(cols + "day = :d"), {"d": day})).all())
-            # «Сколько я потратил за неделю»: окно 7 дней и статьи трат.
             import datetime as _dt
 
             since = (_dt.date.fromisoformat(day) - _dt.timedelta(days=_WEEK_DAYS - 1)).isoformat()
@@ -1411,7 +1398,6 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
             run_id = ""
             top: list[tuple[int, float, int]] = []
             if pid is None:
-                # «Где самый дорогой проект»: без разбивки по проектам чат отвечал «нельзя определить».
                 rows = await s.execute(
                     text(
                         "SELECT project_id, SUM(COALESCE(usd, 0)), COUNT(*) FROM spend_ledger "
@@ -2150,7 +2136,6 @@ def _gpt_data_spec() -> ActionSpec:
                     "maxItems": len(fmt.FRAME_COLUMNS),
                 },
                 "kind": {"type": "string", "enum": ["chat", "json", "xlsx", "html"], "default": "chat"},
-                # «Покажи промт третьего кадра»: только эти кадры; до трёх — тексты целиком.
                 "frames": {"type": "array", "items": {"type": "integer", "minimum": 1}, "maxItems": 40},
             },
             ["project_id"],

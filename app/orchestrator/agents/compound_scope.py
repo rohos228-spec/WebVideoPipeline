@@ -1,11 +1,3 @@
-"""Просьба из нескольких частей: «поменяй местами кадры 3 и 4, а кадр 6 перерисуй».
-
-Каждое точное правило понимает одно действие и молча теряло остальное: кадр 6 пропадал, а голос
-вставал после монтажа. Здесь просьба делится на части. Если правило есть для каждой, план
-собирается из них по порядку, иначе просьбу разбирает планировщик целиком. Часть плана
-порядок задаёт сама работа: монтаж последним, перед ним новая озвучка и применение правок кадров.
-"""
-
 from __future__ import annotations
 
 import re
@@ -32,7 +24,6 @@ _ONE_ASK = re.compile(
 )
 _LEAD = re.compile(r"^(?:(?:и|а|да|ну|потом|затем|после\s+этого)[\s,]+)+", re.IGNORECASE)
 _HAS_FRAME = re.compile(r"кадр", re.IGNORECASE)
-# «Перерисуй кадры 2 и 5, сделай их ночными»: вторая часть уточняет ту же правку кадров.
 _WISH = re.compile(
     r"(?<![а-яё])(?:сделай|убери|добавь|замени|перекрась|нарисуй|пусть|чтобы)(?![а-яё])", re.IGNORECASE
 )
@@ -59,7 +50,6 @@ _OPEN_MIND = re.compile(
 
 
 def resolve_changed_mind(goal: str) -> str:
-    """«Кадр 2, а нет, лучше кадр 3» → «кадр 3»: действует то, что человек сказал последним."""
     text = _BUT_NOT.sub("", _NOT_THIS.sub("", str(goal or "")))
 
     def later(found: re.Match[str]) -> str:
@@ -69,7 +59,6 @@ def resolve_changed_mind(goal: str) -> str:
 
 
 def has_open_change_of_mind(goal: str) -> bool:
-    """Человек передумал, а заменить номер нельзя: правила взяли бы первый вариант."""
     return bool(_OPEN_MIND.search(goal or ""))
 
 
@@ -79,7 +68,6 @@ def _inside_quotes(text: str, at: int) -> bool:
 
 
 def split_clauses(goal: str) -> list[str]:
-    """Части просьбы, у каждой свой глагол. Вопрос и «если …» остаются целыми."""
     text = " ".join(str(goal or "").split())
     if not text or _ONE_ASK.search(text):
         return [text] if text else []
@@ -106,7 +94,6 @@ def _starts_new(current: str, piece: str) -> bool:
 
 
 def with_project(clause: str, goal: str) -> str:
-    """Проект назван один раз («в проекте 5 смени голос и собери»): он относится ко всем частям."""
     named = _PROJECT.search(goal or "")
     if not named or _PROJECT.search(clause):
         return clause
@@ -131,7 +118,6 @@ _STEP_CLAUSE = re.compile(
 
 
 def step_clause_plan(clause: str, project_id: int | None) -> list[PlanStep] | None:
-    """«Перезапусти картинки» как часть составной просьбы: один шаг конвейера с ценой на карточке."""
     found = _STEP_CLAUSE.match(clause.strip().lower())
     named = _PROJECT.search(clause)
     if named:
@@ -206,11 +192,6 @@ def _inserted(plan: list[PlanStep], at: int, step: PlanStep) -> list[PlanStep]:
 
 
 def order_steps(plan: list[PlanStep]) -> list[PlanStep]:
-    """Порядок, который требует сама работа, а не порядок слов в просьбе.
-
-    Монтаж озвучку не пишет и новых картинок не рисует: всё, что влияет на ролик, идёт раньше него.
-    Новые промты картинок нужны раньше самих картинок.
-    """
     out = list(plan)
     montage = [step for step in out if step.action == "montage.run_montage"]
     if montage:
@@ -235,13 +216,11 @@ def order_steps(plan: list[PlanStep]) -> list[PlanStep]:
             out = _inserted(out, first_img, _run_step(int(out[first_img].params["project_id"]), "img_pr"))
     run = next((s for s in out if s.action == "step.run_step"), None)
     if run is not None and not any(s.action in _STATE_READS for s in out):
-        # Запуск без чтения состояния проверка плана не пропускает.
         out = _inserted(out, 0, _status_step(int(run.params["project_id"])))
     return out
 
 
 def compound_note(clauses: list[str]) -> str:
-    """Подсказка планировщику: ни одна часть не должна пропасть молча."""
     parts = "; ".join(f"{i}) {text}" for i, text in enumerate(clauses, 1))
     return (
         f"В просьбе несколько частей: {parts}. План должен выполнить все части в этом порядке. "
@@ -251,10 +230,6 @@ def compound_note(clauses: list[str]) -> str:
 
 
 def sync_apply_counts(plan: list[PlanStep]) -> list[PlanStep]:
-    """Применение очереди в одном плане с её постановкой: заявить и те правки, что добавят шаги выше.
-
-    Иначе применение заявляло «картинок 0» (очередь при планировании была пуста) и отказывало.
-    """
     out: list[PlanStep] = []
     added: dict[int, list[dict]] = {}
     for step in plan:
@@ -264,7 +239,7 @@ def sync_apply_counts(plan: list[PlanStep]) -> list[PlanStep]:
         if step.action == "montage.apply_queue" and isinstance(pid, int) and added.get(pid):
             ops = added[pid]
             wanted = {n for n in step.params.get("frame_numbers") or [] if isinstance(n, int)}
-            chosen = list(ops)  # новые правки этого плана применяем все, даже если кадры были названы раньше
+            chosen = list(ops)
             images = sum(1 for op in chosen if str(op.get("type") or "").startswith("image_"))
             videos = sum(1 for op in chosen if str(op.get("type") or "").startswith("video_"))
             frames = sorted(wanted | {op["frame_number"] for op in chosen if isinstance(op.get("frame_number"), int)})

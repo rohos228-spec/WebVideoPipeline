@@ -179,8 +179,6 @@ async def bulk_enqueue_gen_queue(body: GenQueueBulkEnqueue) -> dict:
             projects.append(project)
         for project in projects:
             clear_user_stop_gate(project)
-            # Постановка в очередь с целью — осознанный «▶»: метка «ждать ручной ▶»
-            # после рестарта (startup_guard) иначе держит очередь вхолостую.
             clear_auto_await_manual_start(project)
             await set_gen_queue_run(
                 session,
