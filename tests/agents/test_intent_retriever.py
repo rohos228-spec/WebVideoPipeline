@@ -284,3 +284,11 @@ def test_question_follow_up_is_not_glued_to_request(prev, reply):
     from app.orchestrator.queue import continued_request
 
     assert continued_request([("assistant", "ok"), ("user", prev)], reply) is None
+
+
+def test_explained_empty_plan_has_no_not_understood_prefix():
+    from app.orchestrator.agents.summarizer import _EXPLAINS_RE
+
+    assert _EXPLAINS_RE.search("В проекте 33 нет кадров, поэтому запуск видео невозможен")
+    assert _EXPLAINS_RE.search("В проекте #10 формат кадра уже такой, менять нечего")
+    assert not _EXPLAINS_RE.search("Уточните, какой кадр перерисовать")

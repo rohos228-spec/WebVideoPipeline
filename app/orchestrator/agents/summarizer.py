@@ -20,6 +20,13 @@ APPROVAL_EXPIRED_TEXT = "Подтверждение не дали вовремя
 APPROVAL_STALE = "approval_stale"
 APPROVAL_STALE_TEXT = "Сервер перезапускался, карточка устарела — повторите просьбу. Ничего не изменено."
 NOT_UNDERSTOOD = "Не понял, что сделать."
+# Причина пустого плана, которая объясняет состояние проекта, а не непонимание просьбы.
+_EXPLAINS_RE = re.compile(
+    r"(?<![а-я])(?:нет\s+(?:кадр|картин|видео|озвуч|сценари|проект|ролик|файл|готов)|невозможен|невозможно|"
+    r"сначала\s+нужно|сначала\s+надо|уже\s+(?:стоит|запущен|ид[её]т|готов|включ|выключ|такой|такая)|"
+    r"менять\s+нечего|запускать\s+нечего|не\s+найден|отсутству)",
+    re.I,
+)
 NOT_UNDERSTOOD_HINT = (
     "Напишите номер проекта и что нужно, например «запусти картинки в проекте 6» "
     "или «что с проектом 4». Если не знаете, с чего начать, напишите «помоги»."
@@ -1294,7 +1301,9 @@ def deterministic_text(facts: TaskFacts) -> str:
         reason, head, note = (facts.detail or "").partition(_WAITING_HEAD)
         reason = reason.strip()
         reason = reason if reason and not raw_reason(reason) else ""
-        if facts.answered and reason:
+        if (facts.answered or _EXPLAINS_RE.search(reason)) and reason:
+            # «В проекте нет кадров, сначала разбивка»: просьбу поняли, мешает состояние проекта —
+            # без «Не понял, что сделать» и без общей подсказки.
             return "\n".join(line for line in (reason, (head + note).strip()) if line)
         # Причина с готовым примером уже говорит, что написать: вторая подсказка лишняя.
         hint = "" if "например" in reason else NOT_UNDERSTOOD_HINT
