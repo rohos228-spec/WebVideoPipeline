@@ -45,6 +45,24 @@ def pay52_base_url() -> str:
     return base.rstrip("/")
 
 
+def normalize_pay52_video_model(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    if "mini" in s:
+        return "seedance-2.0-mini"
+    if "2.5" in s or "2-5" in s:
+        return "seedance-2.5"
+    if "fast" in s:
+        return "seedance-2.0-fast"
+    if "kling" in s:
+        return "kling-4.0-k1"
+    if "veo" in s:
+        return "veo-3.1-fast-generate-preview"
+    clean = (raw or "").strip()
+    if clean and not any("\u4e00" <= c <= "\u9fff" for c in clean):
+        return clean
+    return "seedance-2.0-fast"
+
+
 def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
     s = cfg or settings
     name_low = (model_name or "").lower()
@@ -156,7 +174,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             payload["metadata"] = {"content": content}
         return payload
 
-    # 2. Модель Seedance 2.0 Fast 海外 (режим работы с лицами)
+    # 2. Модель Seedance 2.0 Fast (seedance-2.0-fast)
     if "fast" in model_raw.lower():
         all_images: list[str] = []
         if first_frame:
@@ -171,7 +189,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
                 all_images.append(su)
 
         return {
-            "model": "Seedance 2.0 Fast 海外",
+            "model": "seedance-2.0-fast",
             "prompt": prompt[:10000],
             "duration": min(15, max(4, dur_int)),
             "ratio": raw_ratio,
@@ -203,7 +221,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             "referenceImages": all_images[:30],
         }
 
-    # 4. Seedance 2.0 Overseas (Seedance 2.0 海外)
+    # 4. Fallback / Seedance 2.0 (seedance-2.0-fast)
     all_images = []
     if first_frame:
         all_images.append(str(first_frame).strip())
@@ -216,8 +234,9 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
         if su and su not in all_images:
             all_images.append(su)
 
+    fallback_model = normalize_pay52_video_model(model_raw)
     return {
-        "model": "Seedance 2.0 海外",
+        "model": fallback_model,
         "prompt": prompt,
         "duration": min(15, max(4, dur_int)),
         "resolution": raw_res if raw_res in ("480p", "720p", "1080p") else "720p",
@@ -229,7 +248,8 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
 
 async def create_task(body: dict[str, Any], *, key: str | None = None) -> str:
     """Создаёт задачу видеогенерации через POST /v1/videos."""
-    model_name = str(body.get("model") or "")
+    model_name = normalize_pay52_video_model(str(body.get("model") or ""))
+    body["model"] = model_name
     api_key = key or pay52_video_key_for_model(model_name)
     if not api_key:
         raise Pay52VideoError(

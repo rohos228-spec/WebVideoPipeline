@@ -11,6 +11,8 @@ export function brandForModel(id: string, label: string): Brand {
   if (s.includes("veo")) return { id: "google", name: "Google Veo" };
   if (s.includes("gemini") || s.includes("nano-banana")) return { id: "google", name: "Google" };
   if (s.includes("deepseek")) return { id: "deepseek", name: "DeepSeek" };
+  if (s.includes("glm") || s.includes("zhipu")) return { id: "glm", name: "GLM" };
+  if (s.includes("kimi") || s.includes("moonshot")) return { id: "kimi", name: "Kimi" };
   if (s.includes("grok")) return { id: "xai", name: "xAI" };
   if (s.includes("flux")) return { id: "bfl", name: "Black Forest" };
   if (s.includes("seed")) return { id: "bytedance", name: "ByteDance" };
@@ -39,6 +41,18 @@ export function BrandLogo({ brand, className }: { brand: string; className?: str
           {[0, 60, 120, 180, 240, 300].map((r) => (
             <path key={r} {...p} transform={`rotate(${r} 32 32)`} d="M32 10c7 0 12 5 12 12v14l-12 7" />
           ))}
+        </svg>
+      );
+    case "glm":
+      return (
+        <svg viewBox="0 0 64 64" className={className} aria-hidden>
+          <path fill="currentColor" d="M16 16h32v8l-20 20h20v8H16v-8l20-20H16z" />
+        </svg>
+      );
+    case "kimi":
+      return (
+        <svg viewBox="0 0 64 64" className={className} aria-hidden>
+          <path fill="currentColor" d="M18 14h8v14l14-14h10L34 30l16 20H40L26 33v17h-8z" />
         </svg>
       );
     case "anthropic":

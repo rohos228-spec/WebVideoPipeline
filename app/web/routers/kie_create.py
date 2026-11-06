@@ -345,8 +345,11 @@ async def post_generate(body: dict[str, Any]) -> dict[str, Any]:
             return res
         except BaseException:
             if hold_id:
-                async with session_scope() as session:
-                    await cl.release_hold(session, hold_id, memo=f"Сбой/отмена {provider_label} генерации {media}")
+                try:
+                    async with session_scope() as session:
+                        await cl.release_hold(session, hold_id, memo=f"Сбой/отмена {provider_label} генерации {media}")
+                except Exception as e_hold:
+                    logger.warning("kie_create: ошибка release_hold {}: {}", hold_id, e_hold)
             raise
 
     job_provider = provider_name

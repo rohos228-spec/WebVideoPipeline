@@ -351,7 +351,7 @@ async def cancel_job(job_id: str) -> bool:
             task.cancel()
 
         target_job.status = "failed"
-        target_job.error = "Генерация остановлена пользователем"
+        target_job.error = "Генерация отменена пользователем"
         target_job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
         if target_job.hold_id:
             try:
@@ -385,7 +385,7 @@ async def cancel_job(job_id: str) -> bool:
                     update_sidecar(
                         sp,
                         status="failed",
-                        error="Генерация остановлена пользователем",
+                        error="Генерация отменена пользователем",
                         finished_at=datetime.now(UTC).astimezone().isoformat(timespec="seconds"),
                     )
                     found = True
@@ -530,6 +530,9 @@ async def _run_job(
             logger.info("create_job.cancelled_handled id={}", job.id)
             raise
         except Exception as e:  # noqa: BLE001
+            if job.status == "failed" and "отменен" in (job.error or "").lower():
+                logger.info("create_job.handled_after_cancel id={}: {}", job.id, e)
+                return
             job.status = "failed"
             job.error = str(getattr(e, "reason", None) or e)[:500]
             job.finished_at = datetime.now(UTC).astimezone().isoformat(timespec="seconds")
