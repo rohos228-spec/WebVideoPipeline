@@ -147,3 +147,41 @@ def test_new_video_request_skips_open_project_rules():
     assert _NEW_VIDEO_RE.search("сделай ролик про пчёл в стиле аниме с женским голосом")
     assert not _NEW_VIDEO_RE.search("поменяй голос на женский")
     assert not _NEW_VIDEO_RE.search("сделай стиль аниме для всех кадров")
+
+
+def test_open_card_words_and_plain_errors():
+    for word in ("нет", "нет, не надо", "отмена", "не надо", "передумал", "Отмени."):
+        assert bridge._NO_RE.match(word), word
+    for other in ("нет картинки у кадра 5", "отмени кадр 5", "перерисуй кадр 6"):
+        assert not bridge._NO_RE.match(other), other
+    assert bridge._is_question("что с проектом") and not bridge._is_question("перерисуй кадр 6")
+
+    raw = (
+        "Не получилось.\nШаг «Обмен»: шаг не выполнен: ActionCallError: HTTP 400: оба слота пустые.\n"
+        "Что можно сделать: Устраните причину, указанную выше, и повторите."
+    )
+    assert bridge.plain_errors(raw) == "Не получилось.\nШаг «Обмен»: оба слота пустые."
+    wrapped = "ActionCallError: HTTP 404: {'code': 'node_not_found', 'message': 'Ноды нет на холсте.'}."
+    assert bridge.plain_errors(wrapped) == "Ноды нет на холсте.."
+
+
+def test_one_step_card_title_is_the_step():
+    card = {"change_id": "c", "title": "", "risk": "medium",
+            "steps": [{"text": "Сменить модель ноды «Видео» на Hailuo —; проект #10", "risk": "medium"}]}
+    assert bridge.card_title(card).startswith("Сменить модель ноды «Видео» на Hailuo (проект #10) · риск")
+
+
+def test_next_free_step_of_approved_plan_needs_no_second_button():
+    steps = [
+        {"action": "montage.set_assemble_params", "paid": False, "risk": "medium", "text": "Музыка 10; проект #11"},
+        {"action": "audio.set_voice", "paid": False, "risk": "medium", "text": "Голос женский; проект #11"},
+    ]
+    first = {"task_id": 5, "action": steps[0]["action"], "risk": "medium", "steps": steps}
+    second = {"task_id": 5, "action": steps[1]["action"], "risk": "medium", "steps": steps}
+    assert bridge.same_plan_free_step(first, second)
+    assert "Музыка" not in bridge.card_title({**second, "title": "Голос"})
+    assert not bridge.same_plan_free_step(first, {**second, "task_id": 6})
+    assert not bridge.same_plan_free_step(first, {**second, "risk": "high"})
+    paid = [steps[0], {**steps[1], "paid": True}]
+    assert not bridge.same_plan_free_step({**first, "steps": paid}, {**second, "steps": paid})
+    assert not bridge.same_plan_free_step(None, second)

@@ -35,6 +35,16 @@ _NOT_HANDLED_RE = re.compile(
 )
 _AUTO_PREFIX_RE = re.compile(r"^\[РЕЖИМ:[^\]]*\]\s*", re.S)
 _END_TYPES = {"task_done", "task_failed"}
+# Сессия -> seq просьбы, чей итог не успел к ответу окна.
+_LATE: dict[str, int] = {}
+STILL_WORKING_TEXT = (
+    "Просьба ещё выполняется. Итог покажу со следующим сообщением, можно спросить «что с задачей»."
+)
+_NO_RE = re.compile(
+    r"^(?:нет|не\s+надо|не\s+нужно|отмена|отмени|отменить|отбой|передумал[аи]?|не\s+делай)"
+    r"(?:[,\s]+(?:не\s+надо|не\s+нужно|отмена|спасибо|передумал[аи]?))*[.!\s]*$",
+    re.I,
+)
 _YES_RE = re.compile(r"^(?:да|ага|ок|окей|подтверждаю|подтверди|давай|го|запускай|покажи\s+карточку)[.!\s]*$", re.I)
 # Последние карточки по change_id: «да» после цепочки показывает открытую карточку кнопкой.
 _CARDS: dict[str, dict[str, Any]] = {}
@@ -57,6 +67,41 @@ def open_card(session_id: str) -> dict[str, Any] | None:
     task_id = sup.active_task(session_id)
     change_id = sup._appr_open.get(task_id) if task_id is not None else None
     return _CARDS.get(str(change_id)) if change_id else None
+
+
+async def waiting_card(session_id: str) -> dict[str, Any] | None:
+    """Открытая карточка сессии, в том числе пережившая перезапуск сервера.
+
+    Движок поднимает такую задачу из базы, а ``_CARDS`` живёт в памяти: окно не знало о карточке,
+    и каждая новая просьба вставала за ней в очередь на 4 минуты.
+    """
+    from app.orchestrator.agents.runtime import get_runtime
+
+    try:
+        runtime = get_runtime()
+    except Exception:  # noqa: BLE001 — движок не поднят: прежний путь окна
+        return None
+    sup = runtime.supervisor
+    try:
+        await sup.adopt_after_restart(session_id)
+        task_id = sup.active_task(session_id)
+        row = sup.tasks.get(task_id) if task_id is not None else None
+        if not row or str(row.get("status") or "") != "waiting_approval":
+            return None
+        change_id = sup._appr_open.get(task_id)
+        known = _CARDS.get(str(change_id)) if change_id else None
+        if known is not None:
+            return known
+        for event in reversed(await runtime.bus.replay_from(session_id, 0)):
+            payload = dict(getattr(event, "payload", None) or {})
+            if getattr(event, "type", "") == "approval_required" and getattr(event, "task_id", None) == task_id:
+                if payload.get("change_id"):
+                    _remember(payload)
+                    return payload
+        return {"change_id": change_id or "", "title": str(row.get("goal") or "прошлая просьба")}
+    except Exception as exc:  # noqa: BLE001 — без карточки окно работает как раньше
+        logger.info("ai-agent bridge waiting card {}: {!r}", session_id, exc)
+        return None
 
 
 def enabled() -> bool:
@@ -107,7 +152,10 @@ def _action_steps(card: dict[str, Any]) -> list[dict[str, Any]]:
     """Шаги, которые что-то меняют или стоят денег; чтения перед ними на карточке — шум."""
     steps = [s for s in card.get("steps") or [] if isinstance(s, dict)]
     acting = [s for s in steps if s.get("paid") or str(s.get("risk") or "none") != "none"]
-    return acting or steps
+    acting = acting or steps
+    # Следующая карточка плана несёт весь план: сделанные шаги уже позади.
+    current = next((i for i, s in enumerate(acting) if s.get("action") == card.get("action")), 0)
+    return acting[current:]
 
 
 def _step_lines(card: dict[str, Any]) -> tuple[list[str], str]:
@@ -123,24 +171,27 @@ def _step_lines(card: dict[str, Any]) -> tuple[list[str], str]:
         lines.append(text)
     if len(projects) == 1:
         lines = [_PROJECT_TAIL_RE.sub("", line).strip(" ;") for line in lines]
+    lines = [line.rstrip(" —-;") for line in lines]
     project = f"проект #{next(iter(projects))}" if len(projects) == 1 else ""
     return [line for line in lines if line], project
 
 
 def card_title(card: dict[str, Any]) -> str:
     """Строка карточки окна: что сделает, по шагам, цена и риск."""
-    parts = [str(card.get("title") or "Действие оркестратора").strip()]
     lines, project = _step_lines(card)
-    if project:
-        parts[0] += f" ({project})"
     steps = _action_steps(card)
-    if len(steps) > 1 or (steps and steps[0].get("params_text")):
-        shown = [
-            line + (" (платно)" if step.get("paid") else "")
-            for line, step in zip(lines[:8], steps[:8], strict=False)
-        ]
-        if shown:
-            parts.append("шаги: " + "; ".join(shown))
+    shown = [
+        line + (" (платно)" if step.get("paid") else "")
+        for line, step in zip(lines[:8], steps[:8], strict=False)
+    ]
+    if len(shown) == 1:
+        # Один шаг: его текст и есть суть карточки, заголовок повторял бы его же.
+        head = shown[0]
+    else:
+        head = str(card.get("title") or "").strip() or (lines[0].split(" — ")[0] if lines else "Действие")
+    parts = [head + (f" ({project})" if project else "")]
+    if len(shown) > 1:
+        parts.append("шаги: " + "; ".join(shown))
     if card.get("cost_text"):
         parts.append(str(card["cost_text"]))
     risk = card.get("plan_risk") or card.get("risk")
@@ -207,6 +258,28 @@ async def _collect(queue: asyncio.Queue, after_seq: int, timeout: float) -> dict
     return {"reply": reply, "card": card, "status": status, "error": error, "phases": phases}
 
 
+async def _late_reply(session_id: str) -> str:
+    """Итог просьбы, которая не успела к прошлому ответу окна: покажем со следующим."""
+    after = _LATE.get(session_id)
+    if after is None:
+        return ""
+    from app.orchestrator.agents.runtime import get_runtime
+
+    try:
+        events = await get_runtime().bus.replay_from(session_id, after)
+    except Exception:  # noqa: BLE001
+        return ""
+    text = ""
+    for event in events:
+        payload = dict(getattr(event, "payload", None) or {})
+        if getattr(event, "type", "") == "message" and str(payload.get("role") or "assistant") != "user":
+            text = _text_of(payload) or text
+    if not text:
+        return ""
+    _LATE.pop(session_id, None)
+    return "Итог прошлой просьбы: " + plain_errors(text)
+
+
 async def _turn(session_id: str, text: str, project_id: int | None, app: Any) -> dict[str, Any] | None:
     from app.orchestrator.agents.runtime import get_runtime
 
@@ -216,7 +289,9 @@ async def _turn(session_id: str, text: str, project_id: int | None, app: Any) ->
         return None
     async with runtime.bus.subscription(session_id) as queue:
         ack = await runtime.queue.accept(session_id, text, None, project_id=project_id, app=app)
-        return await _collect(queue, int(ack or 0), TURN_TIMEOUT_S)
+        result = await _collect(queue, int(ack or 0), TURN_TIMEOUT_S)
+        result["after_seq"] = int(ack or 0)
+        return result
 
 
 def handled(result: dict[str, Any] | None) -> bool:
@@ -228,10 +303,22 @@ def handled(result: dict[str, Any] | None) -> bool:
     return bool(reply) and not _NOT_HANDLED_RE.search(reply)
 
 
+_RAW_ERROR_RE = re.compile(r"(?:шаг не выполнен:\s*)?ActionCallError:\s*HTTP \d+:\s*")
+_ERROR_DICT_RE = re.compile(r"\{[^{}]*'message':\s*'([^']+)'[^{}]*\}")
+_NO_ADVICE_RE = re.compile(r"\n?Что можно сделать: Устраните причину, указанную выше, и повторите\.?")
+
+
+def plain_errors(text: str) -> str:
+    """Отказ действия без кода ошибки: «оба слота пустые», а не «ActionCallError: HTTP 400: …»."""
+    out = _RAW_ERROR_RE.sub("", text)
+    out = _ERROR_DICT_RE.sub(lambda m: m.group(1), out)
+    return _NO_ADVICE_RE.sub("", out).strip()
+
+
 def done_payload(result: dict[str, Any]) -> dict[str, Any]:
     """Ответ в формате окна «ИИ-агент» (``DbOrchestratorChatResult``)."""
     card = result.get("card")
-    reply = str(result.get("reply") or "")
+    reply = plain_errors(str(result.get("reply") or ""))
     pending = [_card_item(card)] if card else []
     if card and not reply:
         lines, project = _step_lines(card)
@@ -252,6 +339,35 @@ def done_payload(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def card_action(card: dict[str, Any]) -> str:
+    """Что предлагала карточка, короткой фразой для ответа."""
+    lines, _project = _step_lines(card)
+    return "; ".join(lines[:3]) or str(card.get("title") or "действие карточки")
+
+
+def _is_question(text: str) -> bool:
+    from app.orchestrator.queue import is_plain_question, is_status_question
+
+    return is_status_question(text) or is_plain_question(text)
+
+
+async def drop_card(session_id: str, card: dict[str, Any]) -> None:
+    """Снять открытую карточку словами человека: то же, что кнопка «Отмена»."""
+    from app.orchestrator.agents.runtime import get_runtime
+    from app.services import orch_bridge
+
+    change_id = str(card.get("change_id") or "")
+    try:
+        result = await get_runtime().supervisor.reject_approval(session_id, change_id=change_id or None)
+    except Exception as exc:  # noqa: BLE001 — карточка могла уже закрыться
+        logger.info("ai-agent bridge drop card {}: {!r}", change_id, exc)
+        return
+    decided = result.get("change_id") if isinstance(result, dict) else None
+    plan_id = await orch_bridge.bound_plan_any(decided) if decided else None
+    if plan_id:
+        await orch_bridge.revoke(plan_id, decided, "ai_agent_window")
+
+
 async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIterator[tuple[str, Any]]:
     """События для SSE окна: ``("phase", текст)`` по ходу и ``("result", dict|None)`` в конце.
 
@@ -262,10 +378,23 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
         yield "result", None
         return
     session_id = session_for(project_id)
-    waiting = open_card(session_id) if _YES_RE.match(text) else None
+    waiting = await waiting_card(session_id)
+    dropped = ""
+    late = await _late_reply(session_id)
     if waiting is not None:
-        yield "result", done_payload({"reply": "Подтвердите следующий шаг:", "card": waiting})
-        return
+        if _YES_RE.match(text):
+            yield "result", done_payload({"reply": "Подтвердите кнопкой ниже:", "card": waiting})
+            return
+        action = card_action(waiting)
+        if _NO_RE.match(text):
+            await drop_card(session_id, waiting)
+            yield "result", done_payload({"reply": f"Отменил: {action}. Ничего не менял."})
+            return
+        if not _is_question(text):
+            # Новая просьба при открытой карточке вставала за ней в очередь: окно молчало
+            # 4 минуты и уходило в старый путь. Человек передумал — снимаем, ничего не сделано.
+            await drop_card(session_id, waiting)
+            dropped = f"Прошлую карточку сняла новая просьба, она не выполнялась: {action}."
     task = asyncio.create_task(_turn(session_id, text, project_id, app))
     yield "phase", "Оркестратор разбирает просьбу…"
     try:
@@ -279,6 +408,13 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
     finally:
         if not task.done():
             task.cancel()
+    if result and result.get("status") == "timeout" and not result.get("card") and not result.get("reply"):
+        # Движок ещё работает над просьбой: старый путь сделал бы её второй раз.
+        _LATE[session_id] = int(result.get("after_seq") or 0)
+        payload = done_payload({"reply": STILL_WORKING_TEXT})
+        payload["reply"] = "\n\n".join(x for x in (late, dropped, payload["reply"]) if x)
+        yield "result", payload
+        return
     good = handled(result)
     logger.info(
         "ai-agent bridge project={} handled={} card={} status={}",
@@ -287,7 +423,27 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
         bool(result and result.get("card")),
         result and result.get("status"),
     )
-    yield "result", (done_payload(result) if good and result else None)
+    payload = done_payload(result) if good and result else None
+    if payload and (dropped or late):
+        payload["reply"] = "\n\n".join(x for x in (late, dropped, payload["reply"]) if x)
+    yield "result", payload
+
+
+_AUTO_NEXT_LIMIT = 6
+
+
+def same_plan_free_step(approved: dict[str, Any] | None, following: dict[str, Any]) -> bool:
+    """Следующая карточка того же плана: бесплатный шаг не выше среднего риска, виден на прошлой."""
+    if not approved or approved.get("task_id") != following.get("task_id"):
+        return False
+    if str(following.get("risk") or "") == "high" or str(following.get("plan_risk") or "") == "high":
+        return False
+    action = following.get("action")
+    seen = [s for s in approved.get("steps") or [] if isinstance(s, dict) and s.get("action") == action]
+    now = [s for s in following.get("steps") or [] if isinstance(s, dict) and s.get("action") == action]
+    if not action or not seen or not now:
+        return False
+    return not any(s.get("paid") for s in [*seen, *now]) and approved.get("steps") == following.get("steps")
 
 
 async def decide(request: Any, project_id: int | None, token: str, approve: bool) -> dict[str, Any]:
@@ -324,7 +480,26 @@ async def decide(request: Any, project_id: int | None, token: str, approve: bool
             return {"ok": False, "reply": reply, "notes": [], "error": str(detail)[:200]}
         # Подписка живая: всё, что пришло после неё, — итог этого решения.
         result = await _collect(queue, 0, DECIDE_TIMEOUT_S)
-    reply = str(result.get("reply") or "")
+        # Шаги плана человек уже видел на карточке и подтвердил: бесплатный следующий не спрашиваем.
+        approved = _CARDS.get(change_id)
+        for _ in range(_AUTO_NEXT_LIMIT):
+            following = result.get("card")
+            if not following or not same_plan_free_step(approved, following):
+                break
+            logger.info("ai-agent bridge: next free step of approved plan {}", following.get("change_id"))
+            try:
+                await human_decision(
+                    request,
+                    session_id=session_id,
+                    change_id=str(following.get("change_id")),
+                    decision="approve",
+                    retry_grant=False,
+                )
+            except DECISION_ERRORS as exc:
+                logger.info("ai-agent bridge: next step not approved: {!r}", exc)
+                break
+            result = await _collect(queue, 0, DECIDE_TIMEOUT_S)
+    reply = plain_errors(str(result.get("reply") or ""))
     pending: list[dict[str, Any]] = []
     if result.get("card"):
         _remember(result["card"])
