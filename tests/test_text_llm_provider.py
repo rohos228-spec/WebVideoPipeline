@@ -382,3 +382,58 @@ def test_pay52_text_catalog_and_routing(monkeypatch, tmp_path: Path) -> None:
     assert s.gpt_api_effective_key == "gpt-key-test"
 
 
+def test_pay52_node_override_and_breaker_routing(monkeypatch, tmp_path: Path) -> None:
+    """Узел с modelId='gpt-6.1-sol' при активном 52pay уходит в 52pay, а не в kie:chat."""
+    from unittest.mock import Mock
+    import app.services.gpt_api as gpt_api
+    import app.settings as settings_mod
+    from app.orchestrator.node_registry import ProjectStatus
+    from app.services.llm_override import bind_project_llm, current_override
+    from app.services import text_llm_catalog as cat
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TEXT_LLM_PROVIDER", "pay52")
+    monkeypatch.setenv("PAY52_BASE_URL", "https://api.52pay.com/v1")
+    monkeypatch.setenv("PAY52_GPT_KEY", "gpt-key-test")
+    monkeypatch.setenv("GPT_BASE_URL", "https://gpt.example.com")
+    monkeypatch.setenv("GPT_RELAY_TOKEN", "relay-token")
+
+    s = Settings()
+    monkeypatch.setattr(settings_mod, "settings", s)
+    monkeypatch.setattr(cat, "settings", s)
+    monkeypatch.setattr(gpt_api, "settings", s)
+
+    fake_proj = Mock()
+    fake_proj.id = 123
+    fake_proj.status = ProjectStatus.enriching_1
+    fake_proj.meta = {
+        "active_excel_gpt_node_key": "n_excel_gpt_1",
+        "canvas_graph": {
+            "nodes": [
+                {"id": "n_excel_gpt_1", "type": "excel_gpt", "data": {"modelId": "gpt-6.1-sol"}}
+            ]
+        },
+    }
+
+    with bind_project_llm(fake_proj, ProjectStatus.enriching_1):
+        ov = current_override()
+        assert ov is not None
+        assert ov.provider == "52pay"
+        assert ov.model_id == "gpt-6.1-sol"
+
+        pay52_route = gpt_api._pay52_override(ov.model_id)
+        assert pay52_route is not None
+        assert pay52_route.api_model == "gpt-6.1-sol"
+        assert pay52_route.api_key == "gpt-key-test"
+        assert pay52_route.url == "https://api.52pay.com/v1/chat/completions"
+
+        # Проверяем, что провайдер для брейкера и роутинга — 52pay
+        _provider = "vibecode" if gpt_api._node_vibecode_override() else str(s.resolved_text_llm_provider() or "pay52")
+        if pay52_route is not None:
+            _provider = "52pay"
+        breaker_key = f"{_provider}:chat"
+        assert breaker_key == "52pay:chat"
+        assert gpt_api._hitting_vps_relay() is False
+
+
+

@@ -325,8 +325,8 @@ def _node_vibecode_override() -> bool:
     return bool(ov and ov.kind == "text" and ov.provider == "vibecode")
 
 
-def _pay52_override() -> Any:
-    """Маршрут 52pay, если шаг сам попросил 52pay (агент стиля, границы сцен).
+def _pay52_override(model: str | None = None) -> Any:
+    """Маршрут 52pay, если шаг/нода попросила 52pay или активен pay52.
 
     Раньше provider="52pay" в override молча игнорировался: вызовы шли в общий
     провайдер (kie). Ключа нет — None, остаётся общий провайдер.
@@ -337,9 +337,25 @@ def _pay52_override() -> Any:
     except Exception:  # noqa: BLE001
         return None
     ov = current_override()
-    if not (ov and ov.kind == "text" and ov.provider == "52pay"):
-        return None
-    return resolve_text(ov.model_id)
+    if ov and ov.kind == "text":
+        if ov.provider in ("52pay", "pay52"):
+            return resolve_text(ov.model_id)
+        if ov.provider == "vibecode":
+            return None
+
+    check_model = model or (ov.model_id if ov else None)
+    if check_model and "-pay52" in str(check_model).lower():
+        route = resolve_text(check_model)
+        if route is not None:
+            return route
+
+    if settings.resolved_text_llm_provider() in ("52pay", "pay52"):
+        target_model = check_model or settings.gpt_model_effective
+        route = resolve_text(target_model)
+        if route is not None:
+            return route
+        return resolve_text("gpt-6.1-sol")
+    return None
 
 
 def _override_vibecode_base_url() -> str:
@@ -354,9 +370,11 @@ def _hitting_vps_relay() -> bool:
     vps = _vps_relay_base()
     if not vps:
         return False
+    if settings.resolved_text_llm_provider() in ("pay52", "52pay") or _pay52_override() is not None:
+        return False
     if _node_vibecode_override() or settings.text_llm_is_vibecode:
         return _override_vibecode_base_url().rstrip("/") == vps.rstrip("/")
-    return True
+    return settings.gpt_api_effective_base_url.rstrip("/") == vps.rstrip("/")
 
 
 def native_tools_available(model: str | None = None) -> bool:
@@ -2846,7 +2864,7 @@ async def _chat_unscoped(
             if _node_vibecode_override()
             else settings.gpt_api_effective_base_url
         )
-    pay52 = _pay52_override()
+    pay52 = _pay52_override(use_model)
     if pay52 is not None:
         headers, use_model, url, anthropic_route = pay52.headers(), pay52.api_model, pay52.url, False
     use_timeout = float(timeout if timeout is not None else settings.gpt_timeout_s)
@@ -2938,7 +2956,7 @@ async def _chat_unscoped(
     # модель по-прежнему в ключ не входит.
     from app.services import provider_breaker
 
-    _provider = "vibecode" if _node_vibecode_override() else str(settings.text_llm_provider or "pay52")
+    _provider = "vibecode" if _node_vibecode_override() else str(settings.resolved_text_llm_provider() or "pay52")
     if pay52 is not None:
         _provider = "52pay"
     _transport = "messages" if anthropic_route else ("responses" if responses_mode else "chat")
