@@ -48,7 +48,9 @@ def test_card_becomes_window_action_with_orch_token():
 def test_collect_returns_card_and_reply():
     async def run():
         q: asyncio.Queue = asyncio.Queue()
-        ev = lambda seq, typ, **pl: SimpleNamespace(seq=seq, type=typ, payload=pl)
+        def ev(seq, typ, **pl):
+            return SimpleNamespace(seq=seq, type=typ, payload=pl)
+
         await q.put(ev(1, "message", text="старое"))
         await q.put(ev(5, "message", text="Смотрю проект"))
         await q.put(ev(6, "approval_required", change_id="c1", title="Шаг"))

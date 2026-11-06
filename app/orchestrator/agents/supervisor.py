@@ -2887,7 +2887,6 @@ class Supervisor:
     async def _shortcut_plan(self, task_id: int, goal: str) -> list[PlanStep] | None:
         from app.orchestrator.agents import compound_scope as cs
         from app.orchestrator.agents.number_words import words_to_digits
-
         from app.orchestrator.queue import strip_continuation
 
         said = cs.resolve_changed_mind(words_to_digits(strip_continuation(goal)))
@@ -2915,7 +2914,6 @@ class Supervisor:
 
     async def _one_shortcut(self, task_id: int, goal: str) -> list[PlanStep] | None:
         from app.orchestrator.agents.number_words import words_to_digits
-
         from app.orchestrator.queue import strip_continuation
 
         goal = words_to_digits(strip_continuation(goal))

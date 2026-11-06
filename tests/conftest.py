@@ -18,11 +18,11 @@ W1-fix п.7: центральный harness-гейт (auto_advance) включё
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from functools import lru_cache
 from pathlib import Path
-import os
 
 os.environ.setdefault("ORCH_INTENT_REWRITE", "0")
 os.environ.setdefault("ORCH_INTENT_RETRIEVER", "0")

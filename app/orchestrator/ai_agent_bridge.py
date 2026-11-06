@@ -64,7 +64,7 @@ async def waiting_card(session_id: str) -> dict[str, Any] | None:
         row = sup.tasks.get(task_id) if task_id is not None else None
         if not row or str(row.get("status") or "") != "waiting_approval":
             return None
-        change_id = sup._appr_open.get(task_id)
+        change_id = sup._appr_open.get(int(task_id)) if task_id is not None else None
         known = _CARDS.get(str(change_id)) if change_id else None
         if known is not None:
             return known
@@ -392,9 +392,9 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
             task.cancel()
     if result and result.get("status") == "timeout" and not result.get("card") and not result.get("reply"):
         _LATE[session_id] = int(result.get("after_seq") or 0)
-        payload = done_payload({"reply": STILL_WORKING_TEXT})
-        payload["reply"] = "\n\n".join(x for x in (late, dropped, payload["reply"]) if x)
-        yield "result", payload
+        waiting = done_payload({"reply": STILL_WORKING_TEXT})
+        waiting["reply"] = "\n\n".join(x for x in (late, dropped, waiting["reply"]) if x)
+        yield "result", waiting
         return
     good = handled(result)
     logger.info(
@@ -404,7 +404,7 @@ async def stream_turn(project_id: int | None, message: str, app: Any) -> AsyncIt
         bool(result and result.get("card")),
         result and result.get("status"),
     )
-    payload = done_payload(result) if good and result else None
+    payload: dict[str, Any] | None = done_payload(result) if good and result else None
     if payload and (dropped or late):
         payload["reply"] = "\n\n".join(x for x in (late, dropped, payload["reply"]) if x)
     yield "result", payload

@@ -13,8 +13,8 @@
 from __future__ import annotations
 
 import asyncio
-import re
 import random
+import re
 import time
 import uuid
 from collections.abc import Sequence

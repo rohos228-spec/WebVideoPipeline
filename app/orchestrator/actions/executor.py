@@ -905,7 +905,8 @@ _BASIS_FIELDS = {
 def pending_board_ops(meta: Any) -> list[dict]:
     if not isinstance(meta, dict):
         return []
-    board = meta.get("montage_board") if isinstance(meta.get("montage_board"), dict) else {}
+    raw_board = meta.get("montage_board")
+    board: dict = raw_board if isinstance(raw_board, dict) else {}
     raw = board.get("pending_ops") or meta.get("pending_ops") or []
     return [o for o in raw if isinstance(o, dict) and str(o.get("type") or "").startswith(("image_", "video_"))]
 
@@ -971,7 +972,8 @@ async def _fill_resume(params: dict) -> dict:
         if project is None:
             return params
         meta = project.meta if isinstance(project.meta, dict) else {}
-        fs = meta.get("step_failure") if isinstance(meta.get("step_failure"), dict) else {}
+        raw_fs = meta.get("step_failure")
+        fs: dict = raw_fs if isinstance(raw_fs, dict) else {}
         came_from = meta.get("paused_from_status") or fs.get("last_running") or project.status.value
         try:
             budget = float(budget_from_meta(meta) or 0)

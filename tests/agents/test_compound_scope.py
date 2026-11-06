@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.orchestrator.agents import action_catalog, compound_scope as cs, music_scope, style_scope
+from app.orchestrator.agents import action_catalog, music_scope, style_scope
+from app.orchestrator.agents import compound_scope as cs
 from app.orchestrator.agents.frame_scope import frame_numbers, image_frame_plan
 from app.orchestrator.agents.read_plan import read_step
-from app.orchestrator.agents.supervisor import Supervisor, _ACT_NOW_RE, _QUESTION_ASK_RE, _is_compound
+from app.orchestrator.agents.supervisor import _ACT_NOW_RE, _QUESTION_ASK_RE, Supervisor, _is_compound
 
 
 class _Rules:

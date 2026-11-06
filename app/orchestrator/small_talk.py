@@ -192,7 +192,7 @@ def _looks_like_noise(norm: str) -> bool:
 def time_text() -> str:
     import datetime as dt
 
-    now = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)
+    now = dt.datetime.now(dt.UTC) + dt.timedelta(hours=3)
     months = ("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
               "октября", "ноября", "декабря")
     return f"Сейчас {now:%H:%M} по Москве, {now.day} {months[now.month - 1]} {now.year} года."

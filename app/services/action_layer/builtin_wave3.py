@@ -376,7 +376,11 @@ _MEDIA_NODE_TYPES = frozenset({"images", "videos", "audio", "music", "assemble",
 
 def _resume_cost(p: dict) -> CostEstimate:
     from app.models import ProjectStatus
-    from app.orchestrator.node_registry import NODE_TYPE_TO_STEP_CODE, READY_TO_NODE_TYPE, RUNNING_TO_NODE_TYPE
+    from app.orchestrator.node_registry import (
+        NODE_TYPE_TO_STEP_CODE,
+        READY_TO_NODE_TYPE,
+        RUNNING_TO_NODE_TYPE,
+    )
     from app.services.action_layer.builtin_insight import _step_ru
 
     info = p.get("_resume") if isinstance(p.get("_resume"), dict) else None

@@ -263,7 +263,7 @@ def with_effective_graph(meta: dict[str, Any] | None, graph: dict[str, Any] | No
     out = dict(meta) if isinstance(meta, dict) else {}
     if graph and graph.get("nodes") and not canvas_graph_from_meta(out):
         out["canvas_graph"] = build_canvas_graph_payload(
-            workflow_id=graph.get("workflow_id"),
+            workflow_id=int(graph.get("workflow_id") or 0),
             nodes=_graph_items(graph.get("nodes")),
             edges=_graph_items(graph.get("edges")),
         )
