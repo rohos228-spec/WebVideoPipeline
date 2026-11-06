@@ -56,7 +56,9 @@ PROVIDER_BATCH_CHAR_BUDGET: dict[str, int] = {
 def _batch_char_budget() -> int:
     from app.settings import settings
 
-    provider = str(getattr(settings, "text_llm_provider", "") or "").strip().lower()
+    resolver = getattr(settings, "resolved_text_llm_provider", None)
+    raw = resolver() if callable(resolver) else getattr(settings, "text_llm_provider", "")
+    provider = str(raw or "").strip().lower()
     return PROVIDER_BATCH_CHAR_BUDGET.get(provider, IMG_PR_BATCH_CHAR_BUDGET)
 
 

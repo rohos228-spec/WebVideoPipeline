@@ -1424,7 +1424,7 @@ async def ask(
                 timeout=ask_timeout,
                 expect_file_download=has_xlsx,
                 treat_txt_as_prompt=False,
-                max_retries=0,
+                max_retries=2,
             )
             if tool_calls:
                 logger.info(
@@ -1472,7 +1472,7 @@ async def ask(
                     history=retry_history,
                     treat_txt_as_prompt=False,
                     system=system_full,
-                    max_retries=0,
+                    max_retries=2,
                 )
                 reply2 = (reply2 or "").strip()
                 if reply2 and not _reply_fails_file_delivery(reply2, user_text=text):

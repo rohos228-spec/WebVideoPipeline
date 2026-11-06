@@ -6,8 +6,10 @@ export type ModelKind = "text" | "image" | "video";
 export type ModelVendorId =
   | "anthropic"
   | "openai"
+  | "glm"
   | "gemini"
   | "deepseek"
+  | "kimi"
   | "xai"
   | "images"
   | "video"
@@ -110,8 +112,10 @@ export const VENDOR_META: Record<
 > = {
   anthropic: { id: "anthropic", label: "Anthropic", icon: "A" },
   openai: { id: "openai", label: "OpenAI", icon: "hex" },
+  glm: { id: "glm", label: "GLM", icon: "Z" },
   gemini: { id: "gemini", label: "Gemini", icon: "spark" },
   deepseek: { id: "deepseek", label: "DeepSeek", icon: "D" },
+  kimi: { id: "kimi", label: "Kimi", icon: "K" },
   xai: { id: "xai", label: "xAI", icon: "X" },
   images: { id: "images", label: "Изображения", icon: "image" },
   video: { id: "video", label: "Видео", icon: "image" },
@@ -120,8 +124,10 @@ export const VENDOR_META: Record<
 const VENDOR_ORDER: Exclude<ModelVendorId, "other">[] = [
   "anthropic",
   "openai",
+  "glm",
   "gemini",
   "deepseek",
+  "kimi",
   "xai",
   "images",
   "video",
@@ -134,8 +140,10 @@ function vendorOf(id: string, isImage: boolean, isVideo = false): ModelVendorId 
   if (isImage) return "images";
   const mid = id.toLowerCase();
   if (mid.startsWith("claude")) return "anthropic";
+  if (mid.startsWith("glm")) return "glm";
   if (mid.startsWith("gemini")) return "gemini";
   if (mid.startsWith("deepseek")) return "deepseek";
+  if (mid.startsWith("kimi")) return "kimi";
   if (mid.startsWith("grok")) return "xai";
   return "openai";
 }
@@ -434,7 +442,7 @@ function normalizeSnapshot(row: SnapshotRow): CatalogModel {
     resolution: resolutionBadge(row.display_name, row.id),
     pricing,
     api_model: row.id,
-    provider: isImage ? "outsee" : "vibecode",
+    provider: isImage ? "outsee" : "52pay",
     channel: "stable",
   };
 }

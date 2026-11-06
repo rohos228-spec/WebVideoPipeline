@@ -105,11 +105,30 @@ def bind_project_llm(project: Any, status: Any | None = None) -> Iterator[NodeLl
     choice_raw = resolve_node_choice(meta, node_key=node_key, node_type=node_type)
     ov: NodeLlmOverride | None = None
     if choice_raw and choice_raw.get("kind") == "text":
+        prov = str(choice_raw.get("provider") or "").strip().lower()
+        mid = str(choice_raw.get("id") or "")
+        if "-pay52" in mid or prov in ("pay52", "52pay"):
+            resolved_prov = "52pay"
+        elif "-vibecode" in mid:
+            resolved_prov = "vibecode"
+        elif "-kie" in mid:
+            resolved_prov = "kie"
+        else:
+            from app.settings import settings
+
+            active_p = str(settings.resolved_text_llm_provider() or "").strip().lower()
+            if active_p in ("pay52", "52pay"):
+                resolved_prov = "52pay"
+            elif active_p == "kie":
+                resolved_prov = "kie"
+            else:
+                resolved_prov = "vibecode" if prov == "vibecode" else active_p or "52pay"
+
         ov = NodeLlmOverride(
             model_id=str(choice_raw["id"]),
             channel=str(choice_raw.get("channel") or "stable"),
             kind="text",
-            provider=str(choice_raw.get("provider") or "vibecode"),
+            provider=resolved_prov,
             label=str(choice_raw.get("label") or choice_raw["id"]),
             reasoning_effort=choice_raw.get("reasoning_effort"),
         )

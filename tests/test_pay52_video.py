@@ -14,6 +14,7 @@ def test_pay52_video_key_selection(monkeypatch) -> None:
     monkeypatch.setenv("SEEDANCE_OVERSEAS_KEY", "key-overseas")
     s = Settings()
 
+    assert pay52_video_key_for_model("seedance-2.0-mini", cfg=s) == "key-mini"
     assert pay52_video_key_for_model("seedance-2.0-mini-ref", cfg=s) == "key-mini"
     assert pay52_video_key_for_model("seedance-2-0-mini", cfg=s) == "key-mini"
     assert pay52_video_key_for_model("Seedance 2.0 Fast 海外", cfg=s) == "key-fast"
@@ -22,9 +23,14 @@ def test_pay52_video_key_selection(monkeypatch) -> None:
     assert pay52_video_key_for_model("seedance-2-0-overseas", cfg=s) == "key-overseas"
     assert pay52_video_key_for_model("seedance-2.5", cfg=s) == "key-overseas"
 
+    # Fallback на fast key, если mini key пустой
+    monkeypatch.setenv("SEEDANCE_MINI_KEY", "")
+    s_nofast = Settings()
+    assert pay52_video_key_for_model("seedance-2.0-mini", cfg=s_nofast) == "key-fast"
 
-def test_build_payload_seedance_mini_ref() -> None:
-    spec = {"model": "seedance-2.0-mini-ref"}
+
+def test_build_payload_seedance_mini() -> None:
+    spec = {"model": "seedance-2.0-mini"}
     values = {
         "prompt": "Cinematic sunset",
         "seconds": 8,
@@ -38,7 +44,7 @@ def test_build_payload_seedance_mini_ref() -> None:
     }
 
     payload = build_pay52_video_payload(spec, values)
-    assert payload["model"] == "seedance-2.0-mini-ref"
+    assert payload["model"] == "seedance-2.0-mini"
     assert payload["prompt"] == "Cinematic sunset"
     assert payload["seconds"] == "8"
     assert payload["aspect_ratio"] == "16:9"
@@ -53,7 +59,7 @@ def test_build_payload_seedance_mini_ref() -> None:
 
 
 def test_build_payload_seedance_mini_rejects_audio_alone() -> None:
-    spec = {"model": "seedance-2.0-mini-ref"}
+    spec = {"model": "seedance-2.0-mini"}
     values = {
         "prompt": "Talking head",
         "reference_audio_urls": ["https://img.example/aud1.mp3"],
@@ -76,7 +82,7 @@ def test_build_payload_seedance_fast_overseas() -> None:
     }
 
     payload = build_pay52_video_payload(spec, values)
-    assert payload["model"] == "Seedance 2.0 Fast 海外"
+    assert payload["model"] == "seedance-2.0-fast"
     assert payload["prompt"] == "Portrait of a smiling woman walking in Tokyo"
     assert payload["duration"] == 6
     assert payload["ratio"] == "9:16"
@@ -98,6 +104,6 @@ def test_build_payload_seedance_overseas_1080p() -> None:
         "resolution": "1080p",
     }
     payload = build_pay52_video_payload(spec, values)
-    assert payload["model"] == "Seedance 2.0 海外"
+    assert payload["model"] == "seedance-2.0-fast"
     assert payload["duration"] == 10
     assert payload["resolution"] == "1080p"

@@ -1,7 +1,7 @@
 """HTTP-клиент 52pay.com для генерации видео семейством Seedance.
 
 Поддерживаемые модели:
-  1. seedance-2.0-mini-ref (SEEDANCE_MINI_KEY):
+  1. seedance-2.0-mini (SEEDANCE_MINI_KEY / SEEDANCE_FAST_KEY):
      - prompt, seconds ("4"–"15"), aspect_ratio ("16:9"), resolution ("480p" | "720p")
      - metadata.content с ролями: first_frame, last_frame, reference_image (max 9),
        reference_video (max 3), reference_audio (max 3).
@@ -45,16 +45,34 @@ def pay52_base_url() -> str:
     return base.rstrip("/")
 
 
+def normalize_pay52_video_model(raw: str) -> str:
+    s = (raw or "").strip().lower()
+    if "mini" in s:
+        return "seedance-2.0-mini"
+    if "2.5" in s or "2-5" in s:
+        return "seedance-2.5"
+    if "fast" in s:
+        return "seedance-2.0-fast"
+    if "kling" in s:
+        return "kling-4.0-k1"
+    if "veo" in s:
+        return "veo-3.1-fast-generate-preview"
+    clean = (raw or "").strip()
+    if clean and not any("\u4e00" <= c <= "\u9fff" for c in clean):
+        return clean
+    return "seedance-2.0-fast"
+
+
 def pay52_video_key_for_model(model_name: str, cfg: Any | None = None) -> str:
     s = cfg or settings
     name_low = (model_name or "").lower()
     if "fast" in name_low:
-        return (s.seedance_fast_key or "").strip()
+        return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
     if "2.5" in name_low or "2-5" in name_low or "overseas" in name_low or "海外" in model_name:
-        return (s.seedance_overseas_key or "").strip()
+        return (s.seedance_overseas_key or s.seedance_fast_key or s.seedance_mini_key or "").strip()
     if "mini" in name_low or "ref" in name_low:
-        return (s.seedance_mini_key or "").strip()
-    return (s.seedance_mini_key or s.seedance_fast_key or s.seedance_overseas_key or "").strip()
+        return (s.seedance_mini_key or s.seedance_fast_key or s.seedance_overseas_key or "").strip()
+    return (s.seedance_fast_key or s.seedance_mini_key or s.seedance_overseas_key or "").strip()
 
 
 def pay52_configured() -> bool:
@@ -76,7 +94,7 @@ def pay52_video_configured(spec: dict[str, Any] | None = None) -> bool:
 
 def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> dict[str, Any]:
     """Сборка тела запроса согласно правилам конкретной модели Seedance на 52pay."""
-    model_raw = str(spec.get("model") or spec.get("id") or "seedance-2.0-mini-ref")
+    model_raw = str(spec.get("model") or spec.get("id") or "seedance-2.0-mini")
     prompt = str(values.get("prompt") or values.get("text") or "").strip()
 
     raw_dur = values.get("duration") or values.get("seconds") or 5
@@ -103,8 +121,8 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
     if isinstance(ref_audios, str):
         ref_audios = [ref_audios]
 
-    # 1. Модель seedance-2.0-mini-ref (базовый Mini)
-    if "mini" in model_raw.lower() or "seedance-2.0-mini-ref" in model_raw.lower():
+    # 1. Модель seedance-2.0-mini (базовый Mini)
+    if "mini" in model_raw.lower() or "seedance-2.0-mini" in model_raw.lower():
         content: list[dict[str, str]] = []
         img_count = 0
         if first_frame and img_count < 9:
@@ -146,7 +164,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             )
 
         payload: dict[str, Any] = {
-            "model": "seedance-2.0-mini-ref",
+            "model": "seedance-2.0-mini",
             "prompt": prompt,
             "seconds": str(min(15, max(4, dur_int))),
             "aspect_ratio": raw_ratio,
@@ -156,7 +174,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             payload["metadata"] = {"content": content}
         return payload
 
-    # 2. Модель Seedance 2.0 Fast 海外 (режим работы с лицами)
+    # 2. Модель Seedance 2.0 Fast (seedance-2.0-fast)
     if "fast" in model_raw.lower():
         all_images: list[str] = []
         if first_frame:
@@ -171,7 +189,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
                 all_images.append(su)
 
         return {
-            "model": "Seedance 2.0 Fast 海外",
+            "model": "seedance-2.0-fast",
             "prompt": prompt[:10000],
             "duration": min(15, max(4, dur_int)),
             "ratio": raw_ratio,
@@ -203,7 +221,7 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
             "referenceImages": all_images[:30],
         }
 
-    # 4. Seedance 2.0 Overseas (Seedance 2.0 海外)
+    # 4. Fallback / Seedance 2.0 (seedance-2.0-fast)
     all_images = []
     if first_frame:
         all_images.append(str(first_frame).strip())
@@ -216,8 +234,9 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
         if su and su not in all_images:
             all_images.append(su)
 
+    fallback_model = normalize_pay52_video_model(model_raw)
     return {
-        "model": "Seedance 2.0 海外",
+        "model": fallback_model,
         "prompt": prompt,
         "duration": min(15, max(4, dur_int)),
         "resolution": raw_res if raw_res in ("480p", "720p", "1080p") else "720p",
@@ -229,7 +248,8 @@ def build_pay52_video_payload(spec: dict[str, Any], values: dict[str, Any]) -> d
 
 async def create_task(body: dict[str, Any], *, key: str | None = None) -> str:
     """Создаёт задачу видеогенерации через POST /v1/videos."""
-    model_name = str(body.get("model") or "")
+    model_name = normalize_pay52_video_model(str(body.get("model") or ""))
+    body["model"] = model_name
     api_key = key or pay52_video_key_for_model(model_name)
     if not api_key:
         raise Pay52VideoError(
