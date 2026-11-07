@@ -17,6 +17,7 @@ from app.services.action_layer.spec import (
 
 _PID = {"type": "integer", "minimum": 1, "description": "ID проекта"}
 _MAX_FRAMES_IN_RESULT = 300
+_PROMPT_CHARS = 1500
 
 _COVERAGE_TYPES = (
     "coverage_kind",
@@ -127,6 +128,7 @@ async def _get_board(ctx: ActionContext, params: dict) -> dict:
     meta = board.get("meta") or {}
     return {
         "frame_count": board.get("frame_count", len(frames)),
+        "frame_aspect": board.get("frame_aspect"),
         "frames": [
             {
                 "frame_id": f.get("frame_id"),
@@ -137,10 +139,21 @@ async def _get_board(ctx: ActionContext, params: dict) -> dict:
                 # «Картинка для кадра 1 появилась?»: без этого чат отвечал «данных нет».
                 "has_image": bool(f.get("image_shot1_url") or f.get("image_shot2_url")),
                 "has_video": bool(f.get("video_shot1_url") or f.get("video_shot2_url")),
+                "duration_seconds": f.get("duration_seconds"),
             }
             for f in frames[:_MAX_FRAMES_IN_RESULT]
         ],
         "frames_truncated": len(frames) > _MAX_FRAMES_IN_RESULT,
+        "prompts": [
+            {
+                "number": f.get("number"),
+                "image_prompt_shot1": (f.get("image_prompt_shot1") or "")[:_PROMPT_CHARS],
+                "image_prompt_shot2": (f.get("image_prompt_shot2") or "")[:_PROMPT_CHARS],
+                "animation_prompt_shot1": (f.get("animation_prompt_shot1") or "")[:_PROMPT_CHARS],
+            }
+            for f in frames
+            if str(f.get("number")) in {str(n) for n in params.get("prompt_frames") or []}
+        ],
         "frames_with_image": sum(1 for f in frames if f.get("image_shot1_url") or f.get("image_shot2_url")),
         "frames_with_video": sum(1 for f in frames if f.get("video_shot1_url") or f.get("video_shot2_url")),
         "pending_ops": list(meta.get("pending_ops") or []),
@@ -239,7 +252,18 @@ def _specs() -> list[ActionSpec]:
             title_ru="Прочитать доску монтажа",
             description_ru="Кадры, закадр, очередь правок и устаревшие видео. Ничего не меняет "
             "(доска только обновляет свой кэш).",
-            params_schema=status_schema,
+            params_schema={
+                **status_schema,
+                "properties": {
+                    **status_schema["properties"],
+                    "prompt_frames": {
+                        "type": "array",
+                        "maxItems": 5,
+                        "items": {"type": "integer", "minimum": 1},
+                        "description": "Номера кадров, чьи промты картинок и анимации показать",
+                    },
+                },
+            },
             executor=_get_board,
             risk=RISK_READ,
             idempotent=True,

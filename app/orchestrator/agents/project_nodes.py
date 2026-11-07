@@ -171,8 +171,11 @@ ALL_PROPOSALS_HEAD = (
 )
 
 
+_TRANSLIT = re.compile(r"(?<![а-я])(?:чат)?[гж]пт(?![а-я])")
+
+
 def _norm(text: str) -> str:
-    return " ".join((text or "").lower().replace("ё", "е").split())
+    return _TRANSLIT.sub("gpt", " ".join((text or "").lower().replace("ё", "е").split()))
 
 
 def _stem(word: str) -> str:
@@ -418,9 +421,10 @@ def model_options_text(meta: Any, key: str) -> str:
     for option in sorted(options, key=_order)[:_MAX_OPTIONS]:
         cost = str(option.get("cost_vs_current") or "unknown")
         if option["id"] == current.get("model_id"):
-            lines.append(f"- {option['id']} ({option['label']}): текущая, {option['price_ru']}")
+            best = ", самая дешёвая" if option["id"] in cheapest else ""
+            lines.append(f"- {option['id']} ({option['label']}): текущая{best}, {option['price_ru']}")
             continue
-        mark = _COST_RU.get(cost, cost) + (", самая дешёвая" if option["id"] in cheapest else "")
+        mark = _COST_RU.get(cost, cost) + (", самая дешёвая" if option["id"] in cheapest and cost == "cheaper" else "")
         action = _SET_ACTION.get(cost, "node.set_model_costly")
         if previous is not None and ne.canonical_model_id(option["id"]) == previous:
             # Вернуть то, что стояло до правки, — откат, но только если цена не растёт:
@@ -429,6 +433,8 @@ def model_options_text(meta: Any, key: str) -> str:
                 action = f"вернуть прежнюю по просьбе человека — node.revert_model, иначе {action}"
             mark = "прежняя модель этой ноды, " + mark
         lines.append(f"- {option['id']} ({option['label']}): {mark}, {option['price_ru']}; {action}")
+    if current.get("model_id") in cheapest and not any(o.get("cost_vs_current") == "cheaper" for o in options):
+        lines.append("Дешевле текущей здесь нет: на «поставь подешевле» менять модель незачем, так и скажи.")
     return "\n".join(lines)
 
 
@@ -689,6 +695,7 @@ async def load_frames(project_id: int) -> Any:
 
 
 _MAX_PROJECTS = 30
+_LOOKUP_PROJECTS = 1000
 PROJECTS_HEAD = (
     "Проекты фабрики (project_id: название, статус). project_id бери только отсюда; "
     "цифры в названии проекта — это не его номер:"
@@ -730,7 +737,7 @@ async def load_projects() -> Any:
             await session.execute(
                 select(Project.id, Project.title, Project.topic, Project.status)
                 .order_by(Project.id.desc())
-                .limit(_MAX_PROJECTS)
+                .limit(_LOOKUP_PROJECTS)
             )
         ).all()
     return [
@@ -778,7 +785,16 @@ def projects_text(items: list[dict[str, Any]], text: str) -> str:
     if not items:
         return ""
     lines = [PROJECTS_HEAD]
-    lines.extend(f"- {item['id']}: «{item['title']}», {item['status']}" for item in items[:_MAX_PROJECTS])
+    shown = list(items[:_MAX_PROJECTS])
+    seen = {item["id"] for item in shown}
+    asked = set(numbered_projects(items, text))
+    shown.extend(item for item in items[_MAX_PROJECTS:] if item["id"] in asked and item["id"] not in seen)
+    lines.extend(f"- {item['id']}: «{item['title']}», {item['status']}" for item in shown)
+    if len(items) > len(shown):
+        lines.append(
+            f"Показаны {len(shown)} из {len(items)} проектов; номер вне списка не называй отсутствующим, "
+            "если не уверен — прочитай project.status."
+        )
     named = named_projects(items, text)
     if len(named) == 1:
         lines.append(f"В запросе назван проект «{named[0]['title']}»: это project_id={named[0]['id']}.")

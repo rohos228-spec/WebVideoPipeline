@@ -914,6 +914,7 @@ _PARAM_LABELS = {
     "start": "от",
     "end": "до",
     "bgm_level": "громкость музыки",
+    "voice": "голос",
     "subtitles_enabled": "субтитры",
     "skip_intro_enabled": "пропуск начала",
     "skip_intro_seconds": "пропустить секунд",
@@ -1042,6 +1043,9 @@ def _short(text: str) -> str:
     return text if len(text) <= _VALUE_LIMIT else text[: _VALUE_LIMIT - 3] + "..."
 
 
+_TOGGLE_KEYS = frozenset({"subtitles_enabled", "skip_intro_enabled"})
+
+
 def _param_text(key: str, value: Any, facts: dict | None) -> str:
     if key.endswith("frame_id") and isinstance(value, int) and not isinstance(value, bool) and facts:
         row = _row_by_id(facts, value)
@@ -1049,6 +1053,8 @@ def _param_text(key: str, value: Any, facts: dict | None) -> str:
             value = row[0]
     label = _PARAM_LABELS.get(key, key)
     if isinstance(value, bool):
+        if key in _TOGGLE_KEYS:
+            return f"{label}: {'включить' if value else 'выключить'}"
         return label if value else ""
     if isinstance(value, dict):
         return ""
@@ -1130,6 +1136,11 @@ def param_parts_ru(params: dict | None, facts: dict | None = None) -> list[str]:
         if key == "titles" and value == (params or {}).get("topics"):
             continue
         txt = _param_text(key, value, facts)
+        target = (params or {}).get("target_node_type")
+        if key == "mode" and value == "until_node" and isinstance(target, str) and target:
+            from app.services.node_edit import TYPE_RU
+
+            txt = f"до ноды «{TYPE_RU.get(target, target)}»"
         if txt:
             parts.append(sanitize_text(txt, 90))
     return list(dict.fromkeys(parts))[:_MAX_PARAMS_SHOWN]

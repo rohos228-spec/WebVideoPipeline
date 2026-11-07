@@ -247,10 +247,41 @@ _PROMPT_PROPOSE = (
 _SCREEN_NOTE_PREFIX = "Проверка плана"
 
 
-def _critic_context(context: str) -> str:
-    """Контекст критику без подсказок проверки плана: они о прошлом, уже отклонённом плане."""
+def _critic_context(context: str, goal: str = "") -> str:
     lines = (context or "").split("\n")
-    return "\n".join(line for line in lines if not line.lstrip().startswith(_SCREEN_NOTE_PREFIX)).strip()
+    kept: list[str] = []
+    skipping = False
+    for line in lines:
+        if line.startswith(_DIALOG_NOTE_START):
+            skipping = True
+            continue
+        if skipping and re.match(r"(Человек|Чат): ", line):
+            continue
+        skipping = False
+        if not line.lstrip().startswith(_SCREEN_NOTE_PREFIX):
+            kept.append(line)
+    out = "\n".join(kept).strip()
+    if goal:
+        out = f"Просьба человека, с которой сверять план: «{goal}».\n{out}".strip()
+    return out
+
+
+_DIALOG_NOTE_START = "Последние реплики этого чата"
+
+
+def _failure_cause_of(step: PlanStep, result: Any) -> str:
+    if step.action != "diag.node_failure" or envelope_status(result) != "ok":
+        return ""
+    body = envelope_body(result)
+    if not isinstance(body, dict):
+        return ""
+    errors = body.get("errors")
+    if isinstance(errors, dict):
+        errors = [errors.get("error") or errors.get("batch_error") or ""]
+    error = next((str(e) for e in (errors or []) if e), "") if isinstance(errors, list) else ""
+    error = error or str(body.get("error") or "")
+    node = body.get("title") or body.get("node_key") or ""
+    return f"Нода «{node}». Ошибка: {error}" if error else ""
 
 
 _CHECK_RU = {
@@ -481,6 +512,8 @@ class Supervisor:
         self._approved: dict[int, str] = {}
         # Планы, собранные кодом без модели (откат «верни как было»): отпечаток плана задачи.
         self._from_code: dict[int, bool] = {}
+        self._read_notes: dict[int, list[str]] = {}
+        self._read_replanned: set[int] = set()
         # Снимок last_* планировщика и критика на задачу: объекты общие для всех чатов,
         # а между ответом и чтением супервизора сосед успевает их перезаписать.
         self._planner_meta: dict[int, dict[str, Any]] = {}
@@ -495,6 +528,7 @@ class Supervisor:
         self._launch_note: dict[int, str] = {}
         # Массовый запуск: кого не поставили (жёсткое условие запуска) — первой строкой карточки.
         self._launch_skipped: dict[int, str] = {}
+        self._fix_next: dict[int, str] = {}
         self._unknown_step: dict[int, dict[str, Any]] = {}
         self._appr_seq: dict[int, int] = {}
         self._appr_open: dict[int, str | None] = {}
@@ -554,7 +588,7 @@ class Supervisor:
         )
         self._session_task[session_id] = task_id
         self._change_ids[task_id] = []
-        self._context[task_id] = ""
+        self._context[task_id] = await self._dialog_context(session_id, goal)
         self._paid_done[task_id] = set()
         self._runs[task_id] = self._watch_run(
             task_id,
@@ -1521,6 +1555,23 @@ class Supervisor:
             self._queued.setdefault(session_id, []).append((task_id, goal))
             return task_id
         return await self.start_task(session_id, goal, project_id=bound)
+
+    async def _dialog_context(self, session_id: str, goal: str) -> str:
+        if len(str(goal or "").split()) > 6:
+            return ""
+        try:
+            from app.orchestrator.queue import _recent_dialog
+
+            turns = await asyncio.to_thread(_recent_dialog, session_id, goal)
+        except Exception:
+            return ""
+        if not turns:
+            return ""
+        lines = [f"{'Человек' if t['role'] == 'user' else 'Чат'}: {t['content'][:400]}" for t in turns[-4:]]
+        return (
+            "Последние реплики этого чата — короткая просьба продолжает их (что «недостающие», "
+            "какой «второй», что «в два раза»):\n" + "\n".join(lines)
+        )
 
     async def _waiting_twin(self, session_id: str, goal: str) -> int | None:
         words = _goal_words(goal)
@@ -2809,6 +2860,15 @@ class Supervisor:
 
     def _last_check(self, session_id: str) -> tuple[str, dict] | None:
         # «Почини» — к последнему разбору в чате: сбою ноды или проверке содержания.
+        from app.orchestrator.agents import findings
+
+        kept = findings.last(session_id)
+        if kept:
+            return str(kept["action"]), {
+                **kept["params"],
+                "_fix_options": list(kept["fix_options"]),
+                **({"_healthy": kept["healthy_text"]} if kept.get("healthy_text") else {}),
+            }
         rows: list[dict] = []
         for action in ("diag.node_failure", "diag.content_checks"):
             try:
@@ -2824,6 +2884,221 @@ class Supervisor:
                 return str(row.get("action_name")), params
         return None
 
+    async def _shortcut_plan(self, task_id: int, goal: str) -> list[PlanStep] | None:
+        from app.orchestrator.agents import compound_scope as cs
+        from app.orchestrator.agents.number_words import words_to_digits
+        from app.orchestrator.queue import strip_continuation
+
+        said = cs.resolve_changed_mind(words_to_digits(strip_continuation(goal)))
+        if cs.has_open_change_of_mind(said):
+            return None
+        clauses = cs.split_clauses(said)
+        if len(clauses) < 2 or _NEW_VIDEO_RE.search(said):
+            fixed = await self._one_shortcut(task_id, said)
+            return cs.order_steps(fixed) if fixed else fixed
+        from app.orchestrator.agents.run_scope import create_run_plan
+
+        together = create_run_plan(said)
+        if together:
+            return together
+        steps: list[PlanStep] = []
+        project_id = self._task_project_id(task_id)
+        for clause in clauses:
+            one = cs.with_project(clause, said)
+            part = await self._one_shortcut(task_id, one) or cs.step_clause_plan(one, project_id)
+            if not part:
+                logger.info("orch task {} compound: no rule for part {!r}", task_id, clause[:80])
+                return None
+            steps.extend(part)
+        return cs.order_steps(steps)
+
+    async def _one_shortcut(self, task_id: int, goal: str) -> list[PlanStep] | None:
+        from app.orchestrator.agents.number_words import words_to_digits
+        from app.orchestrator.queue import strip_continuation
+
+        goal = words_to_digits(strip_continuation(goal))
+        new_video = bool(_NEW_VIDEO_RE.search(goal))
+        fixed: list[PlanStep] | None = None
+        if not fixed and not new_video:
+            from app.orchestrator.agents.music_scope import music_volume_plan
+
+            fixed = await music_volume_plan(goal, self._task_project_id(task_id))
+            if fixed and (" и " in f" {goal.lower()} " or "," in goal):
+                from app.orchestrator.agents.style_scope import voice_plan as _voice_also
+
+                fixed = [*fixed, *(_voice_also(goal, self._task_project_id(task_id), second_part=True) or [])]
+        if not fixed and not new_video:
+            from app.orchestrator.agents.style_scope import style_plan
+
+            fixed = await style_plan(goal, self._task_project_id(task_id))
+        if not fixed and not new_video:
+            from app.orchestrator.agents.style_scope import wide_edit_plan
+
+            fixed = await wide_edit_plan(goal, self._task_project_id(task_id))
+        if not fixed and not new_video:
+            from app.orchestrator.agents.style_scope import voice_plan
+
+            fixed = voice_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.run_scope import run_plan
+
+            fixed = run_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.frame_scope import frame_prompt_plan
+
+            fixed = frame_prompt_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.frame_scope import video_frame_plan
+
+            fixed = video_frame_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.frame_scope import image_frame_plan
+
+            fixed = image_frame_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.frame_scope import apply_queue_plan
+
+            fixed = await apply_queue_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.frame_scope import swap_frames_plan
+
+            fixed = swap_frames_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.run_scope import publish_plan
+
+            fixed = await publish_plan(goal, self._task_project_id(task_id))
+        if not fixed:
+            from app.orchestrator.agents.run_scope import create_run_plan
+
+            fixed = create_run_plan(goal)
+        if not fixed and self._launch_allowed("queue.enqueue_many"):
+            from app.orchestrator.agents.action_catalog import _studio_projects
+            from app.orchestrator.agents.launch_scope import seed_multi_launch
+
+            fixed = seed_multi_launch(goal, lambda: [pid for pid, _ in _studio_projects(task_id)])
+        return fixed
+
+    async def _canonical_goal(self, task_id: int, goal: str) -> str | None:
+        from app.orchestrator.agents.intent_rewrite import canonical_goal
+
+        out = await canonical_goal(
+            goal,
+            getattr(self.planner, "router", None),
+            self._llm_kwargs(task_id, AgentRole.classifier.value),
+        )
+        if out:
+            logger.info("orch task {} intent rewrite: {!r} -> {!r}", task_id, goal, out)
+        return out
+
+    async def _intent_stage(self, task_id: int, goal: str, context: str) -> Any:
+        from app.orchestrator.agents import intent_retriever as ir
+        from app.orchestrator.agents.action_catalog import _allowed_specs, _task_project, boost_task
+
+        if not ir.enabled():
+            return None
+        ir.count("tasks")
+        try:
+            specs = _allowed_specs()
+        except Exception:
+            logger.exception("orch intent: catalog unavailable")
+            return None
+        intent = await ir.retrieve_intent(
+            goal,
+            router=getattr(self.planner, "router", None),
+            llm_kwargs=self._llm_kwargs(task_id, AgentRole.classifier.value),
+            specs=specs,
+            project_id=_task_project(task_id),
+            dialog=str(context or "")[-1500:],
+        )
+        digest = hashlib.sha1(str(goal).encode("utf-8")).hexdigest()[:10]
+        if intent is None:
+            logger.info("orch intent task={} request_hash={} status=skipped", task_id, digest)
+            return None
+        boost_task(task_id, intent.candidates)
+        logger.info(
+            "orch intent task={} request_hash={} offered={} candidates={} confidence={:.2f} "
+            "clarify={} entities={} latency_ms={} summary={!r}",
+            task_id,
+            digest,
+            len(specs),
+            intent.candidates,
+            intent.confidence,
+            bool(intent.clarification),
+            intent.entities,
+            intent.latency_ms,
+            intent.summary,
+        )
+        return intent
+
+    async def _repair_plan(
+        self,
+        task_id: int,
+        session_id: str,
+        goal: str,
+        context: str,
+        intent: Any,
+    ) -> tuple[list[PlanStep] | None, str]:
+        from app.orchestrator.agents import intent_retriever as ir
+        from app.orchestrator.agents.action_catalog import boost_task
+
+        reason = self._planner_reason(task_id)
+        canonical = None if _is_compound(goal) else await self._canonical_goal(task_id, goal)
+        if canonical:
+            again = await self._shortcut_plan(task_id, canonical)
+            if again:
+                self._trace_plan(task_id, "intent_rewrite", list(again), canonical)
+                ir.count("repair_used")
+                ir.count("repair_ok")
+                return again, canonical
+        if not ir.enabled() and not canonical:
+            return [], goal
+        ir.count("repair_used")
+        boost_task(task_id, list(intent.candidates) if intent is not None else [], wide=True)
+        notes = [f"Прошлая попытка вернула пустой план: «{reason or 'без причины'}»."]
+        if canonical:
+            notes.append(f"Слова человека: «{goal}». Смысл просьбы в виде команды: «{canonical}».")
+        notes.append(
+            "Каталог расширен. Проект задачи известен; если смысл ясен — верни план из каталога, "
+            "необязательные детали подставь сам или опусти. Пустой план — только если такого действия "
+            "в каталоге действительно нет (тогда так и скажи) или без ответа человека делать нечего."
+        )
+        target = canonical or goal
+        again = await self._draft_plan(task_id, session_id, target, (context + "\n" + " ".join(notes)).strip())
+        logger.info(
+            "orch intent task={} repair steps={} canonical={!r} prev_reason={!r}",
+            task_id,
+            len(again or []),
+            canonical,
+            reason[:120],
+        )
+        if again:
+            self._trace_plan(task_id, "intent_repair", list(again), target)
+            ir.count("repair_ok")
+            return again, target
+        return again, goal
+
+    def _intent_outcome(self, task_id: int, goal: str, drafted: Any) -> None:
+        from app.orchestrator.agents import intent_retriever as ir
+
+        if not ir.enabled():
+            return
+        if drafted:
+            status = "plan"
+            ir.count("plan_ok")
+        elif drafted == [] and ir.is_clarify(self._planner_reason(task_id)):
+            status = "clarify"
+            ir.count("plan_clarify")
+        else:
+            status = "empty"
+            ir.count("plan_empty")
+        logger.info(
+            "orch intent task={} final_status={} steps={} actions={}",
+            task_id,
+            status,
+            len(drafted or []),
+            [_step_action(step) for step in (drafted or [])][:10],
+        )
+
     async def _make_plan(
         self,
         task_id: int,
@@ -2836,6 +3111,9 @@ class Supervisor:
             return None
         if self._status(task_id) is not TaskStatus.planning:
             await self._set_status(task_id, TaskStatus.planning, session_id=session_id)
+        from app.orchestrator.agents import findings as _findings
+
+        goal = _findings.launch_goal(goal, session_id)
         # «Почини» сразу после разбора сбоя: без проекта и ноды планировщик отвечал «уточните».
         last_check = self._last_check(session_id) if is_bare_fix(goal) else None
         if last_check and last_check[0] == "diag.node_failure":
@@ -2843,13 +3121,51 @@ class Supervisor:
         token = _LLM_TASK.set(int(task_id))
         try:
             # Планировщик на голое «почини» отдавал пустой план: исправление берём из разбора.
+            if last_check and last_check[1].get("_healthy"):
+                nothing = str(last_check[1]["_healthy"])
+                await write_on_loop(self._save_plan, task_id, [])
+                self._fail_detail[task_id] = nothing
+                self._code_answers.add(task_id)
+                self._trace_plan(task_id, "fix_nothing", [], nothing)
+                return []
             fixed = await plan_fix_from_last(last_check)
+            if fixed and last_check:
+                from app.orchestrator.agents import findings
+
+                after = findings.next_phrase(
+                    list(last_check[1].get("_fix_options") or []), [s.action for s in fixed]
+                )
+                if after:
+                    self._fix_next[int(task_id)] = f"Когда правка применена, дальше: «{after}»."
+                    findings.set_next(session_id, after)
+            if not fixed:
+                fixed = await self._shortcut_plan(task_id, goal)
+            intent = None
+            if not fixed and not last_check:
+                intent = await self._intent_stage(task_id, goal, context)
+                if intent is not None:
+                    from app.orchestrator.agents.intent_retriever import context_note
+
+                    context = (context + "\n" + context_note(intent)).strip()
+            if not fixed and _is_compound(goal):
+                from app.orchestrator.agents.compound_scope import compound_note, split_clauses
+                from app.orchestrator.queue import strip_continuation
+
+                context = (context + "\n" + compound_note(split_clauses(strip_continuation(goal)))).strip()
+            if not fixed and _NODE_WORD_RE.search(goal or ""):
+                context = (context + "\n" + _node_name_note()).strip()
+            if not fixed and _NEW_VIDEO_RE.search(goal or ""):
+                context = (context + "\n" + _NEW_VIDEO_NOTE).strip()
             drafted = fixed if fixed else await self._draft_plan(task_id, session_id, goal, context)
             if drafted == [] and self._asks_approval(task_id):
                 self._trace_plan(task_id, "asked_approval", [], self._planner_reason(task_id))
                 drafted = await self._draft_plan(
                     task_id, session_id, goal, (context + "\n" + _APPROVAL_NOTE).strip()
                 )
+            if drafted == [] and not fixed and not last_check:
+                drafted, goal = await self._repair_plan(task_id, session_id, goal, context, intent)
+            if not fixed and not last_check:
+                self._intent_outcome(task_id, goal, drafted)
             if drafted and _enable_not_launch(goal, list(drafted)):
                 self._trace_plan(task_id, "enable_not_launch", list(drafted), "включение ноды, не запуск")
                 drafted = await self._draft_plan(
@@ -2859,10 +3175,22 @@ class Supervisor:
                     drafted = [step for step in drafted if _step_action(step) != "step.run_step"]
         finally:
             _LLM_TASK.reset(token)
+            from app.orchestrator.agents.action_catalog import clear_boost
+
+            clear_boost(task_id)
         if drafted is None:
             return None
         # Правка настроек проекта — только названные ключи, до сверки с текущими значениями.
         drafted = scope_settings(list(drafted), goal)
+        from app.orchestrator.agents.frame_scope import board_not_report
+
+        drafted = board_not_report(list(drafted), goal)
+        from app.orchestrator.agents.run_scope import clip_report_ids
+
+        drafted = clip_report_ids(list(drafted))
+        from app.orchestrator.agents.run_scope import drop_needless_reset
+
+        drafted = drop_needless_reset(list(drafted), goal)
         # «Кадр 8: ночное освещение» — свет на доске, а не платная перерисовка картинки.
         drafted = light_as_coverage(drafted, goal)
         # «Музыка для проекта 4 — файл C:\...\bgm.wav»: путь из просьбы, если шаг загрузки без файла.
@@ -2871,17 +3199,37 @@ class Supervisor:
         drafted = failure_reads(drafted, goal, None, self._last_diag_project(session_id))
         drafted = await fix_with_diag(list(drafted), goal, self.actions)
         drafted = content_check_scope(drafted, goal)
+        from app.orchestrator.agents.failure_scope import logs_with_diagnosis
+
+        drafted = logs_with_diagnosis(list(drafted))
         # «Запусти проекты 3..12 одновременно» — очередь генерации, а не шаг в каждом проекте.
         # Участнику окно параллели (одно на всю студию) не ставим: вместо шага — строка карточки.
         launch_notes: list[str] = []
         drafted = route_multi_launch(drafted, goal, _queue_limit(), self._launch_allowed, launch_notes)
+        if any(_step_action(step) == "queue.enqueue_many" for step in drafted):
+            from app.orchestrator.agents.action_catalog import _studio_projects
+            from app.orchestrator.agents.launch_scope import drop_missing_projects
+
+            drafted = drop_missing_projects(
+                list(drafted), lambda: [pid for pid, _ in _studio_projects(task_id)], launch_notes
+            )
+            if not drafted and launch_notes:
+                nothing = " ".join(launch_notes)
+                await write_on_loop(self._save_plan, task_id, [])
+                self._fail_detail[task_id] = nothing
+                self._code_answers.add(task_id)
+                self._trace_plan(task_id, "projects_missing", [], nothing)
+                return []
         if launch_notes:
             self._launch_note[task_id] = " ".join(launch_notes)
         else:
             self._launch_note.pop(task_id, None)
         try:
+            from app.orchestrator.agents.compound_scope import sync_apply_counts
+
             resolved = _chain_from_queue(
-                [await self._resolved(self._with_defaults(step)) for step in drafted], goal
+                [await self._resolved(self._with_defaults(step)) for step in sync_apply_counts(list(drafted))],
+                goal,
             )
         except PlanResolveRefused as exc:
             # Шаг нельзя достроить без чтения данных: плана нет, человеку — текст отказа.
@@ -3255,6 +3603,11 @@ class Supervisor:
         if why and _ASKS_APPROVAL_RE.search(why):
             self._fail_detail[task_id] = _ASKED_APPROVAL
             return
+        gap = task_summary.known_gap_text(goal)
+        if gap:
+            self._fail_detail[task_id] = f"{task_summary.NOT_SUPPORTED} {gap}"
+            self._code_answers.add(task_id)
+            return
         # Планировщик понял просьбу и спрашивает уточнение: его вопрос человеческими словами
         # (без id, ключей нод и полей плана) вместо общего «Не понял, что сделать».
         ask = task_summary.clarify_text(str(self._planner_last(task_id, "last_reason") or ""))
@@ -3351,7 +3704,7 @@ class Supervisor:
         # Подсказки проверки плана («Проверка плана …: исправь план, только id из каталога …») —
         # для планировщика, и к критику план приходит уже после неё. Задача 348: критик прочитал
         # подсказку про прошлый, отклонённый план и вернул её как revise к исправленному.
-        context = _critic_context(context)
+        context = _critic_context(context, str((self.tasks.get(task_id) or {}).get('goal') or ''))
         skipped = self._launch_skipped.get(int(task_id))
         if skipped:
             # Проекты, убранные кодом до карточки, — не ошибка плана: критик не должен просить
@@ -3958,12 +4311,22 @@ class Supervisor:
 
             paid_in_batch = False
             rejected = False
+            rejected_writes = False
             for offset, (item, result) in enumerate(zip(started, results, strict=True)):
                 done_step, step_id = item
                 if done_step.paid:
                     paid_in_batch = True
                 if not await self._record(task_id, session_id, done_step, step_id, result, index + offset):
                     rejected = True
+                    rejected_writes = rejected_writes or not step_is_readonly(done_step, self.actions)
+            rest_readonly = all(step_is_readonly(later, self.actions) for later in plan[index + len(batch) :])
+            if (
+                rejected
+                and not rejected_writes
+                and rest_readonly
+                and self._status(task_id) is TaskStatus.executing
+            ):
+                rejected = False
             if rejected:
                 current = self._status(task_id)
                 if current not in TERMINAL_STATUSES and current is not TaskStatus.waiting_approval:
@@ -4016,6 +4379,7 @@ class Supervisor:
                         await self._fail_validation(task_id, session_id)
                         return
 
+            self._note_reads(task_id, started, results)
             plan = await self._insert_follow_up(task_id, plan, index + len(batch), started, results, goal)
             index += len(batch)
             await self._checkpoint(task_id, session_id, plan, index)
@@ -4034,10 +4398,63 @@ class Supervisor:
             if await self._hold_for_approval(task_id, session_id, plan, index):
                 return
 
+            if index >= len(plan):
+                more = await self._launch_after_reads(task_id, session_id, plan, goal)
+                if more:
+                    plan = [*plan, *more]
+                    await write_on_loop(self.tasks.save_plan, task_id, plan)
+                    await self._checkpoint(task_id, session_id, plan, index)
+
         if await self._stop_if_budget(task_id, session_id, plan, index):
             return
         await self._set_status(task_id, TaskStatus.done, session_id=session_id)
         await self.bus.publish(session_id, "task_done", {"task_id": task_id}, task_id=task_id)
+
+    def _note_reads(self, task_id: int, started: list[tuple[PlanStep, int]], results: list[Any]) -> None:
+        notes = self._read_notes.setdefault(task_id, [])
+        for (step, _sid), result in zip(started, results, strict=False):
+            if not step_is_readonly(step, self.actions) or envelope_status(result) != "ok":
+                continue
+            try:
+                body = json.dumps(envelope_body(result), ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                body = str(envelope_body(result))
+            notes.append(f"{step.action} {json.dumps(step.params, ensure_ascii=False)} -> {body[:_READ_NOTE_CHARS]}")
+
+    async def _launch_after_reads(
+        self, task_id: int, session_id: str, plan: list[PlanStep], goal: str
+    ) -> list[PlanStep]:
+        if task_id in self._read_replanned or not _LAUNCH_ASK_RE.search(goal or ""):
+            return []
+        if _QUESTION_ASK_RE.search(goal or "") and not _ACT_NOW_RE.search(goal or ""):
+            return []
+        if any(not step_is_readonly(step, self.actions) for step in plan):
+            return []
+        notes = self._read_notes.get(task_id) or []
+        if not notes:
+            return []
+        self._read_replanned.add(task_id)
+        context = _AFTER_READS_NOTE + "\n" + _node_name_note() + "\n" + "\n".join(notes)[-_READ_CONTEXT_CHARS:]
+        token = _LLM_TASK.set(int(task_id))
+        try:
+            drafted = await self._draft_plan(task_id, session_id, goal, context)
+        except Exception as exc:
+            logger.info("orch task {} launch after reads failed: {}", task_id, type(exc).__name__)
+            return []
+        finally:
+            _LLM_TASK.reset(token)
+        seen = {_plan_fingerprint([step]) for step in plan}
+        fresh = [step for step in drafted or [] if _plan_fingerprint([step]) not in seen]
+        if not any(not step_is_readonly(step, self.actions) for step in fresh):
+            self._trace_plan(task_id, "after_reads_none", fresh, "действия не нашлось")
+            return []
+        if any(not_in_whitelist(step.action, self.actions) for step in fresh):
+            return []
+        fresh = [tighten_paid_step(self.actions, step) for step in fresh]
+        if forecast_unknown(fresh):
+            return []
+        self._trace_plan(task_id, "after_reads", fresh, "досборка после чтений")
+        return fresh
 
     async def _insert_follow_up(
         self,
@@ -5040,6 +5457,9 @@ class Supervisor:
         if not self._claim_step(step_id):
             return True
         note = self._note_step(task_id, step, result)
+        from app.orchestrator.agents import findings
+
+        findings.remember(step.action, dict(step.params), result, session_id=session_id)
         problem, change_id = await write_on_loop(
             self._write_step_done, task_id, step, step_id, result, position, what=f"task {task_id} step done"
         )
@@ -5076,6 +5496,7 @@ class Supervisor:
                 "warnings": envelope_warnings(result),
                 "skipped": envelope_skipped(result),
                 "summary": task_summary.step_summary(note),
+                "cause": _failure_cause_of(step, result),
             },
             task_id=task_id,
         )
@@ -5111,6 +5532,11 @@ class Supervisor:
             detail=self._fail_detail.pop(task_id, ""),
             steps=self._notes.pop(task_id, []),
             answered=task_id in self._code_answers,
+            note=" ".join(
+                part
+                for part in (self._launch_skipped.get(int(task_id)), self._fix_next.pop(int(task_id), None))
+                if part
+            ),
         )
         self._code_answers.discard(task_id)
         token = _LLM_TASK.set(int(task_id))
@@ -6164,6 +6590,62 @@ def _sanity_feedback(plan: list[PlanStep], result: ValidatorResult) -> tuple[str
 
 #: «Подготовь правку, но не применяй»: применение тогда не предлагаем.
 _NO_APPLY_RE = re.compile(r"не\s+примен|без\s+применени|только\s+(?:подготов|предлож)", re.IGNORECASE)
+
+
+_READ_NOTE_CHARS = 1500
+_NEW_VIDEO_RE = re.compile(
+    r"^\s*(?:сделай|создай|сгенерируй|запили|сними|нужен|хочу)\s+(?:нов\w+\s+|ещ[её]\s+(?:один\s+)?)?"
+    r"(?:ролик|видео|клип|видос|мультик)\w*\s+(?:про|о|об|на\s+тему)\s",
+    re.IGNORECASE,
+)
+
+
+def _is_compound(goal: str) -> bool:
+    from app.orchestrator.agents.compound_scope import resolve_changed_mind, split_clauses
+    from app.orchestrator.queue import strip_continuation
+
+    said = resolve_changed_mind(strip_continuation(goal or ""))
+    return len(split_clauses(said)) > 1 and not _NEW_VIDEO_RE.search(said)
+
+
+_NEW_VIDEO_NOTE = (
+    "Это просьба сделать НОВЫЙ ролик: создай новый проект (project.create) с этой темой. "
+    "Открытый в окне проект не меняй. Стиль, голос и длительность — для нового проекта: "
+    "что нельзя задать при создании, назови в ответе следующей фразой после создания."
+)
+_NODE_WORD_RE = re.compile(r"(?<!\w)нод\w*", re.IGNORECASE)
+_READ_CONTEXT_CHARS = 5000
+_LAUNCH_ASK_RE = re.compile(
+    r"(?<!\w)(запуст|прогон|перезапуст|исправ|почин|переген|сгенер|перерисуй|переделай)\w*",
+    re.IGNORECASE,
+)
+_QUESTION_ASK_RE = re.compile(r"(?<!\w)(как|можно ли|почему|зачем|что будет)(?!\w)|\?\s*$", re.IGNORECASE)
+_ACT_NOW_RE = re.compile(
+    r"(?<!\w)(запусти|перезапусти|прогони|исправь|почини|перегенерируй|сгенерируй|перерисуй|переделай)(?!\w)",
+    re.IGNORECASE,
+)
+_AFTER_READS_NOTE = (
+    "Чтения по этой просьбе уже выполнены, их результаты ниже. Не повторяй их. "
+    "Поставь действие, о котором просит человек (запуск, перезапуск, исправление), "
+    "взяв ключи нод, групп и шагов из результатов. Если по результатам действовать нельзя — пустой план."
+)
+
+
+def _node_name_note() -> str:
+    from app.orchestrator.default_graph import default_graph
+
+    names: dict[str, str] = {}
+    for node in default_graph()[0]:
+        label = str((node.get("data") or {}).get("label") or node.get("label") or "")
+        typ = str(node.get("type") or "")
+        if label and typ and label not in names:
+            names[label] = typ
+    pairs = "; ".join(f"«{label}» — тип {typ}" for label, typ in names.items())
+    return (
+        "Подписи нод на холсте бывают старыми: если ноды с названием из просьбы нет, ищи по типу. "
+        "Обычные названия: " + pairs + ". Тип excel_gpt на старых холстах подписан «Работа с GPT N»; "
+        "если таких нод несколько, а номер не назван, бери первую по схеме."
+    )
 
 
 def _follow_up_steps(

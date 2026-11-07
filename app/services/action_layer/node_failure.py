@@ -335,6 +335,92 @@ def metrics_line(data_dir: Path | str, node_key: str) -> dict[str, Any] | None:
     return None
 
 
+def llm_evidence(rows: list[dict], nr: dict | None) -> dict[str, Any] | None:
+    if not rows:
+        return None
+    start = _ts_of((nr or {}).get("started_at")) if nr else 0.0
+    end = _ts_of((nr or {}).get("finished_at")) if nr else 0.0
+    picked: list[dict]
+    if start > 0:
+        picked = [r for r in rows if _ts_of(r.get("created_at")) >= start - 5 and (end <= 0 or _ts_of(r.get("created_at")) <= end + 300)]
+    else:
+        picked = []
+    if not picked:
+        picked = [rows[-1]]
+        for row in reversed(rows[:-1]):
+            if _ts_of(picked[0].get("created_at")) - _ts_of(row.get("created_at")) > 600:
+                break
+            picked.insert(0, row)
+    ok = [r for r in picked if str(r.get("result") or "ok") == "ok" and not r.get("contract_rejected")]
+    bad = [r for r in picked if r not in ok]
+    out_tokens = sum(int(r.get("completion_tokens") or 0) for r in picked)
+    seconds = sum(int(r.get("duration_ms") or 0) for r in picked) / 1000.0
+    kinds = sorted({str(r.get("error_kind") or "") for r in bad} - {""})
+    models = sorted({str(r.get("served_model") or r.get("model") or "") for r in picked} - {""})
+    short = bool(picked) and not bad and out_tokens <= 40 * len(picked)
+    return {
+        "calls": len(picked),
+        "ok": len(ok),
+        "failed": len(bad),
+        "error_kinds": kinds,
+        "completion_tokens": out_tokens,
+        "seconds": round(seconds, 1),
+        "models": models,
+        "short_reply": short,
+        "last_at": str(picked[-1].get("created_at") or "")[:16].replace("T", " "),
+    }
+
+
+def llm_evidence_text(ev: dict[str, Any] | None) -> str:
+    if not ev:
+        return "Вызовов модели по этой ноде в журнале нет."
+    line = (
+        f"Вызовов модели в последнем запуске: {ev['calls']} (принято {ev['ok']}, с ошибкой {ev['failed']}"
+        + (f": {', '.join(ev['error_kinds'])}" if ev["error_kinds"] else "")
+        + f"), ответ модели суммарно {ev['completion_tokens']} токенов за {ev['seconds']} с"
+        + (f", модель {', '.join(ev['models'])}" if ev["models"] else "")
+        + "."
+    )
+    if ev.get("short_reply"):
+        line += (
+            " Ответ почти пустой: модель ничего содержательного не вернула (отказ, пустой список "
+            "или «всё уже заполнено»), поэтому результат в кадры не записан."
+        )
+    return line
+
+
+async def _llm_rows(pid: int, keys: list[str]) -> list[dict]:
+    try:
+        from sqlalchemy import select
+
+        from app.models import LlmCall
+
+        async with bi._sessions()() as s:
+            res = await s.execute(
+                select(LlmCall)
+                .where(LlmCall.project_id == pid, LlmCall.node_key.in_([k for k in keys if k]))
+                .order_by(LlmCall.id.desc())
+                .limit(60)
+            )
+            rows = list(res.scalars().all())
+    except Exception:
+        return []
+    return [
+        {
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+            "duration_ms": r.duration_ms,
+            "prompt_tokens": r.prompt_tokens,
+            "completion_tokens": r.completion_tokens,
+            "result": r.result,
+            "error_kind": r.error_kind,
+            "contract_rejected": bool(r.contract_rejected),
+            "model": r.model,
+            "served_model": r.served_model,
+        }
+        for r in reversed(rows)
+    ]
+
+
 # ---------- причина ----------
 
 
@@ -629,6 +715,40 @@ def _when(nr: dict) -> float:
     return max(_ts_of(nr.get("finished_at")), _ts_of(nr.get("started_at")))
 
 
+_QUICK_RUN_S = 15
+
+
+def run_seconds(nr: dict | None) -> float | None:
+    if not nr:
+        return None
+    start, end = _ts_of(nr.get("started_at")), _ts_of(nr.get("finished_at"))
+    if start <= 0 or end <= 0 or end < start:
+        return None
+    return end - start
+
+
+def format_seconds(value: float) -> str:
+    sec = int(round(value))
+    if sec < 60:
+        return f"{sec} с"
+    minutes, sec = divmod(sec, 60)
+    return f"{minutes} мин {sec} с" if minutes < 60 else f"{minutes // 60} ч {minutes % 60} мин"
+
+
+def node_for_step(meta: dict, node_runs: list[dict], step: str) -> str | None:
+    keys = [
+        str(n["id"])
+        for n in bi._canvas_nodes(meta)
+        if bi._step_code(*bi._node_types(n)) == step and n.get("id")
+    ]
+    if not keys:
+        return None
+    ran = [r for r in node_runs if str(r.get("node_key")) in keys]
+    if ran:
+        return str(max(ran, key=_when)["node_key"])
+    return keys[0]
+
+
 def pick_node(meta: dict, node_runs: list[dict], data_dir: Path | str | None) -> tuple[str | None, str]:
     """Упавшая нода без явного ключа: запуск со статусом failed, ошибка шага, дневник, отказы."""
     failed = [nr for nr in node_runs if str(nr.get("status")) == "failed" and nr.get("node_key")]
@@ -739,8 +859,16 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     runs = await bi._node_runs(ctx, pid)
     key = str(params.get("node_key") or "").strip() or None
     how = "названа в просьбе"
+    hint = str(params.get("step") or "").strip()
+    if key is None and hint:
+        key = node_for_step(meta, runs, hint)
+        how = "названа шагом в просьбе"
     if key is None:
         key, how = pick_node(meta, runs, data_dir)
+    if key is None and runs:
+        last = max((r for r in runs if r.get("node_key")), key=_when, default=None)
+        if last is not None and _when(last) > 0:
+            key, how = str(last["node_key"]), "последний запуск, упавших нод нет"
     if key is None:
         return {
             "project_id": pid,
@@ -787,6 +915,7 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         # Файла входа нет (не «Работа с GPT»), но отказ записал, сколько кадров ушло модели.
         size = {"frames": sent, "batches": 0, "file": "llm_rejects"}
     metrics = metrics_line(data_dir, key) if data_dir is not None else None
+    llm = llm_evidence(await _llm_rows(pid, [key, eff, raw]), nr)
     is_check = _is_check(meta, key)
     cause = classify(errors=errors, rejects=rejects, frames=(size or {}).get("frames"), is_check=is_check)
     if cause.get("project_budget"):
@@ -804,14 +933,38 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
     fixes = fix_options(
         cause, project_id=pid, node_key=key, step_code=step, upstream=up, upstream_title=up_title
     )
-    model = bi._model_for(meta, key, node, raw, eff) or None
+    model = bi._model_for(meta, key, node, raw, eff, image_generator=bi._project_generator(detail)) or None
     prompt = bi._prompt_for(detail, key, raw, eff)
 
     lines = [f"Нода «{title}» ({key}), шаг {bi._step_ru(step)}: {status}."]
     if how != "названа в просьбе":
         lines.append(f"Нода выбрана сама: {how}.")
-    if nr:
-        lines.append(f"Попыток запуска: {int(nr.get('attempts') or 0)}.")
+    if nr and int(nr.get("attempts") or 0) > 1:
+        lines.append(f"Повторов запуска: {int(nr.get('attempts') or 0)}.")
+    took = run_seconds(nr)
+    ended = str((nr or {}).get("finished_at") or "")[:16].replace("T", " ")
+    if took is not None:
+        lines.append(f"Последний запуск закончился {ended} UTC и длился {format_seconds(took)}.")
+    quick = (
+        took is not None
+        and took < _QUICK_RUN_S
+        and str((nr or {}).get("status")) == "done"
+        and not errors
+        and not int((metrics or {}).get("attempts") or 0)
+        and not (llm and llm["calls"] and not llm.get("short_reply"))
+    )
+    if quick and llm and llm.get("short_reply"):
+        lines.append(
+            "Нода закончилась почти сразу: модель ответила, но почти пустым — результат в кадры не "
+            "записан. Обычно так бывает, когда поля уже заполнены или модель отказалась. "
+            "Чтобы пересобрать, сначала очистите результат нужных кадров."
+        )
+    elif quick:
+        lines.append(
+            "Нода закончилась почти сразу и без ответов модели: скорее всего ей нечего было делать — "
+            "у кадров уже есть результат этого шага (шаг пропускает заполненные кадры) или на входе "
+            "пусто. Чтобы пересобрать, сначала очистите результат нужных кадров."
+        )
     if model:
         lines.append(f"Модель: {model}.")
     if prompt:
@@ -823,6 +976,7 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
             f"На входе кадров: {size['frames']}"
             + (f", пачек: {size['batches']}." if size["batches"] else ".")
         )
+    lines.append(llm_evidence_text(llm))
     if metrics:
         lines.append(
             f"Ответов модели в последнем прогоне: {metrics.get('attempts')}, отклонено: "
@@ -836,7 +990,10 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Ошибка пачки в дневнике: {trace['batch_error']}")
     for reason in (trace or {}).get("skipped") or []:
         lines.append(f"Пачка не записана: {reason}")
-    lines.append(f"Причина: {cause['title_ru']}. {cause['explain_ru']}")
+    if str((nr or {}).get("status")) == "done" and not errors and not rejects:
+        lines.append("Нода завершилась без ошибки.")
+    else:
+        lines.append(f"Причина: {cause['title_ru']}. {cause['explain_ru']}")
     usable = [f for f in fixes if f.get("phrase_ru")]
     if fixes:
         lines.append(
@@ -855,6 +1012,8 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         "step": step,
         "status_ru": status,
         "attempts": int((nr or {}).get("attempts") or 0),
+        "run_seconds": took,
+        "quick_no_work": quick,
         "model": model,
         "prompt": prompt,
         "check_node": is_check,
@@ -869,6 +1028,7 @@ async def _diag_node_failure(ctx: ActionContext, params: dict) -> dict:
         ],
         "input": size,
         "metrics": metrics,
+        "llm_calls": llm,
         "trace": trace,
         "cause": cause,
         "fix_options": fixes,
@@ -889,7 +1049,17 @@ def node_failure_spec() -> ActionSpec:
         "провайдера, закадр кадров не сходится с текстом, прочий формат; и варианты "
         "исправления существующими действиями. Без node_key — сама берёт упавшую ноду "
         "проекта. Только чтение.",
-        params_schema=bi._schema({"project_id": _PID, "node_key": _NODE_KEY}, ["project_id"]),
+        params_schema=bi._schema(
+            {
+                "project_id": _PID,
+                "node_key": _NODE_KEY,
+                "step": {
+                    "type": "string",
+                    "description": "код шага (img_pr, img, video…), если ноду назвали шагом",
+                },
+            },
+            ["project_id"],
+        ),
         executor=_diag_node_failure,
         risk=RISK_READ,
         idempotent=True,

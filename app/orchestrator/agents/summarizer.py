@@ -12,13 +12,20 @@ from app.orchestrator.agents.question_context import ANSWER_RULES, fact_limit, f
 _TIMEOUT_S = 90.0
 _FACT_LIMIT = 1200
 _TOTAL_LIMIT = 9000
-_STEP_LIMIT = 8
+_STEP_LIMIT = 12
+_FACT_PRIORITY = {"diag.content_checks": 0, "diag.node_failure": 0, "project.status": 1, "diag.incidents": 1}
 _STEP_SUMMARY = 300
 APPROVAL_EXPIRED = "approval_expired"
 APPROVAL_EXPIRED_TEXT = "Подтверждение не дали вовремя — задача отменена, ничего не изменено."
 APPROVAL_STALE = "approval_stale"
 APPROVAL_STALE_TEXT = "Сервер перезапускался, карточка устарела — повторите просьбу. Ничего не изменено."
 NOT_UNDERSTOOD = "Не понял, что сделать."
+_EXPLAINS_RE = re.compile(
+    r"(?<![а-я])(?:нет\s+(?:кадр|картин|видео|озвуч|сценари|проект|ролик|файл|готов)|невозможен|невозможно|"
+    r"сначала\s+нужно|сначала\s+надо|уже\s+(?:стоит|запущен|ид[её]т|готов|включ|выключ|такой|такая)|"
+    r"менять\s+нечего|запускать\s+нечего|не\s+найден|отсутству)",
+    re.I,
+)
 NOT_UNDERSTOOD_HINT = (
     "Напишите номер проекта и что нужно, например «запусти картинки в проекте 6» "
     "или «что с проектом 4». Если не знаете, с чего начать, напишите «помоги»."
@@ -122,8 +129,7 @@ FRAME_DELETE_HINT = (
 _DELETE_VERB = re.compile(r"(?<![а-я])(?:удал|сотр|стер)|(?<![а-я])убер\w*.{0,30}совсем")
 _BOARD_THING = re.compile(r"кадр|сцен|шот|картин|видео")
 DELETE_REFUSED = (
-    "Удалять через чат нельзя, так задумано. Кадры, картинки и видео удаляются вручную "
-    "на доске монтажа."
+    "Удалять через чат нельзя, так задумано. Кадры, картинки и видео удаляются вручную на доске монтажа."
 )
 
 
@@ -132,10 +138,60 @@ def delete_refusal_text(goal: str) -> str:
     return DELETE_REFUSED if _DELETE_VERB.search(text) and _BOARD_THING.search(text) else ""
 
 
+_KNOWN_GAPS = (
+    (re.compile(r"переход\w*|склейк\w*\s+плавн|плавн\w*\s+склейк"),
+     "Переходов между кадрами в монтаже нет: кадры склеиваются встык. Можно сменить музыку или хвост "
+     "после озвучки («хвост 1 секунда»)."),
+    (re.compile(r"логотип|водян\w*\s+знак|вотермарк|watermark"),
+     "Логотипа в сборке ролика нет: его добавляют в видеоредакторе после скачивания ролика."),
+    (re.compile(r"обреж\w*|обрез\w*|отреж\w*\s+(?:конец|последн)"),
+     "Обрезать конец ролика чат не умеет. Можно отрезать начало до 2 секунд («отрежь первую секунду») "
+     "или сменить хвост после озвучки («хвост 1 секунда»)."),
+    (re.compile(r"субтитр\w*\s+(?:побольше|поменьше|больше|меньше|крупнее|мельче|шрифт|размер|цвет)"
+                r"|(?:размер|шрифт|цвет)\w*\s+субтитр"),
+     "Размер, шрифт и цвет субтитров не настраиваются: их можно только включить или выключить."),
+    (re.compile(r"озвучк\w*\s+(?:медленн|быстр)|(?:медленн|быстр)\w*\s+(?:озвучк|голос|говор)|скорост\w*\s+(?:голос|озвуч|речи)"),
+     "Скорость голоса не настраивается. Можно сменить голос («поставь голос Брайан») и перезапустить озвучку."),
+    (re.compile(r"(?:на|по)\s+почт|e-?mail|имейл|емейл|пост\w*\s+в\s+телеграм|в\s+телеграм|в\s+телегу"),
+     "Писать письма и посты чат не умеет. Готовый ролик можно открыть и скачать: «где посмотреть готовое видео»."),
+    (re.compile(r"лимит\w*.{0,30}(?:в\s+день|на\s+день|сутк)|дневн\w*\s+лимит|лимит\w*\s+на\s+(?:всю\s+)?(?:студи|фабрик)"),
+     "Дневной лимит всей студии ставится в настройках сервера, из чата его не поменять. Из чата можно "
+     "задать бюджет текстов проекта: «поставь бюджет проекта 4 5 долларов»."),
+    (re.compile(r"артефакт|(?:текст|букв|надпис)\w*\s+на\s+(?:картинк|кадр|видео)|на\s+картинк\w*\s+(?:текст|букв|надпис)"
+                r"|посмотри\s+(?:готов\w*\s+)?(?:видео|ролик|картинк)|оцени\s+(?:ролик|видео|картинк)"),
+     "Смотреть картинки и видео глазами чат пока не умеет. Он проверяет по данным студии промты, "
+     "закадр и героев («проверь промты картинок»), а сами картинки и ролик видны на доске монтажа."),
+    (re.compile(r"голос\w*\s+(?:слишком\s+)?(?:тих|громк)|(?:тих|громч)\w*\s+голос|громкост\w*\s+(?:голоса|озвучк)"),
+     "Громкость голоса отдельно не настраивается: озвучка идёт в полную громкость. Можно сделать "
+     "тише музыку («музыку потише»), тогда голос будет слышнее."),
+    (re.compile(r"архив"),
+     "Архива проектов в студии нет. Ненужный проект можно остановить («останови проект 5») или удалить "
+     "вручную в списке проектов слева: меню у проекта → «Удалить»."),
+    (re.compile(r"баланс|остаток\s+(?:денег|средств|кредит)|сколько\s+(?:денег|кредитов)\s+осталось"),
+     "Остаток баланса у провайдеров чат не видит: его смотрят в кабинете провайдера. В чате видны "
+     "траты по журналу расходов: «сколько я потратил за неделю»."),
+    (re.compile(r"(?<![а-я])сид\w*|seed"),
+     "Сид генерации студия не задаёт и не хранит: каждая генерация случайна."),
+    (re.compile(r"(голос|озвучк|речь|говор)\w*.{0,30}(медлен|быстр|скорост|темп)|(медлен|быстр|скорост|темп|ускор|замедл)\w*.{0,30}(голос|озвучк|речь|говор)"),
+     "Скорость речи в озвучке не настраивается: ни у ноды «Озвучка», ни в чате такой настройки нет. "
+     "Можно сменить голос («поменяй голос на мужской») и перезапустить озвучку."),
+)
+
+
+def known_gap_text(goal: str) -> str:
+    low = " ".join(str(goal or "").lower().replace("ё", "е").split())
+    return next((text for rx, text in _KNOWN_GAPS if rx.search(low)), "")
+
+
 def missing_action_text(reason: str, goal: str = "") -> str:
     """Честный ответ, когда нужного действия у чата нет; пусто — причина о другом."""
+    gap = known_gap_text(goal)
+    if gap:
+        return f"{NOT_SUPPORTED} {gap}"
     if _NO_FRAME_DELETE.search(reason or ""):
         return FRAME_DELETE_HINT
+    if _DELETE_PROJECT.search(goal or ""):
+        return f"{NOT_SUPPORTED} {DELETE_PROJECT_HINT}"
     if not _MISSING_ACTION.search(reason or ""):
         return ""
     if _DELETE_PROJECT.search(reason or "") or _DELETE_PROJECT.search(goal or ""):
@@ -157,7 +213,13 @@ def _other_reasons(reason: str) -> str:
         part = re.sub(r"^\s*(?:кроме того|также|и)\s*,?\s*", "", part.strip(), flags=re.IGNORECASE)
         low = part.lower()
         # «Нужно добавить его или уточнить способ» — совет разработчику, не человеку.
-        if not part or _MISSING_ACTION.search(part) or "_" in part or "каталог" in low or _DEV_ADVICE.search(low):
+        if (
+            not part
+            or _MISSING_ACTION.search(part)
+            or "_" in part
+            or "каталог" in low
+            or _DEV_ADVICE.search(low)
+        ):
             continue
         keep.append(part[:1].upper() + part[1:])
     text = ". ".join(keep)[:300].strip()
@@ -438,6 +500,7 @@ class TaskFacts:
     steps: list[StepNote] = field(default_factory=list)
     # Пустой план с готовым ответом кода («возвращать нечего»): просьбу поняли, «не понял» не пишем.
     answered: bool = False
+    note: str = ""
 
 
 def explain_failure(exc: BaseException) -> str:
@@ -447,12 +510,28 @@ def explain_failure(exc: BaseException) -> str:
     name = type(exc).__name__
     text = str(exc).strip()
     if name == "RouterExhausted":
+        if re.search(r"[一-鿿]", text):
+            text = "провайдер не пустил модель по ключу"
         return "Модель сейчас не отвечает: все провайдеры недоступны" + (f" ({text[:200]})." if text else ".")
     if name in {"FixtureMiss", "RouterError"}:
         return "Модель не вызвана: " + (text[:200] or name) + "."
     if name == "OperationalError" and ("locked" in text.lower() or "busy" in text.lower()):
         return "База данных Студии была занята слишком долго, и запись не прошла."
     return f"Внутренняя ошибка: {name}."
+
+
+_RAW_ERROR = re.compile(r"^\s*(?:\w+Error|\w+Exception)\s*:\s*(?:HTTP\s*\d{3}\s*:\s*)?", re.I)
+_RAW_MESSAGE = re.compile(r"['\"]message['\"]\s*:\s*['\"]([^'\"]+)['\"]")
+
+
+def human_error(error: str | None) -> str:
+    text = str(error or "").strip()
+    if not text:
+        return ""
+    found = _RAW_MESSAGE.search(text)
+    if found:
+        return found.group(1).strip().rstrip(".")
+    return _RAW_ERROR.sub("", text).strip().rstrip(".")
 
 
 def step_title(action: str) -> str:
@@ -630,12 +709,20 @@ def _board_text(body: dict[str, Any]) -> str:
     frames = [f for f in body.get("frames") or [] if isinstance(f, dict)]
     count = body.get("frame_count") or len(frames)
     lines = [f"На доске монтажа {count} {_plural(int(count), 'кадр', 'кадра', 'кадров')}."]
+    aspect = str(body.get("frame_aspect") or "").strip()
+    if aspect:
+        kind = {"9:16": "вертикальный", "16:9": "горизонтальный", "1:1": "квадратный"}.get(aspect, "")
+        lines[0] += f" Формат кадра {aspect}{f' ({kind})' if kind else ''}."
     for frame in frames[:_BOARD_LINES]:
         text = " ".join(str(frame.get("voiceover_text") or "").split())
         two = ", два шота" if frame.get("has_shot2") else ""
         media = [name for name, key in (("картинка", "has_image"), ("видео", "has_video")) if frame.get(key)]
-        have = f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
-        lines.append(f"• кадр {frame.get('number')}{two}{have}: {text[:90] or 'без текста'}")
+        have = (
+            f" [есть {' и '.join(media)}]" if media else (" [без картинки]" if "has_image" in frame else "")
+        )
+        secs = frame.get("duration_seconds")
+        dur = f" {float(secs):.1f} с" if isinstance(secs, (int, float)) and secs else ""
+        lines.append(f"• кадр {frame.get('number')}{two}{have}{dur}: {text[:90] or 'без текста'}")
     if "frames_with_image" in body:
         lines.append(
             f"Картинки есть у {body['frames_with_image']} из {count}, видео у {body.get('frames_with_video', 0)} из {count}."
@@ -650,7 +737,19 @@ def _board_text(body: dict[str, Any]) -> str:
     stale = body.get("stale_videos") or []
     if stale:
         lines.append(f"Устаревших видео {len(stale)}: их нужно пересобрать.")
-    return "\n".join(lines)
+    prompt_lines: list[str] = []
+    for row in body.get("prompts") or []:
+        if not isinstance(row, dict):
+            continue
+        img = " ".join(str(row.get("image_prompt_shot1") or "").split())
+        img2 = " ".join(str(row.get("image_prompt_shot2") or "").split())
+        anim = " ".join(str(row.get("animation_prompt_shot1") or "").split())
+        prompt_lines.append(f"Промт картинки кадра {row.get('number')}: {img or 'пока пустой'}")
+        if img2:
+            prompt_lines.append(f"Промт картинки второго шота кадра {row.get('number')}: {img2}")
+        if anim:
+            prompt_lines.append(f"Промт анимации кадра {row.get('number')}: {anim}")
+    return "\n".join(lines[:1] + prompt_lines + lines[1:])
 
 
 def _voiceover_text(body: dict[str, Any]) -> str:
@@ -693,7 +792,11 @@ def _insert_frame_text(body: dict[str, Any]) -> str:
 def _swap_shots_text(body: dict[str, Any]) -> str:
     what = [
         name
-        for key, name in (("images_swapped", "картинки"), ("videos_swapped", "видео"), ("prompts_swapped", "промты"))
+        for key, name in (
+            ("images_swapped", "картинки"),
+            ("videos_swapped", "видео"),
+            ("prompts_swapped", "промты"),
+        )
         if body.get(key)
     ]
     if not what:
@@ -706,9 +809,7 @@ def _queue_ops_text(body: dict[str, Any]) -> str:
     if not n:
         return ""
     total = body.get("total_in_queue") or n
-    return (
-        f"Поставил в очередь правок монтажа {n}, всего в очереди {total}.{_APPLY_QUEUE_HINT}"
-    )
+    return f"Поставил в очередь правок монтажа {n}, всего в очереди {total}.{_APPLY_QUEUE_HINT}"
 
 
 def _merge_scenes_text(body: dict[str, Any]) -> str:
@@ -728,7 +829,6 @@ def _cancel_queue_text(body: dict[str, Any]) -> str:
     return f"Убрал из очереди правок {removed}, осталось {left}."
 
 
-
 def _video_trim_text(body: dict[str, Any]) -> str:
     key = str(body.get("key") or "")
     if ":" not in key:
@@ -738,7 +838,11 @@ def _video_trim_text(body: dict[str, Any]) -> str:
     if not trim:
         return f"Обрезка видео снята: кадр {frame}, шот {shot}."
     end = trim.get("end")
-    span = f"с {trim.get('start', 0):g} по {end:g} с" if end is not None else f"с {trim.get('start', 0):g} с до конца"
+    span = (
+        f"с {trim.get('start', 0):g} по {end:g} с"
+        if end is not None
+        else f"с {trim.get('start', 0):g} с до конца"
+    )
     return f"Обрезка видео задана: кадр {frame}, шот {shot}, {span}."
 
 
@@ -759,6 +863,7 @@ def _swap_slots_text(body: dict[str, Any]) -> str:
         f"Поменял местами {what}: кадр {body['a_frame']} (шот {body['a_shot']}) "
         f"и кадр {body['b_frame']} (шот {body['b_shot']})."
     )
+
 
 _KNOWN_TEXT = {
     "montage.get_board": _board_text,
@@ -803,6 +908,7 @@ _KNOWN_TEXT = {
     "report.nodes": _own_text,
     "report.projects": _own_text,
     "report.gpt_data": _own_text,
+    "chat.export": _own_text,
     "projects.overview": _overview_text,
     "project.status": _own_text,
     "diag.node_failure": _own_text,
@@ -852,7 +958,7 @@ def known_text(action: str, body: dict[str, Any]) -> str:
 
 
 # Ответ — текст шага как есть, без пересказа моделью (таблица, ссылки на файлы).
-VERBATIM_ACTIONS = frozenset({"report.gpt_data"})
+VERBATIM_ACTIONS = frozenset({"report.gpt_data", "chat.export"})
 
 
 def _simple_read(goal: str, action: str) -> bool:
@@ -1164,7 +1270,7 @@ def deterministic_text(facts: TaskFacts) -> str:
                 lines.append("Готово, но данных для ответа шаги не вернули.")
         for note in failed:
             lines.append(
-                f"Не получилось «{note.title}»{_in_project(note, many)}: {note.error or 'без пояснения'}."
+                f"Не получилось «{note.title}»{_in_project(note, many)}: {human_error(note.error) or 'без пояснения'}."
             )
         lines.extend(_project_tally(facts))
         return "\n".join(lines)
@@ -1190,7 +1296,7 @@ def deterministic_text(facts: TaskFacts) -> str:
         reason, head, note = (facts.detail or "").partition(_WAITING_HEAD)
         reason = reason.strip()
         reason = reason if reason and not raw_reason(reason) else ""
-        if facts.answered and reason:
+        if (facts.answered or _EXPLAINS_RE.search(reason)) and reason:
             return "\n".join(line for line in (reason, (head + note).strip()) if line)
         # Причина с готовым примером уже говорит, что написать: вторая подсказка лишняя.
         hint = "" if "например" in reason else NOT_UNDERSTOOD_HINT
@@ -1430,10 +1536,32 @@ def _squash(text: str) -> str:
 _QUOTE = re.compile(r"«([^«»]+)»")
 
 
+_ASK_SYNONYMS = {"лог": "журнал", "логи": "журнал", "логах": "журнал", "логам": "журнал", "журнале": "журнал"}
+_ASK_STOP = {"по", "в", "во", "на", "для", "мне", "пожалуйста", "проекта", "проекте", "проекту", "проект"}
+
+
+def _ask_words(text: str) -> tuple[set[str], set[str]]:
+    words = re.findall(r"[а-яёa-z]+|\d+", text.lower().replace("ё", "е"))
+    nums = {w for w in words if w.isdigit()}
+    stems = {_ASK_SYNONYMS.get(w, w)[:5] for w in words if not w.isdigit() and w not in _ASK_STOP}
+    return nums, stems
+
+
+def same_ask(quoted: str, goal: str) -> bool:
+    if _squash(quoted) == _squash(goal):
+        return True
+    qn, qs = _ask_words(quoted)
+    gn, gs = _ask_words(goal)
+    if (gn and qn != gn) or not qs or not gs:
+        return False
+    return len(qs & gs) / len(qs | gs) >= 0.6
+
+
 def drop_goal_quote(text: str, goal: str) -> str:
     """Цитата самой просьбы («проверь промты картинок в проекте 26») в конце итога — не совет.
 
     Предложение, где кроме цитаты почти ничего нет, уходит целиком; иначе — только цитата.
+    Пересказ той же просьбы другими словами («в журнале» вместо «в логах») — тоже повтор.
     """
     asked = _squash(goal or "")
     if not asked:
@@ -1442,10 +1570,10 @@ def drop_goal_quote(text: str, goal: str) -> str:
     for line in text.splitlines():
         kept: list[str] = []
         for part in _SENTENCE.split(line):
-            if not any(_squash(q) == asked for q in _QUOTE.findall(part)):
+            if not any(same_ask(q, goal) for q in _QUOTE.findall(part)):
                 kept.append(part)
                 continue
-            rest = _QUOTE.sub(lambda m: "" if _squash(m.group(1)) == asked else m.group(0), part)
+            rest = _QUOTE.sub(lambda m: "" if same_ask(m.group(1), goal) else m.group(0), part)
             if len(re.sub(r"[\W_]+", "", rest)) >= 25:
                 kept.append(re.sub(r"\s+([,.:;!?])", r"\1", " ".join(rest.split())))
         out.append(" ".join(kept).rstrip())
@@ -1502,16 +1630,29 @@ def _facts_prompt(facts: TaskFacts) -> list[dict[str, str]]:
         "начинай с повелительного глагола («скачай», «покажи», «сформируй»)."
     )
     used = 0
-    lines = ["Факты, прочитанные шагами задачи:"]
-    for note in facts.steps[:_STEP_LIMIT]:
+    from app.orchestrator.agents.question_context import _now_utc
+
+    pids = {n.project_id for n in facts.steps if isinstance(n.project_id, int) and n.project_id > 0}
+    pid = next(iter(pids)) if len(pids) == 1 else None
+    if pid is not None:
+        rules.append(f"Чат открыт в проекте #{pid}: не пиши, что номер проекта не указан.")
+    lines = [
+        "Факты, прочитанные шагами задачи:",
+        f"[Сейчас] {_now_utc()} UTC — по нему считай «за последний час», «сегодня», «давно».",
+    ]
+    ordered = sorted(facts.steps, key=lambda n: _FACT_PRIORITY.get(n.action, 2))
+    for note in ordered[:_STEP_LIMIT]:
         body = (
             _fact_text(note, quotes, shown)
             if note.ok and note.text
-            else ("прочитать не удалось: " + note.error if note.error else "пусто")
+            else ("прочитать не удалось: " + human_error(note.error) if note.error else "пусто")
         )
         chunk = f"[{note.title}] {body}"
-        if used + len(chunk) > _TOTAL_LIMIT:
-            break
+        room = _TOTAL_LIMIT - used
+        if len(chunk) > room:
+            if room < 400:
+                continue
+            chunk = chunk[: room - 1] + "…"
         used += len(chunk)
         lines.append(chunk)
     return [
@@ -1541,6 +1682,12 @@ class TaskSummarizer:
         return any(note.ok and note.text for note in facts.steps)
 
     async def summarize(self, facts: TaskFacts, *, run_id: str, task_id: Any = None) -> str:
+        text = await self._summarize(facts, run_id=run_id, task_id=task_id)
+        if facts.note and facts.note not in text:
+            text = (text.rstrip() + "\n" + facts.note).strip()
+        return text
+
+    async def _summarize(self, facts: TaskFacts, *, run_id: str, task_id: Any = None) -> str:
         fallback = deterministic_text(facts)
         if not self._wants_model(facts):
             return fallback
@@ -1558,7 +1705,7 @@ class TaskSummarizer:
                     task_id=task_id,
                     agent_role=AgentRole.summarizer.value,
                     budget_scope=BudgetScope.internal.value,
-                    reasoning_effort=ORCH_REASONING_EFFORT,
+                    reasoning_effort=summary_effort(ORCH_REASONING_EFFORT),
                 ),
                 self.timeout_s,
             )
@@ -1591,6 +1738,15 @@ class TaskSummarizer:
             if link.rsplit("](", 1)[-1].rstrip(")") not in text
         ]
         return "\n".join([text, *dict.fromkeys(links)])
+
+
+def summary_effort(default: str | None) -> str | None:
+    import os
+
+    value = os.environ.get("ORCH_SUMMARY_EFFORT", "low").strip().lower()
+    if value in {"", "default"}:
+        return default
+    return None if value in {"none", "off"} else value
 
 
 def has_prior_text(session_id: str, task_id: int) -> bool:

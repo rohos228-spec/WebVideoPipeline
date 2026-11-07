@@ -666,6 +666,8 @@ async def report_gpt_data(ctx: ActionContext, params: dict) -> dict:
     runs = {str(nr.get("node_key")): nr for nr in await bi._node_runs(ctx, pid)}
     gpt_keys = [str(n["id"]) for n in bi._canvas_nodes(meta) if rg.is_gpt_node(n)]
     want = resolve_node(str(params.get("node_key") or "").strip(), gpt_keys)
+    if want and want not in gpt_keys and want in {str(n["id"]) for n in bi._canvas_nodes(meta)}:
+        want = None
     if want and want not in gpt_keys:
         known = ", ".join(f"«{labels.get(k, k)}» ({k})" for k in gpt_keys) or "нет"
         raise ActionCallError(404, f"В проекте #{pid} нет ноды «Работа с GPT» {want}. Есть: {known}.")
@@ -685,6 +687,9 @@ async def report_gpt_data(ctx: ActionContext, params: dict) -> dict:
     frame_rows = build_rows(frames, picked, keys, only_node=bool(want))
     if want:
         frame_rows = [r for r in frame_rows if r["_by"]]
+    only = {int(n) for n in params.get("frames") or [] if str(n).isdigit()}
+    if only:
+        frame_rows = [r for r in frame_rows if r.get("frame") in only]
     known = {f["number"] for f in frames}
     gone = sorted({k for n in picked for k in n["values"] if frames and k not in known})
     fallback = [] if want else (await _db_characters(pid) or _sheet_characters(data_dir))
@@ -825,7 +830,16 @@ async def report_gpt_data(ctx: ActionContext, params: dict) -> dict:
         parts += [_scene_line(c) for c in scenes[: fmt.CHAT_SCENES]]
         if len(scenes) > fmt.CHAT_SCENES:
             parts.append(f"- и ещё {len(scenes) - fmt.CHAT_SCENES} (в файле).")
-    if clean_rows:
+    if only and clean_rows and len(clean_rows) <= 3:
+        for r in clean_rows:
+            parts.append("")
+            parts.append(f"Кадр {r.get('frame')}:")
+            parts += [
+                f"{label}: {r.get(k)}" for k, label in columns if k != "frame" and r.get(k) not in (None, "")
+            ]
+    elif only and not clean_rows:
+        parts.append(f"Кадров {', '.join(str(n) for n in sorted(only))} в проекте нет.")
+    elif clean_rows:
         parts.append("")
         parts.append(table)
         if shown < len(clean_rows):

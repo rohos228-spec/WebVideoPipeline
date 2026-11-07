@@ -9,7 +9,10 @@
 - ``frame_count`` — кадров столько, сколько явно попросили в сценарии;
 - ``split_degraded`` — разбивка сделана локально, без модели;
 - ``prompt_characters`` — герои cNN в промте картинки есть в реестре и совпадают с
-  персонажами кадра.
+  персонажами кадра;
+- ``prompt_style`` — в промте картинки есть стиль проекта (пластилин, вязаный, нуар):
+  обёртку стиля код больше не дописывает, и вариант промта без стиля молча даёт
+  картинки «без пластилина».
 
 Итог шага — отчёт ``{"step", "ok", "findings", "at"}``: пишется в ``project.meta
 ["content_checks"][шаг]``, уходит уведомлением в чат и читается чатом через
@@ -439,6 +442,98 @@ def character_findings(frames: list[dict], registry: dict[str, str]) -> list[dic
     return findings[:_MAX_FINDINGS]
 
 
+STYLE_FAMILIES: dict[str, tuple[str, ...]] = {
+    "пластилин": ("plasticine", "claymation", "clay ", "clay-", "plastilin", "пластилин"),
+    "вязаный": ("knitted", "textile", "felted", "вязан", "войлок"),
+    "нуар": ("noir", "archival", "watercolor grunge", "trash polka", "нуар"),
+}
+
+
+def style_families(text: str) -> set[str]:
+    low = f" {(text or '').casefold()} "
+    return {name for name, marks in STYLE_FAMILIES.items() if any(m in low for m in marks)}
+
+
+def expected_style(project: Any) -> str | None:
+    try:
+        from app.services.img_pr_style import _local_variant_name, resolve_project_img_style
+
+        meta = project.meta if isinstance(getattr(project, "meta", None), dict) else {}
+        blob = " ".join(
+            x for x in (resolve_project_img_style(project) or "", _local_variant_name(project, meta)) if x
+        )
+    except Exception:
+        return None
+    found = style_families(blob)
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def style_state(rows: list[dict], expected: str | None) -> dict[str, Any] | None:
+    prompts = [r for r in rows if str(r.get("prompt") or "").strip()]
+    if not prompts:
+        return None
+    fams = [style_families(str(r["prompt"])) for r in prompts]
+    want = expected
+    if want is None:
+        counts: dict[str, int] = {}
+        for f in fams:
+            for name in f:
+                counts[name] = counts.get(name, 0) + 1
+        if not counts:
+            return {"style": None, "with": 0, "total": len(prompts), "source": None}
+        want = max(counts.items(), key=lambda kv: kv[1])[0]
+    has = sum(1 for f in fams if want in f)
+    return {
+        "style": want,
+        "with": has,
+        "total": len(prompts),
+        "source": "в настройках проекта" if expected else "в большинстве промтов",
+    }
+
+
+def style_findings(rows: list[dict], expected: str | None) -> list[dict]:
+    prompts = [r for r in rows if str(r.get("prompt") or "").strip()]
+    if not prompts:
+        return []
+    fams = [style_families(str(r["prompt"])) for r in prompts]
+    want = expected
+    if want is None:
+        counts: dict[str, int] = {}
+        for f in fams:
+            for name in f:
+                counts[name] = counts.get(name, 0) + 1
+        if not counts:
+            return []
+        name, n = max(counts.items(), key=lambda kv: kv[1])
+        if n * 2 < len(prompts):
+            return []
+        want = name
+    missing = [r for r, f in zip(prompts, fams, strict=True) if want not in f]
+    if not missing:
+        return []
+    nums = [r.get("number") for r in missing]
+    shown = ", ".join(str(n) for n in nums[:15]) + (" и др." if len(nums) > 15 else "")
+    source = "в настройках проекта" if expected else "в большинстве промтов"
+    other = sorted({x for r, f in zip(prompts, fams, strict=True) if r in missing for x in f if x != want})
+    detail = (
+        f"Стиль «{want}» ({source}) не написан в промтах {len(missing)} из {len(prompts)} кадров: {shown}."
+        + (f" Вместо него в промтах стиль «{', '.join(other)}»." if other else "")
+        + " Стиль в промт картинки сам не дописывается — его пишет вариант промта картинок;"
+        " без слов стиля модель картинок рисует как придётся."
+    )
+    return [
+        _finding(
+            "prompt_style",
+            "error" if len(missing) * 2 >= len(prompts) else "warning",
+            f"Промты картинок без стиля «{want}»",
+            detail,
+            step="img_pr",
+            frames=nums,
+            style=want,
+        )
+    ]
+
+
 # ---------- данные проекта ----------
 
 
@@ -511,9 +606,11 @@ async def run_checks(session: Any, project: Any, step: str, *, with_vo: bool = T
     meta = project.meta if isinstance(getattr(project, "meta", None), dict) else {}
     if with_vo and step in ("split", "enrich", "img_pr") and frames:
         findings += vo_findings(vo, vo_cells(frames), step=step)
+    counts = None
     if step == "split" and frames:
         parents = [fr for fr in frames if (fr.voiceover_text or "").strip()]
         findings += count_findings(len(parents), requested_frame_count(project))
+        counts = {"frames": len(frames), "with_vo": len(parents), "requested": requested_frame_count(project)}
         if meta.get("split_degraded_no_llm"):
             findings.append(
                 _finding(
@@ -544,7 +641,26 @@ async def run_checks(session: Any, project: Any, step: str, *, with_vo: bool = T
             for fr in frames
         ]
         findings += character_findings(rows, cards)
-    return make_report(step, findings, frames=len(frames))
+        from app.services.vo_shot_expand import uses_parent_still
+
+        own = [r for r, fr in zip(rows, frames, strict=True) if not uses_parent_still(fr)]
+        want = expected_style(project)
+        findings += style_findings(own, want)
+        report = make_report(step, findings, frames=len(frames))
+        report["style"] = style_state(own, want)
+        sizes = sorted(len(str(r["prompt"]).strip()) for r in own if str(r.get("prompt") or "").strip())
+        if sizes:
+            report["prompt_sizes"] = {
+                "min": sizes[0],
+                "median": sizes[len(sizes) // 2],
+                "max": sizes[-1],
+                "n": len(sizes),
+            }
+        return report
+    report = make_report(step, findings, frames=len(frames))
+    if counts:
+        report["counts"] = counts
+    return report
 
 
 def make_report(step: str, findings: list[dict], *, frames: int) -> dict[str, Any]:
@@ -663,6 +779,16 @@ def fix_options(report: dict[str, Any], project_id: int) -> list[dict[str, Any]]
                     }
                 )
                 rerun = True
+        elif check == "prompt_style":
+            out.append(
+                {
+                    "action": None,
+                    "params": {},
+                    "title_ru": f"Вписать стиль «{f.get('style')}» в вариант промта картинок, "
+                    "затем очистить промты этих кадров и пересобрать их",
+                    "phrase_ru": f"какой вариант промта картинок стоит в проекте {pid}",
+                }
+            )
     if rerun:
         code = step
         if code in ("split", "img_pr"):
@@ -733,6 +859,7 @@ def summary_text(report: dict[str, Any]) -> str:
     step_ru = STEP_RU.get(cast(str, report.get("step")), report.get("step"))
     # Вопрос про промты: итог по героям — первым, даже если нашлось расхождение закадра.
     heroes = ""
+    style = next((f for f in report.get("findings") or [] if f.get("check") == "prompt_style"), None)
     if report.get("step") == "img_pr":
         bad = [f for f in report.get("findings") or [] if f.get("check") == "prompt_characters"]
         heroes = (
@@ -740,13 +867,51 @@ def summary_text(report: dict[str, Any]) -> str:
             if bad
             else "Герои в промтах картинок совпадают с персонажами кадров."
         )
+    counts = report.get("counts") if isinstance(report.get("counts"), dict) else None
+    if counts:
+        extra = counts["frames"] - counts["with_vo"]
+        heroes = (
+            f"Кадров {counts['frames']}: с закадровым текстом {counts['with_vo']}"
+            + (f", ещё {extra} — дополнительные шоты тех же сцен без своего закадра" if extra > 0 else "")
+            + (
+                f". В сценарии просили {counts['requested']} кадров."
+                if counts.get("requested")
+                else ". Числа кадров сценарий явно не задавал — его выбрала модель разбивки по смыслу текста."
+            )
+        )
+    sizes = report.get("prompt_sizes") if isinstance(report.get("prompt_sizes"), dict) else None
+    if sizes:
+        heroes = (
+            f"Длина промтов картинок ({sizes['n']} шт.): от {sizes['min']} до {sizes['max']} знаков, "
+            f"обычно около {sizes['median']}. Длину задаёт вариант промта ноды «Промты картинок» "
+            "и модель, которая его выполняет. Промты лежат не в файлах, а в кадрах проекта (поле "
+            "«Промт картинки»): их видно в таблице кадров и в меню съёмки, целиком — по фразе "
+            "«покажи промт кадра 3». " + heroes
+        )
+    state = report.get("style") if isinstance(report.get("style"), dict) else None
+    if style is None and state:
+        if state.get("style"):
+            heroes = (
+                f"Стиль «{state['style']}» ({state['source']}) написан во всех {state['total']} промтах "
+                "картинок: если картинки выходят без него, стиль теряется уже в генерации картинок "
+                "(модель картинок или рефы), а не в промтах. " + heroes
+            )
+        else:
+            heroes = (
+                f"Ни в одном из {state['total']} промтов картинок нет слов стиля (пластилин, вязаный, "
+                "нуар): стиль в промт сам не дописывается, его должен писать вариант промта картинок. "
+                + heroes
+            )
     if report.get("ok"):
         return " ".join(
             p for p in (heroes, f"Шаг «{step_ru}»: проверка содержания прошла, расхождений нет.") if p
         )
-    parts = [p for p in (heroes,) if p]
+    parts = [p for p in ((style or {}).get("detail_ru"), heroes) if p]
     parts.append(f"Шаг «{step_ru}»: проверка содержания нашла ошибки (находок: {len(report['findings'])}).")
-    ordered = sorted(report["findings"], key=lambda f: f.get("check") != "prompt_characters")
+    ordered = sorted(
+        (f for f in report["findings"] if f.get("check") != "prompt_style"),
+        key=lambda f: f.get("check") != "prompt_characters",
+    )
     for f in ordered[:6]:
         parts.append(f"{f['title_ru']}. {f.get('detail_ru') or ''}".strip())
     return " ".join(parts)

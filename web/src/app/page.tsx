@@ -10,7 +10,7 @@ import { StudioWorkspace } from "@/components/studio/studio-workspace";
 import { OutseeCreateWorkspace } from "@/components/outsee/outsee-create-workspace";
 import { GptWorkspace } from "@/components/gpt/gpt-workspace";
 import { OrchestratorPanel } from "@/components/orchestrator/orchestrator-panel";
-import { OPEN_ORCHESTRATOR_CHAT, OrchestratorDock } from "@/components/orchestrator/orchestrator-dock";
+import { OPEN_ORCHESTRATOR_CHAT } from "@/components/orchestrator/open-chat-event";
 import { useGlobalEvents } from "@/hooks/use-bus";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { api } from "@/lib/api";
@@ -73,7 +73,6 @@ function HomePageInner() {
     return () => window.removeEventListener("studio-select-project", onSelectProject);
   }, [setSelectedProjectId]);
 
-  // Кнопка «Оркестратор» с другой страницы ведёт на /?chat=open: открыть док чата супервизора.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("chat") !== "open") return;
@@ -124,7 +123,6 @@ function HomePageInner() {
             onStudioOpenChange={setStudioOpen}
           />
           <StreamsFloat projectId={selectedProjectId} />
-          <OrchestratorDock projectId={selectedProjectId} />
         </main>
       </div>
       <OrchestratorPanel projectId={selectedProjectId} />

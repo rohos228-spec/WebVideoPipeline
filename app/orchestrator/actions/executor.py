@@ -902,6 +902,28 @@ _BASIS_FIELDS = {
 }
 
 
+def pending_board_ops(meta: Any) -> list[dict]:
+    if not isinstance(meta, dict):
+        return []
+    raw_board = meta.get("montage_board")
+    board: dict = raw_board if isinstance(raw_board, dict) else {}
+    raw = board.get("pending_ops") or meta.get("pending_ops") or []
+    return [o for o in raw if isinstance(o, dict) and str(o.get("type") or "").startswith(("image_", "video_"))]
+
+
+def _queued_counts(params: dict, meta: Any) -> dict:
+    from app.services.action_layer.builtin_montage_more import _counts, _select
+
+    ops = pending_board_ops(meta)
+    ops = [o for o in ops if str(o.get("type") or "").startswith(("image_", "video_"))]
+    wanted = [n for n in params.get("frame_numbers") or [] if isinstance(n, int)]
+    img, vid = _counts(_select(ops, wanted))
+    out = dict(params)
+    out["max_image_ops"] = max(int(out.get("max_image_ops") or 0), img)
+    out["max_video_ops"] = max(int(out.get("max_video_ops") or 0), vid)
+    return out
+
+
 async def _fill_media_basis(name: str, params: dict) -> dict:
     pid = params.get("project_id")
     if not isinstance(pid, int) or isinstance(pid, bool):
@@ -927,6 +949,8 @@ async def _fill_media_basis(name: str, params: dict) -> dict:
         await session.rollback()
     eff = _effective_settings(detail)
     out = dict(params)
+    if name == "montage.apply_queue":
+        out = _queued_counts(out, detail.get("meta"))
     for kind in _BASIS_FIELDS[name]:
         if kind == "video" and not out.get("max_video_ops"):
             continue
@@ -935,6 +959,29 @@ async def _fill_media_basis(name: str, params: dict) -> dict:
         for field in (f"{kind}_generator", f"{kind}_resolution"):
             out[field] = eff[field]
     return out
+
+
+async def _fill_resume(params: dict) -> dict:
+    pid = params.get("project_id")
+    if not isinstance(pid, int) or isinstance(pid, bool):
+        return params
+    from app.services.llm_ledger import budget_from_meta
+
+    async with store.sessions()() as session:
+        project = await session.get(Project, pid)
+        if project is None:
+            return params
+        meta = project.meta if isinstance(project.meta, dict) else {}
+        raw_fs = meta.get("step_failure")
+        fs: dict = raw_fs if isinstance(raw_fs, dict) else {}
+        came_from = meta.get("paused_from_status") or fs.get("last_running") or project.status.value
+        try:
+            budget = float(budget_from_meta(meta) or 0)
+        except Exception:
+            budget = 0.0
+        auto = bool(project.auto_mode)
+        await session.rollback()
+    return {**params, "_resume": {"from": str(came_from), "auto_mode": auto, "llm_budget": budget}}
 
 
 async def plan_resolve(name: str, params: dict | None) -> dict:
@@ -956,6 +1003,8 @@ async def plan_resolve(name: str, params: dict | None) -> dict:
         return await _fill_shots(str(name), params)
     if str(name) in _BASIS_FIELDS:
         return await _fill_media_basis(str(name), params)
+    if str(name) == "project.resume":
+        return await _fill_resume(params)
     if str(name) in ("project.patch_settings", "project.patch_settings_costly"):
         from app.services.action_layer.builtin_wave5 import changed_settings_only
 

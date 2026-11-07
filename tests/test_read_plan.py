@@ -43,13 +43,11 @@ def test_simple_reads_are_planned_by_code(text, action, params) -> None:
     [
         "покажи все проекты и запусти 7",
         "покажи все проекты кроме 5",
-        "покажи проекты с ошибкой",
         "почему проект 7 встал",
         "что с проектом 7 и почему он на паузе",
         "статус проекта 7 и 8",
         "запусти все проекты",
         "удали проекты",
-        "покажи все проекты, которые на паузе",
         "сделай отчет по всем проектам",
         "покажи траты по проектам",
         "",
@@ -107,3 +105,9 @@ async def test_other_goal_with_same_step_still_asks_the_model() -> None:
 
     facts = TaskFacts(goal="какие проекты требуют внимания и почему", status="done", steps=[_overview_note()])
     assert TaskSummarizer(object())._wants_model(facts) is True
+
+
+def test_projects_in_trouble_read_the_attention_list():
+    for phrase in ("покажи проекты с ошибкой", "покажи все проекты, которые на паузе"):
+        step = rp.read_step(phrase)
+        assert step["action"] == "projects.overview" and step["params"]["status"] == "attention"

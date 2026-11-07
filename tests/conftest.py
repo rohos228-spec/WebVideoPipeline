@@ -18,10 +18,14 @@ W1-fix п.7: центральный harness-гейт (auto_advance) включё
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from functools import lru_cache
 from pathlib import Path
+
+os.environ.setdefault("ORCH_INTENT_REWRITE", "0")
+os.environ.setdefault("ORCH_INTENT_RETRIEVER", "0")
 
 import pytest
 from sqlalchemy.pool import NullPool
@@ -79,6 +83,7 @@ def _isolate_db_engine(monkeypatch, db_path: Path) -> None:
 
 @pytest.fixture(autouse=True)
 def _isolate_settings_paths(tmp_path_factory, monkeypatch, request):
+    monkeypatch.setenv("AI_AGENT_ORCHESTRATOR", "0")
     # W1-fix п.7: гейт включён по умолчанию (False). Тест может явно
     # отключить через маркер no_harness_gate.
     if "no_harness_gate" in request.keywords:

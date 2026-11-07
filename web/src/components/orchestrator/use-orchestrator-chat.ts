@@ -372,7 +372,7 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
         if (decision === "rejected") {
           const failedId = _taskId || card.taskId;
           if (failedId) {
-            dispatch({ type: "task-status", taskId: failedId, status: "failed", resumeAllowed: false });
+            dispatch({ type: "task-status", taskId: failedId, status: "cancelled", resumeAllowed: false });
           }
         }
         setSendError("");
@@ -470,7 +470,7 @@ export function useOrchestratorChat(options?: OrchestratorChatOptions) {
           dispatch({ type: "approval-resolved", id: approvalId, decision: "rejected" });
           const failedId = taskId || card.taskId;
           if (failedId) {
-            dispatch({ type: "task-status", taskId: failedId, status: "failed", resumeAllowed: false });
+            dispatch({ type: "task-status", taskId: failedId, status: "cancelled", resumeAllowed: false });
           }
         } else if (decision === "approve") {
           dispatch({ type: "approval-resolved", id: approvalId, decision: "approved" });

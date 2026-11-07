@@ -160,6 +160,15 @@ _REPORT_COLUMNS = (
 _OVERVIEW_GROUPS = ("running", "attention", "queue")
 
 
+def _human_gap(fact: object) -> object:
+    if not isinstance(fact, str) or "Не хватает доказательств: " not in fact:
+        return fact
+    from app.services.diagnosis import gap_text
+
+    head, _, code = fact.partition("Не хватает доказательств: ")
+    return f"{head}Не хватает доказательств: {gap_text(code.strip())}"
+
+
 def _schema(props: dict, required: list[str]) -> dict:
     return {"type": "object", "properties": props, "required": required, "additionalProperties": False}
 
@@ -447,7 +456,7 @@ def _incident_item(row, details: dict, labels: dict[str, str]) -> dict:
         "title": details.get("title") or TITLES.get(row.type, row.type),
         "node": labels.get(node) or node or None,
         "node_key": node or None,
-        "fact": _clip(details.get("fact"), 300) or None,
+        "fact": _clip(_human_gap(details.get("fact")), 300) or None,
         "cause": _clip(cause.get("hypothesis"), 200) or "причина не установлена",
         "retry": retry,
         "what_to_do": _clip(outcome.get("summary_ru") or rec.get("title"), 300) or None,
@@ -530,7 +539,16 @@ def _harness_checks(meta: dict) -> tuple[list[dict], dict]:
     return checks, tel
 
 
-def _model_for(meta: dict, key: str, node: dict | None, raw: str, eff: str) -> str:
+def _project_generator(detail: dict | None) -> str | None:
+    d = detail if isinstance(detail, dict) else {}
+    settings = d.get("settings") if isinstance(d.get("settings"), dict) else {}
+    gid = d.get("image_generator") or settings.get("image_generator")
+    return str(gid).strip() if gid else None
+
+
+def _model_for(
+    meta: dict, key: str, node: dict | None, raw: str, eff: str, *, image_generator: str | None = None
+) -> str:
     from app.services.excel_gpt_node import is_excel_gpt_node_type
     from app.services.node_groups import is_script_frames_qc_gpt_node
 
@@ -549,6 +567,10 @@ def _model_for(meta: dict, key: str, node: dict | None, raw: str, eff: str) -> s
 
     mid, channel = read_node_model_fields(node)
     explicit = bool(mid)
+    if not explicit and eff in _IMAGE_TYPES and image_generator:
+        from app.orchestrator.agents.project_nodes import _project_image_model
+
+        return _project_image_model(image_generator)
     mid = mid or default_model_id_for_node_type(raw or eff)
     try:
         found = find_model(mid, channel=channel)
@@ -750,7 +772,7 @@ def _node_card(
         "status_ru": status,
         "attempts": int((nr or {}).get("attempts") or 0),
         "progress": _clip((nr or {}).get("progress_text"), 160) or None,
-        "model": _model_for(meta, key, node, raw, eff) or None,
+        "model": _model_for(meta, key, node, raw, eff, image_generator=_project_generator(detail)) or None,
         "prompt": _prompt_for(detail, key, raw, eff),
         "harness": own_checks,
         "gate": gate,
@@ -799,6 +821,30 @@ def _row_status(row) -> str:
     return str(raw.value if hasattr(raw, "value") else raw or "")
 
 
+async def _prompts_in_frames(pid: int, node_type: str) -> tuple[int, int] | None:
+    from sqlalchemy import func, select
+
+    from app.models import Frame
+
+    column = {"image_prompts": Frame.image_prompt, "animation_prompts": Frame.animation_prompt}.get(node_type)
+    if column is None:
+        return None
+    try:
+        async with _sessions()() as s:
+            total = int(await s.scalar(select(func.count(Frame.id)).where(Frame.project_id == pid)) or 0)
+            filled = int(
+                await s.scalar(
+                    select(func.count(Frame.id)).where(
+                        Frame.project_id == pid, column.is_not(None), column != ""
+                    )
+                )
+                or 0
+            )
+    except Exception:
+        return None
+    return filled, total
+
+
 async def _frame_count(factory, pid: int) -> int | None:
     from sqlalchemy import func, select
 
@@ -828,6 +874,8 @@ def _pause_info(status: str, meta: dict) -> dict:
     paused = status in ("paused", "failed")
     fs = _step_failure(meta)
     recorded = meta.get("auto_paused_reason")
+    wait = meta.get("auto_wait") if isinstance(meta.get("auto_wait"), dict) else None
+    human = _human_wait_ru(str(wait.get("reason") or "")) if wait and str(wait.get("status")) == status else None
     stop = bool(meta.get("user_stop") or meta.get("mass_lane_user_stop"))
     await_start = bool(meta.get("auto_await_manual_start"))
     reason = None
@@ -844,6 +892,7 @@ def _pause_info(status: str, meta: dict) -> dict:
         "reason": reason,
         "user_stop": stop,
         "await_manual_start": await_start,
+        "await_human": human,
         "stale_reason": _clip(recorded, 160) if recorded and not paused else None,
         "sleep_until": (fs or {}).get("sleep_until"),
     }
@@ -874,8 +923,41 @@ def _mismatch_text(src: dict) -> str:
     return text + " Здесь показан статус, как в списке; сам статус я не меняю."
 
 
+_HUMAN_WAIT_RU = {
+    "CHECK_PROMPT_NOT_CONFIGURED": "автопроверка результата шага не настроена (нет чек-промта), "
+    "воркер ждёт, чтобы человек проверил шаг и нажал ▶",
+}
+
+
+def _human_wait_ru(reason: str) -> str:
+    for code, text in _HUMAN_WAIT_RU.items():
+        if code in reason:
+            return text
+    return "автопроверка шага пропущена, воркер ждёт ручного ▶" + (f" ({_clip(reason, 120)})" if reason else "")
+
+
+def _manual_run_fix(pid: int, nxt: dict) -> dict | None:
+    code = str(nxt.get("step") or "")
+    if not code:
+        return None
+    name = str(nxt.get("title") or _step_ru(code))
+    return {
+        "action": "step.run_step",
+        "params": {"project_id": int(pid), "step_code": code},
+        "title_ru": f"Запустить шаг «{name}» вручную: это снимает ожидание ▶",
+        "phrase_ru": f"запусти {name.lower()} проекта {pid}",
+    }
+
+
 def _pause_lines(pause: dict, fs: dict | None) -> list[str]:
     lines = []
+    if pause.get("await_human"):
+        lines.append(f"Автопродвижение стоит: {pause['await_human']}. Сам проект не на паузе.")
+    if pause.get("await_manual_start") and not pause.get("paused"):
+        lines.append(
+            "Автопродвижение ждёт ручного ▶: после перезапуска сервера воркер сам шаги не стартует. "
+            "Нажмите ▶ у проекта или скажите «запусти <шаг>» — запуск через чат снимает ожидание."
+        )
     if pause["reason"]:
         lines.append(f"Причина паузы: {pause['reason']}.")
     if pause["user_stop"]:
@@ -936,10 +1018,27 @@ async def _project_status(ctx: ActionContext, params: dict) -> dict:
         lines.append(f"Следующий шаг: {nxt['title']}.")
     lines.append(f"Готово шагов: {done} из {len(steps)}.")
     lines += _pause_lines(pause, fs)
+    if (pause.get("await_human") or (pause.get("await_manual_start") and not pause["paused"])) and nxt:
+        fix = _manual_run_fix(pid, nxt)
+        if fix:
+            out["fix_options"] = [fix]
+            out["suggested_phrase"] = fix["phrase_ru"]
+            lines.append(f"Что можно сделать: {fix['title_ru']} — «{fix['phrase_ru']}».")
     if out["generation_active"] or running:
         lines.append("Идёт генерация" + (f": {', '.join(out['running_nodes'])}." if running else "."))
     if failed:
         lines.append(f"Ноды с ошибкой: {', '.join(out['failed_nodes'])}.")
+    idle = nxt and not (
+        out["generation_active"] or running or failed or pause["user_stop"] or pause["reason"]
+    )
+    if idle:
+        if not out["auto_mode"]:
+            lines.append(
+                f"Почему стоит: автозапуск шагов выключен, следующий шаг «{nxt['title']}» ждёт ручного "
+                f"запуска (▶ на ноде или «запусти {str(nxt['title']).lower()}» в чате)."
+            )
+        else:
+            lines.append(f"Автозапуск включён, но шаг «{nxt['title']}» ещё не начат: возможно, ждёт очереди.")
     if open_incidents:
         lines.append(f"Открытых инцидентов: {open_incidents}.")
     if managed:
@@ -988,6 +1087,13 @@ async def _node_output(ctx: ActionContext, params: dict) -> dict:
                 f"Файл результата — общая таблица проекта project.xlsx, кадров в проекте: {frames}"
                 + (" (нода ещё не отдала ни одного кадра)." if frames == 0 else ".")
             )
+    filled = await _prompts_in_frames(pid, str((node or {}).get("type") or (nr or {}).get("node_type") or ""))
+    if filled is not None:
+        card["frames_with_prompt"] = filled
+        files_line = (
+            f"Результат ноды записан не в файлы, а в кадры: промт есть у {filled[0]} из {filled[1]} кадров. "
+            "Смотреть — в таблице кадров проекта (меню съёмки) или спросить в чате «покажи промт кадра 3»."
+        )
     lines.append(files_line)
     excerpt = _text_excerpt(project, list(arts.get("sample") or [])) if project is not None else None
     if excerpt:
@@ -1239,6 +1345,23 @@ def _spend_line(head: str, window: dict) -> str:
     return line + "."
 
 
+_TOP_SPEND = 5
+_WEEK_DAYS = 7
+_SPEND_ITEMS = (
+    ("orch_llm", None, "чат-помощник (модель)"),
+    ("native_call", None, "текстовые шаги конвейера (GPT)"),
+    ("media_native", "elevenlabs", "озвучка"),
+    ("media_native", None, "картинки и видео"),
+)
+
+
+def _spend_item(source: str, provider: str) -> str:
+    for src, prov, title in _SPEND_ITEMS:
+        if source == src and (prov is None or prov == provider):
+            return title
+    return "прочее"
+
+
 async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     from sqlalchemy import text
 
@@ -1253,8 +1376,41 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     try:
         async with _sessions()() as s:
             today = _spend_window((await s.execute(text(cols + "day = :d"), {"d": day})).all())
+            import datetime as _dt
+
+            since = (_dt.date.fromisoformat(day) - _dt.timedelta(days=_WEEK_DAYS - 1)).isoformat()
+            week = _spend_window((await s.execute(text(cols + "day >= :d"), {"d": since})).all())
+            items: dict[str, float] = {}
+            items_all: dict[str, float] = {}
+            for target, since_day in ((items, since), (items_all, "0000-00-00")):
+                for src, prov, usd in (
+                    await s.execute(
+                        text(
+                            "SELECT source, provider, SUM(COALESCE(usd, 0)) FROM spend_ledger "
+                            "WHERE day >= :d AND kind NOT IN ('reserve', 'settle') GROUP BY source, provider"
+                        ),
+                        {"d": since_day},
+                    )
+                ).all():
+                    title = _spend_item(str(src or ""), str(prov or ""))
+                    target[title] = target.get(title, 0.0) + float(usd or 0.0)
             project = run = None
             run_id = ""
+            top: list[tuple[int, float, int]] = []
+            if pid is None:
+                rows = await s.execute(
+                    text(
+                        "SELECT project_id, SUM(COALESCE(usd, 0)), COUNT(*) FROM spend_ledger "
+                        "WHERE project_id IS NOT NULL AND project_id > 0 GROUP BY project_id "
+                        "ORDER BY 2 DESC LIMIT :n"
+                    ),
+                    {"n": _TOP_SPEND},
+                )
+                top = [
+                    (int(r[0]), float(r[1] or 0.0), int(r[2] or 0))
+                    for r in rows.all()
+                    if float(r[1] or 0) > 0
+                ]
             if pid is not None:
                 project = _spend_window((await s.execute(text(cols + "project_id = :p"), {"p": pid})).all())
                 run_id = str(
@@ -1272,13 +1428,34 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
     except SQLAlchemyError:
         empty = _spend_window([])
         today, project, run, run_id = empty, (empty if pid is not None else None), None, ""
+        week, items, items_all, since = empty, {}, {}, day
+        top = []
     caps = spend_guard.caps()
     caps_ru = {k: ("без лимита" if not v or v <= 0 else f"${v:g}") for k, v in caps.items()}
     lines = [_spend_line(f"Сегодня ({day}), вся фабрика", today)]
+    lines.append(_spend_line(f"За {_WEEK_DAYS} дней (с {since}), вся фабрика", week))
+    ranked = sorted(((t, v) for t, v in items.items() if v > 0.005), key=lambda kv: -kv[1])
+    if ranked:
+        lines.append(
+            f"На что ушло за {_WEEK_DAYS} дней (оценка): " + ", ".join(f"{t} — {_usd_text(v)}" for t, v in ranked) + "."
+        )
+    ranked_all = sorted(((t, v) for t, v in items_all.items() if v > 0.005), key=lambda kv: -kv[1])
+    if ranked_all:
+        lines.append(
+            "На что ушло за всё время (оценка): " + ", ".join(f"{t} — {_usd_text(v)}" for t, v in ranked_all) + "."
+        )
     if project is not None:
         lines.append(_spend_line(f"Проект #{pid}, за всё время", project))
     if run is not None:
         lines.append(_spend_line("Последний запуск", run))
+    if top:
+        lines.append(
+            "Больше всего потрачено по проектам (за всё время, оценка): "
+            + ", ".join(f"#{p} — {_usd_text(usd)}" for p, usd, _n in top)
+            + "."
+        )
+    elif pid is None:
+        lines.append("Трат по проектам в журнале расходов нет.")
     if any(w and w["unknown_cost_rows"] for w in (today, project, run)):
         lines.append("Часть вызовов без известной цены: сумма занижена, это оценка.")
     lines.append(
@@ -1294,11 +1471,14 @@ async def _spend_summary(ctx: ActionContext, params: dict) -> dict:
         "project_id": pid,
         "day": day,
         "today": today,
+        "week": week,
+        "week_items": {t: _money(v) for t, v in items.items()},
         "project": project,
         "run": run,
         "run_id": run_id or None,
         "caps_usd": caps,
         "caps_ru": caps_ru,
+        "top_projects": [{"project_id": p, "usd": round(usd, 4), "rows": n} for p, usd, n in top],
         "text_ru": " ".join(lines),
     }
     return _safe(out)
@@ -1319,6 +1499,7 @@ async def _project_brief(row, managed: set[int], queue: list[int]) -> dict:
         "status_ru": _status_ru(status),
         "step": cur["title"] if cur else None,
         "pause_reason": _clip(pause["reason"], 160) or None,
+        "waiting_human": _clip(pause.get("await_human"), 160) or None,
         "user_stop": pause["user_stop"],
         "error": _clip((fs or {}).get("error"), 160) or None,
         "error_status": (fs or {}).get("status"),
@@ -1942,7 +2123,8 @@ def _gpt_data_spec() -> ActionSpec:
         "персонажи, действие, промты картинок и видео), список персонажей и сцен. node_key — одна "
         "нода (n_excel_gpt_1), иначе все. preset: standard (по умолчанию), scenes_characters "
         "(«только сцены и персонажи»), image_prompts («с промтами картинок»), animation_prompts, "
-        "full; columns — свои колонки. Таблица в чате и файлы xlsx и html. Только чтение, бесплатно.",
+        "full; columns — свои колонки; frames — только эти номера кадров («промт кадра 3» → [3], до трёх "
+        "кадров тексты целиком). Таблица в чате и файлы xlsx и html. Только чтение, бесплатно.",
         params_schema=_schema(
             {
                 "project_id": _PID,
@@ -1954,6 +2136,7 @@ def _gpt_data_spec() -> ActionSpec:
                     "maxItems": len(fmt.FRAME_COLUMNS),
                 },
                 "kind": {"type": "string", "enum": ["chat", "json", "xlsx", "html"], "default": "chat"},
+                "frames": {"type": "array", "items": {"type": "integer", "minimum": 1}, "maxItems": 40},
             },
             ["project_id"],
         ),
@@ -1980,7 +2163,10 @@ def _gpt_data_spec() -> ActionSpec:
 
 
 def register_insight(registry: ActionRegistry) -> None:
+    from app.services.action_layer.chat_export import chat_export_spec
     from app.services.action_layer.content_checks_diag import content_checks_spec
     from app.services.action_layer.node_failure import node_failure_spec
 
-    registry.register_many([*_specs(), _gpt_data_spec(), node_failure_spec(), content_checks_spec()])
+    registry.register_many(
+        [*_specs(), _gpt_data_spec(), node_failure_spec(), content_checks_spec(), chat_export_spec()]
+    )

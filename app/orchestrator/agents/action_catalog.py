@@ -360,6 +360,37 @@ def wants_models(text: str) -> bool:
     return _has(_norm(text), _OPTIONS)
 
 
+_BOOST: dict[int, tuple[str, ...]] = {}
+_WIDE: set[int] = set()
+
+
+def boost_task(task_id: Any, ids: list[str] | tuple[str, ...], *, wide: bool = False) -> None:
+    try:
+        key = int(task_id)
+    except (TypeError, ValueError):
+        return
+    _BOOST[key] = tuple(dict.fromkeys([*_BOOST.get(key, ()), *[str(i) for i in ids]]))
+    if wide:
+        _WIDE.add(key)
+
+
+def clear_boost(task_id: Any) -> None:
+    try:
+        key = int(task_id)
+    except (TypeError, ValueError):
+        return
+    _BOOST.pop(key, None)
+    _WIDE.discard(key)
+
+
+def _boosted(task_id: Any) -> tuple[tuple[str, ...], bool]:
+    try:
+        key = int(task_id)
+    except (TypeError, ValueError):
+        return (), False
+    return _BOOST.get(key, ()), key in _WIDE
+
+
 class ActionCatalog:
     def __init__(
         self,
@@ -374,17 +405,20 @@ class ActionCatalog:
         self._project_of = project_of or _task_project
         self._projects = projects
 
-    def entries(self, text: str) -> list[dict[str, Any]]:
+    def entries(self, text: str, task_id: Any = None) -> list[dict[str, Any]]:
         specs = list(self._specs())
         if not specs:
             return []
         limit = self.max_catalog if self.max_catalog is not None else _default_max()
-        ids = set(select_ids(text, specs, limit))
+        extra, wide = _boosted(task_id)
+        ids = set(select_ids(text, specs, limit * 2 if wide else limit))
+        known = {spec.id for spec in specs}
+        ids.update(key for key in extra if key in known)
         return [catalog_entry(spec) for spec in sorted(specs, key=lambda s: s.id) if spec.id in ids]
 
     def block(self, text: str, task_id: Any = None) -> str:
         try:
-            rows = self.entries(text)
+            rows = self.entries(text, task_id)
         except Exception:
             logger.exception("orch planner catalog failed")
             return ""

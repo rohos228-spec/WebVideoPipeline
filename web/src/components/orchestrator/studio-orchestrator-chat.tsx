@@ -93,6 +93,7 @@ const STRIP_DOT: Record<string, string> = {
 };
 
 const TERMINAL_TASK = new Set(["done", "failed", "cancelled"]);
+const BUSY_TASK = new Set(["queued", "planning", "critic_review", "executing"]);
 
 /** Тексты карточек дока: коротко и без служебных слов. */
 const DOCK_BLOCK_COPY: Record<string, { title: string; body: string }> = {
@@ -443,8 +444,12 @@ function ChatPane({
 
 function TaskStatusBadge({ chat }: { chat: Chat }) {
   const last = chat.state.messages.at(-1);
-  const task = currentTaskOf(chat.state.tasks);
-  const thinking = chat.pending || (last?.role === "user" && chat.state.ack != null && !(task && TERMINAL_TASK.has(task.status)));
+  const { ack, touched, tasks } = chat.state;
+  const fresh = touched && ack && touched.seq > ack.seq ? tasks.find((item) => item.id === touched.id) : undefined;
+  const task = fresh ?? (touched ? tasks.find((item) => item.id === touched.id) : undefined) ?? currentTaskOf(tasks);
+  const settled = fresh != null && !BUSY_TASK.has(fresh.status);
+  const thinking =
+    chat.pending || (last?.role === "user" && ack != null && !settled && !(task && TERMINAL_TASK.has(task.status)));
   if (thinking) {
     return (
       <Badge variant="info" data-testid="orch-task-status" className="normal-case tracking-normal">
@@ -771,6 +776,13 @@ function DockApprovalCard({ approval, chat, titles }: { approval: ApprovalView; 
       {!terminal && approval.details?.length ? (
         <ul data-testid="orch-approval-details" className="mt-2 space-y-0.5 text-[11px] text-white/80">
           {approval.details.map((line, index) => (
+            <li key={index}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {!terminal && approval.warnings?.length ? (
+        <ul data-testid="orch-approval-warnings" className="mt-2 space-y-0.5 text-[11px] leading-relaxed text-warning">
+          {approval.warnings.map((line, index) => (
             <li key={index}>{line}</li>
           ))}
         </ul>

@@ -233,6 +233,58 @@ def _queue_step(ask: LaunchAsk, drafted: PlanStep | None) -> PlanStep:
     )
 
 
+def seed_multi_launch(goal: str, existing: Callable[[], list[int]]) -> list[PlanStep] | None:
+    ask = launch_ask(goal)
+    if ask is None or len(ask.project_ids) < 2:
+        return None
+    try:
+        known = set(existing())
+    except Exception:
+        return None
+    if not known or any(pid not in known for pid in ask.project_ids):
+        return None
+    return [_queue_step(ask, None)]
+
+
+def drop_missing_projects(
+    plan: list[PlanStep], existing: Callable[[], list[int]], notes: list[str] | None = None
+) -> list[PlanStep]:
+    try:
+        known = set(existing())
+    except Exception:
+        return plan
+    if not known:
+        return plan
+    out: list[PlanStep] = []
+    missing: list[int] = []
+    for step in plan:
+        ids = step.params.get("project_ids") if step.action == "queue.enqueue_many" else None
+        if isinstance(ids, list) and ids:
+            keep = [pid for pid in ids if isinstance(pid, int) and pid in known]
+            missing.extend(pid for pid in ids if pid not in keep)
+            if not keep:
+                continue
+            if len(keep) != len(ids):
+                step = PlanStep(
+                    action=step.action,
+                    params={**step.params, "project_ids": keep},
+                    mutating=step.mutating,
+                    risk=step.risk,
+                    expected=f"Проекты {', '.join(f'#{p}' for p in keep)} стоят в очереди генерации ({len(keep)}).",
+                )
+        out.append(step)
+    if missing and notes is not None:
+        nums = ", ".join(f"#{pid}" for pid in missing)
+        notes.append(f"Проектов {nums} в студии нет, их не ставлю." if len(missing) > 1
+                     else f"Проекта {nums} в студии нет, его не ставлю.")
+    queued = sum(
+        len(step.params.get("project_ids") or []) for step in out if step.action == "queue.enqueue_many"
+    )
+    if missing and queued <= 1:
+        out = [step for step in out if step.action != "queue.set_parallel"]
+    return out
+
+
 def parallel_refused_note(limit: int | None = None) -> str:
     """Участнику окно параллели не меняем: оно одно на всю студию (``plan.ADMIN_ONLY_ACTIONS``).
 

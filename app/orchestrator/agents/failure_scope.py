@@ -69,7 +69,9 @@ async def plan_fix_from_diag(project_id: int) -> list[PlanStep] | None:
     return None
 
 
-async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanStep] | None:
+async def plan_fix_from_content(
+    project_id: int, step: str | None, keyword: str | None = None
+) -> list[PlanStep] | None:
     """«Почини» после проверки содержания: точные правки ячеек (бесплатно) или первое исправление."""
     from app.orchestrator import app_ref
     from app.services.action_layer.content_checks_diag import _diag_content_checks
@@ -77,6 +79,8 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
 
     ctx = ActionContext(app=app_ref.current(), operator="system", read_only=True)
     params: dict = {"project_id": int(project_id), **({"step": step} if step else {})}
+    if keyword:
+        params["keyword"] = str(keyword)
     out = await _diag_content_checks(ctx, params)
     fixes = [f for f in (out or {}).get("fix_options") or [] if f.get("action") not in _READ_ONLY]
     # Человек сам попросил починить: правки ячеек закадра — все, карточкой.
@@ -91,6 +95,8 @@ async def plan_fix_from_content(project_id: int, step: str | None) -> list[PlanS
 
 _CHECK = re.compile(r"провер|сверь|сверить|сходит|совпада")
 _SHOW = re.compile(r"покажи|выведи|выгрузи|список|таблиц|какие\s+промт")
+_WHERE = re.compile(r"где\b.{0,40}(?:леж|посмотр|найти|хран|увидет|смотрет)|(?:леж|хран)\w*.{0,20}где")
+_STYLE = re.compile(r"стил|пластилин|нуар|вязан")
 _PROMPTS = re.compile(r"промт|промпт|prompt|картин|изображ|герои|персонаж")
 
 
@@ -108,16 +114,43 @@ def content_check_scope(plan: list[PlanStep], goal: str) -> list[PlanStep]:
     просьба проверить при плане из одних чтений — это проверка промтов.
     """
     text = str(goal or "").lower()
+    planned_ids = {s.params.get("project_id") for s in plan if isinstance(s.params.get("project_id"), int)}
+    if (
+        _STYLE.search(text)
+        and _PROMPTS.search(text)
+        and len(planned_ids) == 1
+        and not any(_changes(step) or step.action == "diag.content_checks" for step in plan)
+    ):
+        check = PlanStep(
+            action="diag.content_checks",
+            params={"project_id": planned_ids.pop(), "step": "img_pr"},
+            expected="Есть ли стиль проекта в промтах картинок и в каких кадрах его нет",
+        )
+        return [check, *plan]
+    if _WHERE.search(text) and re.search(r"промт|промпт", text) and len(planned_ids) == 1:
+        if not any(_changes(step) for step in plan):
+            return [
+                PlanStep(
+                    action="diag.content_checks",
+                    params={"project_id": next(iter(planned_ids)), "step": "img_pr"},
+                    expected="Где лежат промты картинок и сколько их",
+                )
+            ]
     if _PROMPTS.search(text):
         found = _PROJECT.search(text)
+        planned = {
+            step.params.get("project_id") for step in plan if isinstance(step.params.get("project_id"), int)
+        }
+        pid = (
+            int(found.group(1) or found.group(2)) if found else (planned.pop() if len(planned) == 1 else None)
+        )
         if (
-            found
+            pid is not None
             and _CHECK.search(text)
             and not _SHOW.search(text)
             and plan
             and not any(_changes(step) or step.action == "diag.content_checks" for step in plan)
         ):
-            pid = int(found.group(1) or found.group(2))
             return [
                 PlanStep(
                     action="diag.content_checks",
@@ -142,8 +175,17 @@ async def plan_fix_from_last(last: tuple[str, dict] | None) -> list[PlanStep] | 
     pid = params.get("project_id")
     if not isinstance(pid, int):
         return None
+    kept = [f for f in (params.get("_fix_options") or []) if isinstance(f, dict)]
+    if kept:
+        usable = [f for f in kept if f.get("action") and f["action"] not in _READ_ONLY]
+        exact = [f for f in usable if f.get("deterministic") or f.get("action") == "shot.edit_cell_voiceover"]
+        chosen = exact[:_MAX_EDITS] if usable and usable[0] in exact else usable[:1]
+        if chosen:
+            return [_fix_step(f, "Исправление по разбору") for f in chosen]
     if action == "diag.content_checks":
-        return await plan_fix_from_content(pid, params.get("step"))
+        return await plan_fix_from_content(pid, params.get("step"), keyword=params.get("keyword"))
+    if action in ("project.status", "node.output"):
+        return None
     return await plan_fix_from_diag(pid)
 
 
@@ -199,3 +241,20 @@ def failure_reads(
         expected="Почему упала нода: ответы модели, вход и причина.",
     )
     return [first, *plan]
+
+
+def logs_with_diagnosis(plan: list[PlanStep]) -> list[PlanStep]:
+    pids = [s.params.get("project_id") for s in plan if s.action == "diag.node_failure"]
+    have = {s.params.get("project_id") for s in plan if s.action == "logs.tail"}
+    extra = [
+        PlanStep(
+            action="logs.tail",
+            params={"project_id": pid, "kind": "errors"},
+            expected="Ошибки сервера по проекту рядом со сбоем ноды",
+        )
+        for pid in dict.fromkeys(pids)
+        if isinstance(pid, int) and pid not in have
+    ]
+    at = next((i for i, step in enumerate(plan) if step.mutating), len(plan))
+    return [*plan[:at], *extra, *plan[at:]]
+

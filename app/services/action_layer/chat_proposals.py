@@ -438,6 +438,8 @@ async def resolve(
     """План по словам человека. None — это не про ожидающие правки, решает дальше откат/планёр."""
     from app.services.action_layer.chat_undo import named_projects
 
+    if "очеред" in _norm(text) or "монтаж" in _norm(text):
+        return None
     want_reject = reject_phrase(text)
     want_apply = not want_reject and apply_phrase(text)
     if not (want_reject or want_apply):

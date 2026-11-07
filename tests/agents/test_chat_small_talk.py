@@ -80,7 +80,14 @@ async def test_small_talk_answers_without_a_task(token: str, text: str) -> None:
 
 
 def test_help_lists_examples_the_chat_really_handles() -> None:
-    for phrase in ("помоги", "что ты умеешь", "хз что делать", "?"):
+    for phrase in (
+        "помоги",
+        "что ты умеешь",
+        "хз что делать",
+        "?",
+        "а ты вообще что умеешь",
+        "че ты можешь?",
+    ):
         assert small_talk_reply(phrase) == HELP_TEXT
     assert 4 <= len(HELP_EXAMPLES) <= 6
     for phrase in HELP_EXAMPLES:

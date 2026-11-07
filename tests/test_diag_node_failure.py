@@ -177,7 +177,7 @@ def wired(monkeypatch, tmp_path):
     monkeypatch.setattr(bi, "_node_runs", node_runs)
     monkeypatch.setattr(bi, "_project_row", row)
     monkeypatch.setattr(bi, "_transient", lambda pid, detail, r: SimpleNamespace(data_dir=root))
-    monkeypatch.setattr(bi, "_model_for", lambda *a: "GPT тест")
+    monkeypatch.setattr(bi, "_model_for", lambda *a, **k: "GPT тест")
     monkeypatch.setattr(bi, "_prompt_for", lambda *a: {"variant": "razmetka", "source": "проект"})
     monkeypatch.setattr(nf, "_is_check", lambda meta, key: False)
     return root

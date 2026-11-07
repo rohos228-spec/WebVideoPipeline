@@ -62,12 +62,12 @@ providers:
 # Kie — последний резерв, всегда stream. Слаг: settings.gpt_model (дефолт gpt-6-1-sol).
 chains:
   fast:
-    - model: glm-5.3-flash
+    - model: gpt-6.1-sol
       provider: 52pay
-      reasoning_effort: null
-    - model: claude-haiku-5-5
-      provider: 52pay
-      reasoning_effort: null
+      reasoning_effort: low
+    - model: gpt-6-1-sol
+      provider: kie
+      reasoning_effort: low
     - delegate: strong
   strong_unconfirmed:
     - model: gpt-6.1-sol

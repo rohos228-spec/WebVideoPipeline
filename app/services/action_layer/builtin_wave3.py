@@ -337,7 +337,12 @@ async def _set_auto_mode(ctx, params):
     got = bool((data or {}).get("auto_mode"))
     if got != want:
         raise ActionCallError(409, f"автопродвижение не переключилось (сейчас {got})")
-    return {"auto_mode": got}
+    text = (
+        f"Автозапуск проекта #{pid} включён: студия сама пойдёт по шагам, платные шаги тратят деньги."
+        if got
+        else f"Автозапуск проекта #{pid} выключен: каждый следующий шаг ждёт ручного запуска."
+    )
+    return {"auto_mode": got, "text_ru": text}
 
 
 async def _poll_project_idle(ctx, params, started) -> JobState:
@@ -364,6 +369,46 @@ async def _listed_status(ctx, project_id: int) -> str | None:
         if isinstance(row, dict) and row.get("id") == project_id:
             return row.get("status")
     return None
+
+
+_MEDIA_NODE_TYPES = frozenset({"images", "videos", "audio", "music", "assemble", "publish", "sfx_gen"})
+
+
+def _resume_cost(p: dict) -> CostEstimate:
+    from app.models import ProjectStatus
+    from app.orchestrator.node_registry import (
+        NODE_TYPE_TO_STEP_CODE,
+        READY_TO_NODE_TYPE,
+        RUNNING_TO_NODE_TYPE,
+    )
+    from app.services.action_layer.builtin_insight import _step_ru
+
+    info = p.get("_resume") if isinstance(p.get("_resume"), dict) else None
+    if not info:
+        return _unknown_start_cost(p)
+    try:
+        st = ProjectStatus(str(info.get("from") or ""))
+    except ValueError:
+        return _unknown_start_cost(p)
+    auto = bool(info.get("auto_mode"))
+    try:
+        budget = float(info.get("llm_budget") or 0)
+    except (TypeError, ValueError):
+        budget = 0.0
+    if st in RUNNING_TO_NODE_TYPE:
+        ntype, what = RUNNING_TO_NODE_TYPE[st], "воркер перезапустит шаг"
+    elif st in READY_TO_NODE_TYPE:
+        if not auto:
+            return CostEstimate.free("проект вернётся в готовность перед шагом; без автопродвижения сам ничего не запустит")
+        ntype, what = READY_TO_NODE_TYPE[st], "автопродвижение запустит шаг"
+    else:
+        return CostEstimate.free(f"проект вернётся в статус «{st.value}», платных шагов это не запускает")
+    name = _step_ru(NODE_TYPE_TO_STEP_CODE.get(ntype, ntype))
+    if ntype in _MEDIA_NODE_TYPES:
+        return CostEstimate.unknown(f"{what} «{name}»: цена зависит от числа кадров и тарифа провайдера")
+    if budget > 0:
+        return CostEstimate(0.0, budget, f"{what} «{name}» (текстовая модель), не дороже лимита текстов проекта ${budget:.2f}")
+    return CostEstimate.unknown(f"{what} «{name}», лимит текстов у проекта не задан — верхней границы нет")
 
 
 def _unknown_start_cost(_p: dict) -> CostEstimate:
@@ -690,7 +735,10 @@ def _specs() -> list[ActionSpec]:
         "Картинка слота будет заменена загруженной; прежний файл уходит в old/, "
         "программного отката нет; видео кадра помечается устаревшим."
     )
+    from app.services.action_layer.builtin_voice import voice_specs
+
     return [
+        *voice_specs(_PID, _PRE_PROJECT, _PRE_IDLE),
         S(
             id="montage.upload_voice",
             title_ru="Загрузить озвучку",
@@ -882,9 +930,10 @@ def _specs() -> list[ActionSpec]:
             description_ru="Возвращает статус, с которого проект ушёл в паузу. Если это был "
             "выполняющийся шаг, воркер сам продолжит его и потратит деньги. Шаг, "
             "сдавшийся после повторов ошибок, сам не перезапускается: проект встаёт "
-            "на готовность перед ним. "
-            "Стоимость запуска неизвестна, поэтому план нельзя подтвердить.",
-            params_schema=pid_only,
+            "на готовность перед ним. Оценка цены — по тому, куда вернётся проект: "
+            "готовность без автопродвижения бесплатно, текстовый шаг не дороже лимита "
+            "текстов, медиа-шаг — неизвестно.",
+            params_schema=_obj({"_resume": {"type": "object", "description": "служебно: заполняет план из проекта"}}, []),
             executor=_resume,
             poll=_poll_project_idle,
             stop=_stop_project,
@@ -894,7 +943,7 @@ def _specs() -> list[ActionSpec]:
             destructive=True,
             reversible=False,
             idempotent=False,
-            estimator=_unknown_start_cost,
+            estimator=_resume_cost,
             destructive_effects=lambda p: (
                 "Проект вернётся в статус до паузы; если это был "
                 "выполнявшийся шаг, воркер перезапустит его и может "

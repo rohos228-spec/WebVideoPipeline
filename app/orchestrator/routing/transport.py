@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -188,6 +189,19 @@ def _int(value: Any) -> int:
         return 0
 
 
+_GATEWAY_ERROR_TAIL = re.compile(r"\(request id:\s*[0-9A-Za-z]{12,}\)\s*$")
+
+
+def gateway_error_text(text: str) -> bool:
+    body = (text or "").strip()
+    return len(body) < 600 and bool(_GATEWAY_ERROR_TAIL.search(body))
+
+
+def _reject_gateway_error(text: str) -> None:
+    if gateway_error_text(text):
+        raise ProviderError(f"gateway error in body: {text.strip()[:200]}", retryable=False, billable=False)
+
+
 def parse_chat_payload(payload: dict[str, Any]) -> CompletionResult:
     choices = payload.get("choices") or []
     if not choices:
@@ -199,6 +213,7 @@ def parse_chat_payload(payload: dict[str, Any]) -> CompletionResult:
         text = "".join(part.get("text", "") for part in content if isinstance(part, dict))
     else:
         text = str(content or "")
+    _reject_gateway_error(text)
     usage = payload.get("usage") or {}
     details = usage.get("completion_tokens_details") or {}
     reasoning = usage.get("reasoning_tokens", details.get("reasoning_tokens"))
@@ -325,6 +340,7 @@ class _ChatStream:
                 # Событие-ошибка не тарифицируется, повтор того же хода снова ждал бы минуты.
                 raise ProviderError(f"chat stream error: {self.error}", retryable=False, billable=False)
             raise ProviderError("empty chat stream", retryable=True, billable=self.accepted)
+        _reject_gateway_error(result.text)
         return result
 
 
